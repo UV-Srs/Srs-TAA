@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { X, Camera, Upload, RefreshCw, CheckCircle, AlertCircle } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { X, Camera, Upload, RefreshCw, CheckCircle, AlertCircle, SwitchCamera, Loader2 } from 'lucide-react';
 import { uploadBatchAttachment } from '../api';
 
 interface CameraCaptureModalProps {
@@ -17,7 +17,11 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
   itemId,
   onPhotoUploaded,
 }) => {
+  const [stream, setStream] = useState<MediaStream | null>(null);
   const [streamActive, setStreamActive] = useState<boolean>(false);
+  const [isLoadingCamera, setIsLoadingCamera] = useState<boolean>(false);
+  const [availableDevices, setAvailableDevices] = useState<MediaDeviceInfo[]>([]);
+  const [currentDeviceId, setCurrentDeviceId] = useState<string>('');
   const [capturedBlob, setCapturedBlob] = useState<Blob | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState<boolean>(false);
@@ -26,6 +30,27 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Callback ref: attaches stream to video the exact moment <video> node is mounted into DOM
+  const setVideoRef = useCallback((element: HTMLVideoElement | null) => {
+    videoRef.current = element;
+    if (element && streamRef.current) {
+      element.srcObject = streamRef.current;
+      element.play().catch((err) => {
+        console.warn('Video auto-play warning:', err);
+      });
+    }
+  }, []);
+
+  // When stream state changes, also update the mounted video element
+  useEffect(() => {
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream;
+      videoRef.current.play().catch((err) => {
+        console.warn('Video auto-play warning:', err);
+      });
+    }
+  }, [stream]);
 
   useEffect(() => {
     if (isOpen) {
@@ -39,30 +64,115 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
     };
   }, [isOpen]);
 
-  const startCamera = async () => {
-    try {
-      setErrorMsg(null);
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-      }
-      setStreamActive(true);
-    } catch (err: any) {
-      setErrorMsg('Camera not accessible. You can upload an image file instead.');
-      setStreamActive(false);
-    }
-  };
-
   const stopCamera = () => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
+    setStream(null);
     setStreamActive(false);
+  };
+
+  const startCamera = async (deviceId?: string) => {
+    try {
+      setIsLoadingCamera(true);
+      setErrorMsg(null);
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setErrorMsg('Camera access is not supported by your browser or requires HTTPS / localhost. Please use the Upload button.');
+        setIsLoadingCamera(false);
+        return;
+      }
+
+      // Stop existing tracks first
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+
+      let newStream: MediaStream;
+
+      if (deviceId) {
+        // Specific device selected (e.g., flip camera)
+        newStream = await navigator.mediaDevices.getUserMedia({
+          video: { deviceId: { exact: deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+          audio: false,
+        });
+      } else {
+        // Try ideal environment camera first, then fall back gracefully
+        try {
+          newStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+            audio: false,
+          });
+        } catch {
+          try {
+            newStream = await navigator.mediaDevices.getUserMedia({
+              video: { facingMode: 'user' },
+              audio: false,
+            });
+          } catch {
+            newStream = await navigator.mediaDevices.getUserMedia({
+              video: true,
+              audio: false,
+            });
+          }
+        }
+      }
+
+      streamRef.current = newStream;
+      setStream(newStream);
+      setStreamActive(true);
+
+      // Immediately connect to video element if already mounted
+      if (videoRef.current) {
+        videoRef.current.srcObject = newStream;
+        videoRef.current.play().catch((err) => {
+          console.warn('Playback error:', err);
+        });
+      }
+
+      // Query available video devices for multi-camera switching
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoInputs = devices.filter((d) => d.kind === 'videoinput');
+        setAvailableDevices(videoInputs);
+        if (!deviceId && videoInputs.length > 0) {
+          const activeTrack = newStream.getVideoTracks()[0];
+          const settings = activeTrack.getSettings ? activeTrack.getSettings() : null;
+          if (settings && settings.deviceId) {
+            setCurrentDeviceId(settings.deviceId);
+          } else {
+            setCurrentDeviceId(videoInputs[0].deviceId);
+          }
+        }
+      } catch (e) {
+        console.warn('Device enumeration error:', e);
+      }
+    } catch (err: any) {
+      console.error('Camera access error:', err);
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        setErrorMsg('Camera permission denied. Please allow camera permissions in your browser URL settings.');
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        setErrorMsg('No camera hardware found on this device. You can upload an image file instead.');
+      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+        setErrorMsg('Camera is already in use by another application or tab. Please close other apps and try again.');
+      } else {
+        setErrorMsg(err.message || 'Unable to open camera. You can upload a photo file instead.');
+      }
+      setStreamActive(false);
+    } finally {
+      setIsLoadingCamera(false);
+    }
+  };
+
+  const handleSwitchCamera = () => {
+    if (availableDevices.length <= 1) return;
+    const currentIndex = availableDevices.findIndex((d) => d.deviceId === currentDeviceId);
+    const nextIndex = (currentIndex + 1) % availableDevices.length;
+    const nextDevice = availableDevices[nextIndex];
+    setCurrentDeviceId(nextDevice.deviceId);
+    startCamera(nextDevice.deviceId);
   };
 
   const resetCapture = () => {
@@ -76,13 +186,16 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
   const handleCaptureSnapshot = () => {
     if (!videoRef.current) return;
     const video = videoRef.current;
+    const width = video.videoWidth || 1280;
+    const height = video.videoHeight || 720;
+
     const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth || 1280;
-    canvas.height = video.videoHeight || 720;
+    canvas.width = width;
+    canvas.height = height;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    ctx.drawImage(video, 0, 0, width, height);
     canvas.toBlob(
       (blob) => {
         if (blob) {
@@ -92,7 +205,7 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
         }
       },
       'image/jpeg',
-      0.9
+      0.92
     );
   };
 
@@ -144,7 +257,7 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
               stopCamera();
               onClose();
             }}
-            className="text-slate-400 hover:text-slate-700"
+            className="text-slate-400 hover:text-slate-700 p-1 rounded-lg"
           >
             <X className="w-4 h-4" />
           </button>
@@ -156,21 +269,49 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
             {previewUrl ? (
               <img
                 src={previewUrl}
-                alt="Captured"
-                className="w-full h-full object-contain"
-              />
-            ) : streamActive ? (
-              <video
-                ref={videoRef}
-                className="w-full h-full object-cover"
-                playsInline
-                muted
+                alt="Captured Inspection"
+                className="w-full h-full object-contain bg-slate-950"
               />
             ) : (
-              <div className="text-slate-400 text-center p-4">
-                <Camera className="w-8 h-8 mx-auto mb-1.5 opacity-50" />
-                <p className="text-xs">Camera is inactive.</p>
-              </div>
+              <>
+                <video
+                  ref={setVideoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  onLoadedMetadata={() => {
+                    videoRef.current?.play().catch(() => {});
+                  }}
+                  className={`w-full h-full object-cover ${streamActive ? 'block' : 'hidden'}`}
+                />
+
+                {isLoadingCamera && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900 text-white gap-2 z-10">
+                    <Loader2 className="w-6 h-6 animate-spin text-slate-300" />
+                    <p className="text-xs text-slate-300 font-medium">Starting camera...</p>
+                  </div>
+                )}
+
+                {!streamActive && !isLoadingCamera && (
+                  <div className="text-slate-400 text-center p-4">
+                    <Camera className="w-8 h-8 mx-auto mb-1.5 opacity-50" />
+                    <p className="text-xs">Camera is inactive or access was denied.</p>
+                  </div>
+                )}
+
+                {/* Flip camera button if multiple cameras detected */}
+                {streamActive && availableDevices.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={handleSwitchCamera}
+                    title="Switch Camera"
+                    className="absolute top-2.5 right-2.5 bg-slate-900/75 hover:bg-slate-900 text-white p-2 rounded-lg backdrop-blur-sm transition-all z-20 flex items-center gap-1.5 text-[11px]"
+                  >
+                    <SwitchCamera className="w-3.5 h-3.5" />
+                    <span>Flip</span>
+                  </button>
+                )}
+              </>
             )}
           </div>
 
@@ -181,7 +322,7 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
                   type="button"
                   onClick={() => {
                     resetCapture();
-                    startCamera();
+                    startCamera(currentDeviceId || undefined);
                   }}
                   className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg flex items-center justify-center gap-1.5 transition-colors"
                 >
@@ -204,7 +345,7 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
                   type="button"
                   onClick={handleCaptureSnapshot}
                   disabled={!streamActive}
-                  className="flex-1 py-2 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-lg flex items-center justify-center gap-1.5 transition-all shadow-sm disabled:opacity-50"
+                  className="flex-1 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-lg flex items-center justify-center gap-2 transition-all shadow-sm disabled:opacity-50"
                 >
                   <Camera className="w-4 h-4" />
                   Capture Photo
@@ -213,7 +354,7 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg flex items-center gap-1.5 transition-colors"
+                  className="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg flex items-center gap-1.5 transition-colors"
                 >
                   <Upload className="w-3.5 h-3.5" />
                   Upload

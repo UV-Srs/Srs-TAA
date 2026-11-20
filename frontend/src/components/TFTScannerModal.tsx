@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { X, Camera, ScanLine, AlertCircle, ArrowRight } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { X, Camera, ScanLine, AlertCircle, ArrowRight, Loader2 } from 'lucide-react';
 import { resolveQR } from '../api';
 import { QRResolveResult } from '../types';
 
@@ -16,6 +16,7 @@ export const TFTScannerModal: React.FC<TFTScannerModalProps> = ({
 }) => {
   const [manualCode, setManualCode] = useState<string>('');
   const [cameraActive, setCameraActive] = useState<boolean>(false);
+  const [isLoadingCamera, setIsLoadingCamera] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -23,6 +24,7 @@ export const TFTScannerModal: React.FC<TFTScannerModalProps> = ({
   const streamRef = useRef<MediaStream | null>(null);
   const barcodeBufferRef = useRef<string>('');
   const lastKeyTimeRef = useRef<number>(0);
+  const scanIntervalRef = useRef<number | null>(null);
 
   // Global Keydown Wedge Listener for Wired & Wireless TFT Barcode/QR Scanners
   useEffect(() => {
@@ -57,37 +59,107 @@ export const TFTScannerModal: React.FC<TFTScannerModalProps> = ({
     };
   }, [isOpen]);
 
-  useEffect(() => {
-    if (!cameraActive && streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    }
-  }, [cameraActive]);
-
-  const startCamera = async () => {
-    try {
-      setErrorMsg(null);
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+  // Callback ref to connect camera stream as soon as video DOM node attaches
+  const setVideoRef = useCallback((element: HTMLVideoElement | null) => {
+    videoRef.current = element;
+    if (element && streamRef.current) {
+      element.srcObject = streamRef.current;
+      element.play().catch((err) => {
+        console.warn('Video playback warning:', err);
       });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-      }
-      setCameraActive(true);
-    } catch (err: any) {
-      setErrorMsg('Camera access failed. Please ensure camera permissions are allowed.');
-      setCameraActive(false);
     }
-  };
+  }, []);
 
   const stopCamera = () => {
+    if (scanIntervalRef.current) {
+      clearInterval(scanIntervalRef.current);
+      scanIntervalRef.current = null;
+    }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
     setCameraActive(false);
+  };
+
+  const startCamera = async () => {
+    try {
+      setIsLoadingCamera(true);
+      setErrorMsg(null);
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setErrorMsg('Camera access requires HTTPS or localhost. Please type the Sheet ID below.');
+        setIsLoadingCamera(false);
+        return;
+      }
+
+      let newStream: MediaStream;
+      try {
+        newStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false,
+        });
+      } catch {
+        try {
+          newStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user' },
+            audio: false,
+          });
+        } catch {
+          newStream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false,
+          });
+        }
+      }
+
+      streamRef.current = newStream;
+      setCameraActive(true);
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = newStream;
+        videoRef.current.play().catch((err) => {
+          console.warn('Playback error:', err);
+        });
+      }
+
+      // If BarcodeDetector is supported, start auto-detection loop
+      if ('BarcodeDetector' in window) {
+        try {
+          const detector = new (window as any).BarcodeDetector({
+            formats: ['qr_code', 'code_128', 'code_39', 'ean_13', 'data_matrix'],
+          });
+          scanIntervalRef.current = window.setInterval(async () => {
+            if (videoRef.current && videoRef.current.readyState >= 2) {
+              try {
+                const barcodes = await detector.detect(videoRef.current);
+                if (barcodes.length > 0) {
+                  const detected = barcodes[0].rawValue;
+                  if (detected) {
+                    stopCamera();
+                    handleProcessCode(detected);
+                  }
+                }
+              } catch {
+                // ignore frame detection errors
+              }
+            }
+          }, 350);
+        } catch (detectorErr) {
+          console.warn('BarcodeDetector not initialized:', detectorErr);
+        }
+      }
+    } catch (err: any) {
+      console.error('Camera access error:', err);
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        setErrorMsg('Camera access was denied. Please allow camera permissions in your browser URL settings.');
+      } else {
+        setErrorMsg('Camera access failed. Please ensure camera is connected or enter Sheet ID manually.');
+      }
+      setCameraActive(false);
+    } finally {
+      setIsLoadingCamera(false);
+    }
   };
 
   const handleProcessCode = async (codeToResolve: string) => {
@@ -125,7 +197,7 @@ export const TFTScannerModal: React.FC<TFTScannerModalProps> = ({
               stopCamera();
               onClose();
             }}
-            className="text-slate-400 hover:text-slate-700"
+            className="text-slate-400 hover:text-slate-700 p-1 rounded-lg"
           >
             <X className="w-4 h-4" />
           </button>
@@ -140,31 +212,50 @@ export const TFTScannerModal: React.FC<TFTScannerModalProps> = ({
           </div>
 
           {/* Camera Option */}
-          {cameraActive ? (
-            <div className="rounded-xl overflow-hidden bg-slate-900 relative aspect-video flex items-center justify-center">
-              <video
-                ref={videoRef}
-                className="w-full h-full object-cover"
-                playsInline
-                muted
-              />
-              <button
-                onClick={stopCamera}
-                className="absolute top-2 right-2 bg-slate-900/80 text-white text-[10px] px-2.5 py-1 rounded-md"
-              >
-                Close Camera
-              </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={startCamera}
-              className="w-full py-2.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 font-medium rounded-lg flex items-center justify-center gap-2 transition-colors"
-            >
-              <Camera className="w-4 h-4 text-slate-500" />
-              <span>Use Device Camera</span>
-            </button>
-          )}
+          <div className="rounded-xl overflow-hidden bg-slate-900 relative aspect-video flex items-center justify-center">
+            {cameraActive ? (
+              <>
+                <video
+                  ref={setVideoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  onLoadedMetadata={() => {
+                    videoRef.current?.play().catch(() => {});
+                  }}
+                  className="w-full h-full object-cover"
+                />
+                <button
+                  type="button"
+                  onClick={stopCamera}
+                  className="absolute top-2.5 right-2.5 bg-slate-900/80 hover:bg-slate-900 text-white text-[11px] px-2.5 py-1 rounded-md backdrop-blur-sm transition-all"
+                >
+                  Close Camera
+                </button>
+              </>
+            ) : (
+              <div className="text-center p-4">
+                <button
+                  type="button"
+                  disabled={isLoadingCamera}
+                  onClick={startCamera}
+                  className="px-4 py-2 bg-white text-slate-900 hover:bg-slate-100 font-semibold rounded-lg flex items-center justify-center gap-2 transition-all shadow-sm mx-auto"
+                >
+                  {isLoadingCamera ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-slate-600" />
+                      <span>Connecting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Camera className="w-4 h-4 text-slate-700" />
+                      <span>Turn On Camera</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
 
           {/* Manual Entry */}
           <div className="space-y-1.5 pt-2 border-t border-slate-100">
