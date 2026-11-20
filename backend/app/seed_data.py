@@ -16,7 +16,25 @@ def seed_database(db: Session):
         db.add(admin_user)
         db.flush()
     else:
+        existing_admin.is_active = True
+        existing_admin.password_hash = hash_password("admin123")
         admin_user = existing_admin
+
+    # Second Admin (Backup Admin Account)
+    existing_admin2 = db.query(User).filter(User.username == "admin2").first()
+    if not existing_admin2:
+        admin2_user = User(
+            username="admin2",
+            full_name="System Administrator (Backup)",
+            password_hash=hash_password("admin123"),
+            role="admin",
+            is_active=True
+        )
+        db.add(admin2_user)
+        db.flush()
+    else:
+        existing_admin2.is_active = True
+        existing_admin2.password_hash = hash_password("admin123")
 
     existing_supervisor = db.query(User).filter(User.username == "supervisor").first()
     if not existing_supervisor:

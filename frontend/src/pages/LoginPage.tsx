@@ -50,11 +50,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
         </div>
 
         {/* Quick Demo Switcher */}
-        <div className="bg-slate-50 p-1.5 rounded-xl border border-slate-200 text-xs flex gap-1">
+        <div className="bg-slate-50 p-1.5 rounded-xl border border-slate-200 text-[11px] grid grid-cols-4 gap-1">
           <button
             type="button"
             onClick={() => setDemoRole('operator', 'oper123')}
-            className={`flex-1 py-1.5 rounded-lg font-medium transition-all ${
+            className={`py-1.5 rounded-lg font-medium transition-all text-center ${
               username === 'operator'
                 ? 'bg-white text-slate-900 shadow-sm font-semibold'
                 : 'text-slate-600 hover:text-slate-900'
@@ -65,7 +65,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           <button
             type="button"
             onClick={() => setDemoRole('supervisor', 'super123')}
-            className={`flex-1 py-1.5 rounded-lg font-medium transition-all ${
+            className={`py-1.5 rounded-lg font-medium transition-all text-center ${
               username === 'supervisor'
                 ? 'bg-white text-slate-900 shadow-sm font-semibold'
                 : 'text-slate-600 hover:text-slate-900'
@@ -76,13 +76,24 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           <button
             type="button"
             onClick={() => setDemoRole('admin', 'admin123')}
-            className={`flex-1 py-1.5 rounded-lg font-medium transition-all ${
+            className={`py-1.5 rounded-lg font-medium transition-all text-center ${
               username === 'admin'
                 ? 'bg-white text-slate-900 shadow-sm font-semibold'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             Admin
+          </button>
+          <button
+            type="button"
+            onClick={() => setDemoRole('admin2', 'admin123')}
+            className={`py-1.5 rounded-lg font-medium transition-all text-center ${
+              username === 'admin2'
+                ? 'bg-white text-slate-900 shadow-sm font-semibold'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            Admin 2
           </button>
         </div>
 

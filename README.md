@@ -20,7 +20,8 @@ The **TAA – Inspection Management System** digitizes manufacturing **Initial F
 
 | Role | Username | Password | Capabilities |
 |---|---|---|---|
-| **Admin** | `admin` | `admin123` | Checksheet builder, QR engine, progress dashboard, user lifecycle + FR-005 audit purge, PDF/Excel export |
+| **Admin (Primary)** | `admin` | `admin123` | Full system configuration, Checksheet builder, QR engine, progress dashboard, user lifecycle, PDF/Excel export |
+| **Admin (Backup)** | `admin2` | `admin123` | Backup Admin account with full configuration, user management, and report export permissions |
 | **Supervisor** | `supervisor` | `super123` | Read-only Operator review, batch approval, quarantine hold with validation reason, override vs continue rejection |
 | **Operator** | `operator` | `oper123` | TFT QR scanning, full-sheet completion (FR-025A), tolerance validation, photo evidence capture, approve/reject |
 
