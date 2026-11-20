@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Printer, Download } from 'lucide-react';
+import { X, Printer } from 'lucide-react';
 import { fetchSheetQRCodes } from '../api';
 
 interface PrintLabelModalProps {
@@ -49,82 +49,77 @@ export const PrintLabelModal: React.FC<PrintLabelModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
-      <div className="bg-white border-4 border-black w-full max-w-lg shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
+      <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md shadow-xl overflow-hidden text-xs">
         {/* Header */}
-        <div className="bg-black text-white px-5 py-3 flex items-center justify-between no-print">
-          <h2 className="font-extrabold text-sm uppercase tracking-wider">
-            Built-In QR & Barcode Label (Printable)
-          </h2>
-          <button onClick={onClose} className="text-white hover:text-zinc-300">
-            <X className="w-5 h-5" />
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between no-print">
+          <h3 className="font-bold text-sm text-slate-900">
+            Print Sheet QR / Barcode Label
+          </h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700">
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Printable Label Area */}
+        {/* Printable Label */}
         <div className="p-6">
           {loading ? (
-            <div className="p-8 text-center font-mono text-xs">Generating High-Contrast Codes...</div>
+            <div className="p-8 text-center text-slate-400">Loading codes...</div>
           ) : data ? (
-            <div className="border-4 border-black p-5 bg-white text-black space-y-4 print:border-black print:m-0">
-              <div className="border-b-2 border-black pb-2 text-center">
-                <div className="text-base font-black tracking-tight uppercase">TAA INSPECTION CHECKSHEET</div>
-                <div className="text-[11px] font-mono text-zinc-700 font-bold">{data.document_title}</div>
+            <div className="border border-slate-300 rounded-xl p-5 bg-white space-y-3.5 print:border-black print:m-0 shadow-sm">
+              <div className="text-center pb-2 border-b border-slate-100">
+                <div className="text-xs font-bold text-slate-900 uppercase">TAA Inspection Checksheet</div>
+                <div className="text-[11px] text-slate-500 font-medium">{data.document_title}</div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 text-xs font-mono">
+              <div className="grid grid-cols-2 gap-2 text-xs">
                 <div>
-                  <span className="font-bold text-black">SHEET ID:</span>
-                  <div className="font-extrabold text-sm text-black">{data.sheet_id}</div>
+                  <span className="text-[10px] text-slate-400 block font-medium">SHEET ID</span>
+                  <span className="font-bold text-slate-800">{data.sheet_id}</span>
                 </div>
                 <div>
-                  <span className="font-bold text-black">PART NO.:</span>
-                  <div className="font-extrabold text-sm text-black">{data.part_no || 'N/A'}</div>
+                  <span className="text-[10px] text-slate-400 block font-medium">PART NO</span>
+                  <span className="font-bold text-slate-800">{data.part_no || 'N/A'}</span>
                 </div>
               </div>
 
-              {/* Codes layout */}
-              <div className="grid grid-cols-2 gap-4 items-center border-t-2 border-b-2 border-black py-4">
+              <div className="grid grid-cols-2 gap-3 items-center pt-2 border-t border-slate-100">
                 <div className="text-center">
                   <img
                     src={data.qr_image_url}
                     alt="QR Code"
-                    className="w-36 h-36 mx-auto border border-black p-1 bg-white"
+                    className="w-28 h-28 mx-auto border border-slate-200 rounded p-1"
                   />
-                  <div className="text-[10px] font-mono mt-1 font-bold">{data.qr_code_value}</div>
+                  <div className="text-[10px] text-slate-500 mt-1 font-mono">{data.qr_code_value}</div>
                 </div>
 
-                <div className="text-center space-y-2">
+                <div className="text-center space-y-1">
                   <img
                     src={data.barcode_image_url}
-                    alt="Barcode 1D"
-                    className="w-full max-h-24 object-contain mx-auto"
+                    alt="Barcode"
+                    className="w-full max-h-20 object-contain mx-auto"
                   />
-                  <div className="text-[10px] font-mono font-bold">{data.barcode_value}</div>
+                  <div className="text-[10px] text-slate-500 font-mono">{data.barcode_value}</div>
                 </div>
-              </div>
-
-              <div className="text-[10px] font-mono text-center text-zinc-600">
-                Wired/Wireless TFT Scanner Compatible • ISO/IEC 18004 QR & Code128
               </div>
             </div>
           ) : null}
         </div>
 
-        {/* Action Buttons */}
-        <div className="bg-zinc-100 border-t-2 border-black px-6 py-3 flex items-center justify-between no-print">
+        {/* Footer */}
+        <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-between no-print">
           <button
             onClick={onClose}
-            className="text-xs font-bold uppercase text-black hover:underline"
+            className="font-medium text-slate-600 hover:text-slate-900"
           >
             Close
           </button>
           <button
             onClick={handlePrint}
-            className="bg-black text-white text-xs font-extrabold px-5 py-2 uppercase flex items-center gap-2 hover:bg-zinc-800"
+            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-lg flex items-center gap-1.5 transition-all shadow-sm"
           >
-            <Printer className="w-4 h-4" />
-            Print Label
+            <Printer className="w-3.5 h-3.5" />
+            <span>Print Label</span>
           </button>
         </div>
       </div>

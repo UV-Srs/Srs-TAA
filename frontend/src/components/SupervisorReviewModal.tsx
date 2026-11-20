@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, ShieldCheck, PauseCircle, XCircle, CheckCircle2, AlertOctagon } from 'lucide-react';
+import { X, ShieldCheck, PauseCircle, XCircle, CheckCircle2 } from 'lucide-react';
 import { InspectionBatch } from '../types';
 
 interface SupervisorReviewModalProps {
@@ -29,7 +29,7 @@ export const SupervisorReviewModal: React.FC<SupervisorReviewModalProps> = ({
   const handleExecute = () => {
     setErrorMsg(null);
     if (selectedDecision === 'HOLD' && (!holdReason || !holdReason.trim())) {
-      setErrorMsg('FR-036 Mandate: You must enter a non-empty validation reason to place a batch on Hold.');
+      setErrorMsg('A validation reason is required to place a batch on Hold (FR-036).');
       return;
     }
 
@@ -37,87 +37,81 @@ export const SupervisorReviewModal: React.FC<SupervisorReviewModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm no-print">
-      <div className="bg-white border-4 border-black w-full max-w-xl shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm no-print">
+      <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-lg shadow-xl overflow-hidden text-xs">
         {/* Header */}
-        <div className="bg-black text-white px-5 py-3.5 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <ShieldCheck className="w-5 h-5 text-white" />
-            <h2 className="font-black text-sm uppercase tracking-wider">
-              SUPERVISOR QUALITY GOVERNANCE & SIGN-OFF
-            </h2>
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="w-5 h-5 text-slate-800" />
+            <h3 className="font-bold text-sm text-slate-900">
+              Supervisor Quality Review
+            </h3>
           </div>
-          <button onClick={onClose} className="text-white hover:text-zinc-300">
-            <X className="w-5 h-5" />
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700">
+            <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Body */}
-        <div className="p-6 space-y-5">
-          {/* Operator status summary */}
-          <div className="border-2 border-black p-3.5 bg-zinc-50 font-mono text-xs">
-            <div className="flex justify-between items-center mb-1">
-              <span className="font-bold text-black uppercase">Batch Inspection Run:</span>
-              <span className="font-extrabold">{batch.lot_number} ({batch.sheet_id})</span>
+        <div className="p-5 space-y-4">
+          <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex justify-between items-center">
+            <div>
+              <span className="text-slate-500 font-medium block">Batch Run</span>
+              <span className="font-bold text-slate-900">{batch.lot_number}</span>
             </div>
-            <div className="flex justify-between items-center">
-              <span className="font-bold text-black uppercase">Operator Evaluation:</span>
-              <span className={`px-2 py-0.5 text-xs font-bold uppercase ${
-                isOperatorRejected ? 'bg-black text-white' : 'border border-black font-extrabold'
-              }`}>
-                {batch.status.replace('_', ' ')}
+            <div className="text-right">
+              <span className="text-slate-500 font-medium block">Operator Evaluation</span>
+              <span className="font-semibold text-slate-800 uppercase">
+                {batch.status.replace(/_/g, ' ')}
               </span>
             </div>
           </div>
 
-          {/* Decision Selection Grid */}
           <div className="space-y-2">
-            <label className="block text-xs font-bold uppercase tracking-wider text-black">
-              Select Supervisor Action:
-            </label>
+            <label className="font-semibold text-slate-700 block">Select Supervisor Decision:</label>
 
             {isOperatorRejected ? (
               <div className="grid grid-cols-3 gap-2">
                 <button
                   type="button"
                   onClick={() => setSelectedDecision('ACCEPT_REJECTION')}
-                  className={`p-3 border-2 text-left font-mono transition-colors ${
+                  className={`p-3 rounded-xl border text-left transition-all ${
                     selectedDecision === 'ACCEPT_REJECTION'
-                      ? 'border-black bg-black text-white'
-                      : 'border-black bg-white text-black hover:bg-zinc-100'
+                      ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
+                      : 'border-slate-200 bg-white hover:border-slate-300 text-slate-800'
                   }`}
                 >
-                  <CheckCircle2 className="w-5 h-5 mb-1" />
-                  <div className="font-extrabold text-xs uppercase leading-tight">Accept (Override)</div>
-                  <div className="text-[10px] opacity-75 mt-0.5">Authorize engineering concession</div>
+                  <CheckCircle2 className="w-4 h-4 mb-1" />
+                  <div className="font-bold">Override</div>
+                  <div className="text-[10px] opacity-75">Accept concession</div>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setSelectedDecision('CONTINUE_REJECTION')}
-                  className={`p-3 border-2 text-left font-mono transition-colors ${
+                  className={`p-3 rounded-xl border text-left transition-all ${
                     selectedDecision === 'CONTINUE_REJECTION'
-                      ? 'border-black bg-black text-white'
-                      : 'border-black bg-white text-black hover:bg-zinc-100'
+                      ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
+                      : 'border-slate-200 bg-white hover:border-slate-300 text-slate-800'
                   }`}
                 >
-                  <XCircle className="w-5 h-5 mb-1" />
-                  <div className="font-extrabold text-xs uppercase leading-tight">Continue Reject</div>
-                  <div className="text-[10px] opacity-75 mt-0.5">Permanent batch rejection</div>
+                  <XCircle className="w-4 h-4 mb-1" />
+                  <div className="font-bold">Continue Reject</div>
+                  <div className="text-[10px] opacity-75">Confirm failure</div>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setSelectedDecision('HOLD')}
-                  className={`p-3 border-2 text-left font-mono transition-colors ${
+                  className={`p-3 rounded-xl border text-left transition-all ${
                     selectedDecision === 'HOLD'
-                      ? 'border-black bg-black text-white'
-                      : 'border-black bg-white text-black hover:bg-zinc-100'
+                      ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
+                      : 'border-slate-200 bg-white hover:border-slate-300 text-slate-800'
                   }`}
                 >
-                  <PauseCircle className="w-5 h-5 mb-1" />
-                  <div className="font-extrabold text-xs uppercase leading-tight">Hold Batch</div>
-                  <div className="text-[10px] opacity-75 mt-0.5">Requires validation reason</div>
+                  <PauseCircle className="w-4 h-4 mb-1" />
+                  <div className="font-bold">Hold</div>
+                  <div className="text-[10px] opacity-75">Quarantine lot</div>
                 </button>
               </div>
             ) : (
@@ -125,101 +119,94 @@ export const SupervisorReviewModal: React.FC<SupervisorReviewModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setSelectedDecision('APPROVE')}
-                  className={`p-3 border-2 text-left font-mono transition-colors ${
+                  className={`p-3 rounded-xl border text-left transition-all ${
                     selectedDecision === 'APPROVE'
-                      ? 'border-black bg-black text-white'
-                      : 'border-black bg-white text-black hover:bg-zinc-100'
+                      ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
+                      : 'border-slate-200 bg-white hover:border-slate-300 text-slate-800'
                   }`}
                 >
-                  <CheckCircle2 className="w-5 h-5 mb-1" />
-                  <div className="font-extrabold text-xs uppercase leading-tight">Final Approve</div>
-                  <div className="text-[10px] opacity-75 mt-0.5">Confirm quality compliance</div>
+                  <CheckCircle2 className="w-4 h-4 mb-1" />
+                  <div className="font-bold">Approve</div>
+                  <div className="text-[10px] opacity-75">Release batch</div>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setSelectedDecision('HOLD')}
-                  className={`p-3 border-2 text-left font-mono transition-colors ${
+                  className={`p-3 rounded-xl border text-left transition-all ${
                     selectedDecision === 'HOLD'
-                      ? 'border-black bg-black text-white'
-                      : 'border-black bg-white text-black hover:bg-zinc-100'
+                      ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
+                      : 'border-slate-200 bg-white hover:border-slate-300 text-slate-800'
                   }`}
                 >
-                  <PauseCircle className="w-5 h-5 mb-1" />
-                  <div className="font-extrabold text-xs uppercase leading-tight">Hold Batch</div>
-                  <div className="text-[10px] opacity-75 mt-0.5">Quarantine pending audit</div>
+                  <PauseCircle className="w-4 h-4 mb-1" />
+                  <div className="font-bold">Hold Batch</div>
+                  <div className="text-[10px] opacity-75">Quarantine lot</div>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setSelectedDecision('REJECT')}
-                  className={`p-3 border-2 text-left font-mono transition-colors ${
+                  className={`p-3 rounded-xl border text-left transition-all ${
                     selectedDecision === 'REJECT'
-                      ? 'border-black bg-black text-white'
-                      : 'border-black bg-white text-black hover:bg-zinc-100'
+                      ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
+                      : 'border-slate-200 bg-white hover:border-slate-300 text-slate-800'
                   }`}
                 >
-                  <XCircle className="w-5 h-5 mb-1" />
-                  <div className="font-extrabold text-xs uppercase leading-tight">Reject Batch</div>
-                  <div className="text-[10px] opacity-75 mt-0.5">Mark lot as rejected</div>
+                  <XCircle className="w-4 h-4 mb-1" />
+                  <div className="font-bold">Reject</div>
+                  <div className="text-[10px] opacity-75">Mark failed</div>
                 </button>
               </div>
             )}
           </div>
 
-          {/* Hold reason input if HOLD selected */}
           {selectedDecision === 'HOLD' && (
-            <div className="space-y-1.5 p-3.5 border-2 border-black bg-zinc-50">
-              <label className="block text-xs font-bold uppercase tracking-wider text-black flex items-center gap-1.5">
-                <AlertOctagon className="w-4 h-4 text-black" />
-                Mandatory Hold Validation Reason (FR-036):
-              </label>
+            <div className="space-y-1">
+              <label className="font-medium text-slate-700 block">Hold Validation Reason (FR-036)</label>
               <textarea
                 value={holdReason}
                 onChange={(e) => setHoldReason(e.target.value)}
-                placeholder="Enter specific technical or calibration justification for quarantine hold..."
+                placeholder="Enter technical or quarantine reason..."
                 rows={2}
-                className="w-full border-2 border-black p-2 text-xs font-mono focus:outline-none"
+                className="w-full border border-slate-300 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-slate-900 text-xs"
                 autoFocus
               />
             </div>
           )}
 
-          {/* General Remarks */}
           <div className="space-y-1">
-            <label className="block text-xs font-bold uppercase tracking-wider text-black">
-              Supervisor Notes & Audit Remarks:
-            </label>
+            <label className="font-medium text-slate-700 block">Review Remarks (Optional)</label>
             <textarea
               value={remarks}
               onChange={(e) => setRemarks(e.target.value)}
-              placeholder="e.g. Visual and micrometer check verified. Lot released to dispatch..."
+              placeholder="Enter audit notes or observations..."
               rows={2}
-              className="w-full border-2 border-black p-2 text-xs font-mono focus:outline-none"
+              className="w-full border border-slate-300 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-slate-900 text-xs"
             />
           </div>
 
           {errorMsg && (
-            <div className="border border-black bg-black text-white p-2.5 text-xs font-mono">
+            <div className="border border-red-200 bg-red-50 text-red-700 p-2.5 rounded-lg text-xs">
               {errorMsg}
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="bg-zinc-100 border-t-2 border-black px-6 py-3 flex items-center justify-between">
+        <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-between">
           <button
             onClick={onClose}
-            className="text-xs font-bold uppercase text-black hover:underline"
+            className="font-medium text-slate-600 hover:text-slate-900"
           >
             Cancel
           </button>
           <button
             disabled={isSubmitting}
             onClick={handleExecute}
-            className="bg-black text-white text-xs font-extrabold px-6 py-2.5 uppercase hover:bg-zinc-800 disabled:opacity-50 transition-colors"
+            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-lg transition-all disabled:opacity-50"
           >
-            {isSubmitting ? 'Processing...' : 'Confirm Decision'}
+            {isSubmitting ? 'Recording...' : 'Confirm Review'}
           </button>
         </div>
       </div>

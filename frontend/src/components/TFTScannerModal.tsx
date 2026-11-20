@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, QrCode, Camera, ScanLine, AlertCircle, ArrowRight } from 'lucide-react';
+import { X, Camera, ScanLine, AlertCircle, ArrowRight } from 'lucide-react';
 import { resolveQR } from '../api';
 import { QRResolveResult } from '../types';
 
@@ -18,7 +18,6 @@ export const TFTScannerModal: React.FC<TFTScannerModalProps> = ({
   const [cameraActive, setCameraActive] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [lastScanned, setLastScanned] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -34,7 +33,6 @@ export const TFTScannerModal: React.FC<TFTScannerModalProps> = ({
       const timeDiff = now - lastKeyTimeRef.current;
       lastKeyTimeRef.current = now;
 
-      // Enter key marks end of barcode transmission from HID scanner
       if (e.key === 'Enter') {
         if (barcodeBufferRef.current.length > 2) {
           const scannedStr = barcodeBufferRef.current.trim();
@@ -44,10 +42,8 @@ export const TFTScannerModal: React.FC<TFTScannerModalProps> = ({
         return;
       }
 
-      // If typed within 70ms, it is almost certainly a hardware HID scanner wedge
       if (e.key.length === 1) {
         if (timeDiff > 250) {
-          // Reset buffer if human delay
           barcodeBufferRef.current = e.key;
         } else {
           barcodeBufferRef.current += e.key;
@@ -61,7 +57,6 @@ export const TFTScannerModal: React.FC<TFTScannerModalProps> = ({
     };
   }, [isOpen]);
 
-  // Clean up camera stream
   useEffect(() => {
     if (!cameraActive && streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
@@ -82,7 +77,7 @@ export const TFTScannerModal: React.FC<TFTScannerModalProps> = ({
       }
       setCameraActive(true);
     } catch (err: any) {
-      setErrorMsg('Camera access failed. Please ensure camera permissions are enabled on this TFT device.');
+      setErrorMsg('Camera access failed. Please ensure camera permissions are allowed.');
       setCameraActive(false);
     }
   };
@@ -100,14 +95,13 @@ export const TFTScannerModal: React.FC<TFTScannerModalProps> = ({
     try {
       setIsLoading(true);
       setErrorMsg(null);
-      setLastScanned(codeToResolve);
 
       const result = await resolveQR(codeToResolve.trim());
       stopCamera();
       onResolved(result);
       onClose();
     } catch (err: any) {
-      setErrorMsg(err.message || 'Scanned code could not be resolved. Verify sheet exists.');
+      setErrorMsg(err.message || 'Scanned code not found.');
     } finally {
       setIsLoading(false);
     }
@@ -116,81 +110,65 @@ export const TFTScannerModal: React.FC<TFTScannerModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 no-print backdrop-blur-sm">
-      <div className="bg-white border-4 border-black w-full max-w-xl shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 no-print backdrop-blur-sm">
+      <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md shadow-xl overflow-hidden">
         {/* Header */}
-        <div className="bg-black text-white px-5 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <ScanLine className="w-5 h-5" />
-            <h2 className="font-extrabold text-sm uppercase tracking-wider">
-              TFT QR & BARCODE SCANNER INTERFACE
-            </h2>
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <ScanLine className="w-4 h-4 text-slate-700" />
+            <h3 className="font-semibold text-sm text-slate-900">
+              Scan Checksheet or Batch QR
+            </h3>
           </div>
           <button
             onClick={() => {
               stopCamera();
               onClose();
             }}
-            className="text-white hover:text-zinc-300 transition-colors"
+            className="text-slate-400 hover:text-slate-700"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Body */}
-        <div className="p-6 space-y-6">
-          {/* Status Indicator */}
-          <div className="border-2 border-black p-3.5 bg-zinc-50 flex items-start gap-3">
-            <div className="w-3 h-3 bg-black rounded-full mt-1 animate-ping"></div>
-            <div>
-              <p className="font-bold text-xs uppercase tracking-wide text-black">
-                Wired (USB) & Wireless (Bluetooth) TFT Wedge Active
-              </p>
-              <p className="text-[11px] text-zinc-600 mt-0.5">
-                Point any shop-floor scanner at a sheet's QR code or barcode and pull the trigger. Resolution happens automatically in &lt; 500 ms.
-              </p>
-            </div>
+        <div className="p-5 space-y-4 text-xs">
+          {/* Scanner active tip */}
+          <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl flex items-center gap-2.5 text-slate-700">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
+            <span>Wired USB & Wireless Bluetooth barcode scanner listener active. Point and trigger anytime.</span>
           </div>
 
-          {/* Camera Viewport Option */}
+          {/* Camera Option */}
           {cameraActive ? (
-            <div className="border-2 border-black relative overflow-hidden bg-black aspect-video flex items-center justify-center">
+            <div className="rounded-xl overflow-hidden bg-slate-900 relative aspect-video flex items-center justify-center">
               <video
                 ref={videoRef}
                 className="w-full h-full object-cover"
                 playsInline
                 muted
               />
-              {/* Scan target reticle */}
-              <div className="absolute inset-0 border-4 border-white/50 m-8 pointer-events-none flex items-center justify-center">
-                <div className="w-16 h-1 border-t-2 border-white animate-pulse"></div>
-              </div>
-
               <button
                 onClick={stopCamera}
-                className="absolute top-2 right-2 bg-black text-white text-xs px-2.5 py-1 border border-white font-bold"
+                className="absolute top-2 right-2 bg-slate-900/80 text-white text-[10px] px-2.5 py-1 rounded-md"
               >
                 Close Camera
               </button>
             </div>
           ) : (
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={startCamera}
-                className="w-full py-3 bg-white border-2 border-black text-black font-extrabold text-xs uppercase flex items-center justify-center gap-2 hover:bg-zinc-100 transition-colors"
-              >
-                <Camera className="w-4 h-4" />
-                Activate TFT Device Camera
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={startCamera}
+              className="w-full py-2.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 font-medium rounded-lg flex items-center justify-center gap-2 transition-colors"
+            >
+              <Camera className="w-4 h-4 text-slate-500" />
+              <span>Use Device Camera</span>
+            </button>
           )}
 
-          {/* Manual Input Fallback */}
-          <div className="border-t-2 border-zinc-200 pt-4 space-y-2">
-            <label className="block text-xs font-bold uppercase tracking-wider text-black">
-              Manual Scan / Sheet ID Entry:
-            </label>
+          {/* Manual Entry */}
+          <div className="space-y-1.5 pt-2 border-t border-slate-100">
+            <label className="font-medium text-slate-600 block">Or enter Sheet / Batch ID manually:</label>
             <div className="flex gap-2">
               <input
                 type="text"
@@ -201,17 +179,17 @@ export const TFTScannerModal: React.FC<TFTScannerModalProps> = ({
                     handleProcessCode(manualCode);
                   }
                 }}
-                placeholder="e.g. 18351M62Q50-IFM or TAA:BATCH:1"
-                className="flex-1 border-2 border-black px-3 py-2 text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-black"
+                placeholder="e.g. 18351M62Q50-IFM or LOT-2026-495A"
+                className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-slate-900 font-medium"
                 autoFocus
               />
               <button
                 type="button"
                 disabled={isLoading || !manualCode.trim()}
                 onClick={() => handleProcessCode(manualCode)}
-                className="bg-black text-white font-extrabold text-xs px-5 py-2 uppercase hover:bg-zinc-800 disabled:opacity-50 flex items-center gap-1.5 transition-colors"
+                className="bg-slate-900 text-white font-medium px-4 py-2 rounded-lg hover:bg-slate-800 disabled:opacity-50 flex items-center gap-1 transition-all"
               >
-                {isLoading ? 'Resolving...' : (
+                {isLoading ? '...' : (
                   <>
                     <span>Open</span>
                     <ArrowRight className="w-3.5 h-3.5" />
@@ -221,37 +199,12 @@ export const TFTScannerModal: React.FC<TFTScannerModalProps> = ({
             </div>
           </div>
 
-          {/* Last Scanned Feedback */}
-          {lastScanned && (
-            <div className="text-[11px] font-mono text-zinc-600 bg-zinc-100 p-2 border border-zinc-300">
-              <span className="font-bold text-black">Last Raw Scan:</span> {lastScanned}
-            </div>
-          )}
-
-          {/* Error Message */}
           {errorMsg && (
-            <div className="border-2 border-black bg-black text-white p-3 flex items-start gap-2.5 text-xs font-mono">
-              <AlertCircle className="w-4 h-4 text-white shrink-0 mt-0.5" />
-              <div>
-                <span className="font-bold">SCAN ROUTING ERROR:</span>
-                <p className="mt-0.5">{errorMsg}</p>
-              </div>
+            <div className="border border-red-200 bg-red-50 text-red-700 p-2.5 rounded-lg flex items-center gap-2 text-xs">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{errorMsg}</span>
             </div>
           )}
-        </div>
-
-        {/* Footer */}
-        <div className="bg-zinc-100 border-t-2 border-black px-6 py-3 flex items-center justify-between text-xs font-mono text-zinc-600">
-          <span>TFT Device: HID Keyboard Wedge & Camera Compatible</span>
-          <button
-            onClick={() => {
-              stopCamera();
-              onClose();
-            }}
-            className="font-bold text-black uppercase hover:underline"
-          >
-            Cancel
-          </button>
         </div>
       </div>
     </div>

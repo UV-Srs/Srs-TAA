@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { fetchAuditLogs } from '../api';
-import { RefreshCw, Search, ShieldCheck } from 'lucide-react';
+import { RefreshCw, Search } from 'lucide-react';
 
 export const AuditLogsView: React.FC = () => {
   const [logs, setLogs] = useState<any[]>([]);
@@ -36,15 +36,15 @@ export const AuditLogsView: React.FC = () => {
   });
 
   return (
-    <div className="space-y-6 font-mono text-xs">
+    <div className="space-y-6 text-xs">
       {/* Header */}
-      <div className="border-b-2 border-black pb-4 flex flex-wrap items-center justify-between gap-4">
+      <div className="border-b border-slate-200 pb-4 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-black uppercase tracking-tight text-black font-sans">
-            Audit Activity Trails & Regulatory Logs (FR-015)
+          <h2 className="text-lg font-bold text-slate-900 tracking-tight">
+            Audit Activity Trail
           </h2>
-          <p className="text-xs text-zinc-600">
-            Immutable log of logins, field inputs, decisions, and supervisor overrides for active accounts
+          <p className="text-xs text-slate-500">
+            Immutable log of logins, field inputs, decisions, and supervisor overrides
           </p>
         </div>
 
@@ -54,65 +54,65 @@ export const AuditLogsView: React.FC = () => {
               type="text"
               value={filterText}
               onChange={(e) => setFilterText(e.target.value)}
-              placeholder="Search logs by action, role, sheet..."
-              className="border-2 border-black px-3 py-1.5 pl-8 text-xs font-mono font-bold focus:outline-none w-64"
+              placeholder="Search logs..."
+              className="border border-slate-300 rounded-lg px-3 py-1.5 pl-8 text-xs focus:outline-none focus:ring-2 focus:ring-slate-900 w-60"
             />
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-zinc-500" />
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
           </div>
 
           <button
             onClick={loadLogs}
-            className="p-2 border-2 border-black bg-white hover:bg-zinc-100 transition-colors"
+            className="p-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 rounded-lg transition-colors"
             title="Refresh Logs"
           >
-            <RefreshCw className="w-4 h-4 text-black" />
+            <RefreshCw className="w-4 h-4" />
           </button>
         </div>
       </div>
 
       {isLoading ? (
-        <div className="p-12 text-center text-xs">Loading Audit Logs...</div>
+        <div className="py-20 text-center text-xs text-slate-400">Loading audit logs...</div>
       ) : (
-        <div className="border-2 border-black bg-white overflow-x-auto">
-          <table className="industrial-table min-w-full text-left">
-            <thead>
-              <tr className="industrial-header text-[11px] divide-x-2 divide-black">
-                <th className="p-3 w-16">Log ID</th>
-                <th className="p-3 w-28">Timestamp</th>
-                <th className="p-3 w-20">User ID</th>
-                <th className="p-3 w-24">Role</th>
-                <th className="p-3 w-48">Action Type</th>
-                <th className="p-3 w-32">Sheet / Batch</th>
-                <th className="p-3">Details / Context</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y-2 divide-black">
-              {filteredLogs.map((l) => (
-                <tr key={l.log_id} className="divide-x-2 divide-black hover:bg-zinc-50">
-                  <td className="p-2.5 font-bold">#{l.log_id}</td>
-                  <td className="p-2.5 text-[11px] text-zinc-600">
-                    {l.created_at ? new Date(l.created_at).toLocaleString('en-GB') : '-'}
-                  </td>
-                  <td className="p-2.5 font-bold">User #{l.user_id}</td>
-                  <td className="p-2.5 font-extrabold uppercase">{l.role || '-'}</td>
-                  <td className="p-2.5">
-                    <span className="bg-black text-white px-1.5 py-0.5 text-[10px] font-bold">
-                      {l.action_type}
-                    </span>
-                  </td>
-                  <td className="p-2.5">
-                    <div className="font-bold">{l.sheet_id || '-'}</div>
-                    {l.batch_id && <div className="text-[10px] text-zinc-500">Batch #{l.batch_id}</div>}
-                  </td>
-                  <td className="p-2.5 text-[11px] text-zinc-700">
-                    <pre className="whitespace-pre-wrap font-mono">
-                      {l.details ? JSON.stringify(l.details) : '-'}
-                    </pre>
-                  </td>
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="clean-table min-w-full text-xs">
+              <thead>
+                <tr>
+                  <th className="w-16">ID</th>
+                  <th className="w-32">Timestamp</th>
+                  <th className="w-24">User</th>
+                  <th className="w-24">Role</th>
+                  <th className="w-48">Action</th>
+                  <th className="w-32">Target</th>
+                  <th>Details</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {filteredLogs.map((l) => (
+                  <tr key={l.log_id}>
+                    <td className="font-semibold text-slate-500">#{l.log_id}</td>
+                    <td className="text-[11px] text-slate-500">
+                      {l.created_at ? new Date(l.created_at).toLocaleString('en-GB') : '-'}
+                    </td>
+                    <td className="font-medium text-slate-800">User #{l.user_id}</td>
+                    <td className="capitalize text-slate-600">{l.role || '-'}</td>
+                    <td>
+                      <span className="font-semibold text-slate-900 bg-slate-100 px-2 py-0.5 rounded text-[11px]">
+                        {l.action_type}
+                      </span>
+                    </td>
+                    <td>
+                      <div className="font-medium text-slate-800">{l.sheet_id || '-'}</div>
+                      {l.batch_id && <div className="text-[10px] text-slate-400">Batch #{l.batch_id}</div>}
+                    </td>
+                    <td className="text-[11px] text-slate-600 max-w-md truncate">
+                      {l.details ? JSON.stringify(l.details) : '-'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

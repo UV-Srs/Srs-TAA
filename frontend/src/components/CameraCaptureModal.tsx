@@ -52,7 +52,7 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
       }
       setStreamActive(true);
     } catch (err: any) {
-      setErrorMsg('TFT Camera not accessible. You may upload an image file directly.');
+      setErrorMsg('Camera not accessible. You can upload an image file instead.');
       setStreamActive(false);
     }
   };
@@ -129,34 +129,34 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 no-print backdrop-blur-sm">
-      <div className="bg-white border-4 border-black w-full max-w-lg shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 no-print backdrop-blur-sm">
+      <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md shadow-xl overflow-hidden text-xs">
         {/* Header */}
-        <div className="bg-black text-white px-5 py-3 flex items-center justify-between">
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Camera className="w-5 h-5" />
-            <h2 className="font-extrabold text-sm uppercase tracking-wider">
-              TFT Photo Evidence Capture
-            </h2>
+            <Camera className="w-4 h-4 text-slate-700" />
+            <h3 className="font-bold text-sm text-slate-900">
+              Attach Inspection Photo
+            </h3>
           </div>
           <button
             onClick={() => {
               stopCamera();
               onClose();
             }}
-            className="text-white hover:text-zinc-300"
+            className="text-slate-400 hover:text-slate-700"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Viewport */}
-        <div className="p-5 space-y-4">
-          <div className="border-2 border-black aspect-video bg-black relative flex items-center justify-center overflow-hidden">
+        <div className="p-5 space-y-3.5">
+          <div className="aspect-video bg-slate-900 rounded-xl overflow-hidden relative flex items-center justify-center">
             {previewUrl ? (
               <img
                 src={previewUrl}
-                alt="Captured Evidence"
+                alt="Captured"
                 className="w-full h-full object-contain"
               />
             ) : streamActive ? (
@@ -167,15 +167,14 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
                 muted
               />
             ) : (
-              <div className="text-white text-center p-4">
-                <Camera className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                <p className="text-xs font-mono">Camera inactive or unavailable.</p>
+              <div className="text-slate-400 text-center p-4">
+                <Camera className="w-8 h-8 mx-auto mb-1.5 opacity-50" />
+                <p className="text-xs">Camera is inactive.</p>
               </div>
             )}
           </div>
 
-          {/* Action buttons */}
-          <div className="flex flex-wrap gap-2">
+          <div className="flex gap-2">
             {previewUrl ? (
               <>
                 <button
@@ -184,19 +183,19 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
                     resetCapture();
                     startCamera();
                   }}
-                  className="flex-1 py-2.5 bg-white border-2 border-black text-black font-extrabold text-xs uppercase flex items-center justify-center gap-1.5 hover:bg-zinc-100"
+                  className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg flex items-center justify-center gap-1.5 transition-colors"
                 >
-                  <RefreshCw className="w-4 h-4" />
-                  Retake Photo
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Retake
                 </button>
                 <button
                   type="button"
                   disabled={isUploading}
                   onClick={handleSaveAttachment}
-                  className="flex-1 py-2.5 bg-black text-white font-extrabold text-xs uppercase flex items-center justify-center gap-1.5 hover:bg-zinc-800 disabled:opacity-50"
+                  className="flex-1 py-2 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-lg flex items-center justify-center gap-1.5 transition-all shadow-sm disabled:opacity-50"
                 >
-                  <CheckCircle className="w-4 h-4" />
-                  {isUploading ? 'Uploading...' : 'Save Evidence'}
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  {isUploading ? 'Uploading...' : 'Save Photo'}
                 </button>
               </>
             ) : (
@@ -205,7 +204,7 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
                   type="button"
                   onClick={handleCaptureSnapshot}
                   disabled={!streamActive}
-                  className="flex-1 py-3 bg-black text-white font-extrabold text-xs uppercase flex items-center justify-center gap-2 hover:bg-zinc-800 disabled:opacity-50"
+                  className="flex-1 py-2 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-lg flex items-center justify-center gap-1.5 transition-all shadow-sm disabled:opacity-50"
                 >
                   <Camera className="w-4 h-4" />
                   Capture Photo
@@ -214,10 +213,10 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="py-3 px-4 bg-white border-2 border-black text-black font-extrabold text-xs uppercase flex items-center justify-center gap-1.5 hover:bg-zinc-100"
+                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg flex items-center gap-1.5 transition-colors"
                 >
-                  <Upload className="w-4 h-4" />
-                  Upload File
+                  <Upload className="w-3.5 h-3.5" />
+                  Upload
                 </button>
                 <input
                   ref={fileInputRef}
@@ -231,7 +230,7 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
           </div>
 
           {errorMsg && (
-            <div className="border border-black bg-zinc-100 p-2.5 flex items-center gap-2 text-xs font-mono text-black">
+            <div className="border border-red-200 bg-red-50 text-red-700 p-2.5 rounded-lg flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{errorMsg}</span>
             </div>

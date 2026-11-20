@@ -13,8 +13,8 @@ import { SupervisorReviewModal } from '../components/SupervisorReviewModal';
 import { CameraCaptureModal } from '../components/CameraCaptureModal';
 import { PrintLabelModal } from '../components/PrintLabelModal';
 import {
-  CheckSquare, Square, Lock, Camera, Printer, Download,
-  AlertTriangle, ShieldCheck, CheckCircle2, RefreshCw, FileText
+  Check, Lock, Camera, Printer, Download,
+  AlertTriangle, ShieldCheck, CheckCircle2, ChevronRight
 } from 'lucide-react';
 
 interface ChecksheetViewProps {
@@ -54,10 +54,8 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
       let bData: InspectionBatch;
       try {
         bData = await fetchBatchDetail(batchId);
-        // Cache to IndexedDB for offline use
         await cacheBatchOffline(bData);
       } catch (networkErr) {
-        // Fallback to offline cached batch
         const cached = await getCachedBatchOffline(batchId);
         if (cached) {
           bData = cached;
@@ -68,7 +66,6 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
 
       setBatch(bData);
 
-      // Load server cells + overlay any unsynced offline cells
       const map: Record<string, CellResponse> = {};
       if (bData.cell_responses) {
         bData.cell_responses.forEach((c) => {
@@ -76,7 +73,6 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
         });
       }
 
-      // Overlay offline cells
       const offlineCells = await getOfflineCellsForBatch(batchId);
       offlineCells.forEach((c) => {
         map[`${c.item_id}_${c.column_key}`] = c;
@@ -90,10 +86,8 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
     }
   };
 
-  // Determine if this sheet is strictly Read-Only
   const isReadOnly = useMemo(() => {
     if (!batch) return true;
-    // FR-021A: Rescan Read-Only Rule
     if (batch.status === 'APPROVED' || batch.status === 'REJECTED') {
       return true;
     }
@@ -103,7 +97,6 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
     return false;
   }, [batch, currentUser]);
 
-  // Compute all unique sample columns across items
   const displayColumns = useMemo(() => {
     if (!batch?.template?.control_items) return [];
     const cols: string[] = [];
@@ -116,7 +109,6 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
     return cols.length > 0 ? cols : ['1', '2', '3', '4', '5'];
   }, [batch]);
 
-  // Check if a cell is out of spec
   const checkOutOfSpec = (item: ControlItem, val?: string | null): boolean => {
     if (!val || !val.trim()) return false;
     if (item.row_mode === 'NUMERIC_SAMPLE') {
@@ -131,11 +123,8 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
     return false;
   };
 
-  // Cell change handler (with immediate IndexedDB persistence & online sync)
   const handleCellChange = async (item: ControlItem, columnKey: string, newValue: string) => {
     if (!batch || isReadOnly) return;
-
-    // Strict role boundary: Supervisor cannot edit Operator items after Operator submission
     if (currentUser.role === 'supervisor' && batch.operator_submitted_at) {
       return;
     }
@@ -155,13 +144,11 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
       updated_at: new Date().toISOString(),
     };
 
-    // Update local state immediately
     setCellsMap((prev) => ({
       ...prev,
       [key]: updatedCell,
     }));
 
-    // Persist immediately to IndexedDB (FR-041A)
     const mutation: OfflineMutation = {
       client_mutation_id: mutationId,
       batch_id: batch.batch_id,
@@ -173,7 +160,6 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
     };
     await saveCellOffline(mutation, !isFailed);
 
-    // If online, send to server
     if (navigator.onLine) {
       try {
         await updateCellResponse(batch.batch_id, {
@@ -184,12 +170,11 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
           client_mutation_id: mutationId,
         });
       } catch (err) {
-        console.warn('Live cell server update failed, queued in IndexedDB:', err);
+        console.warn('Sync queued:', err);
       }
     }
   };
 
-  // Validate Full-Sheet Completion (FR-025A)
   const validateFullSheetCompletion = (): { isValid: boolean; missing: string[] } => {
     if (!batch?.template?.control_items) return { isValid: true, missing: [] };
 
@@ -212,11 +197,8 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
     };
   };
 
-  // Operator Action: Approve
   const handleOperatorApprove = async () => {
     if (!batch) return;
-
-    // FR-025A: Enforce full-sheet completion
     const validation = validateFullSheetCompletion();
     if (!validation.isValid) {
       setMissingFieldsList(validation.missing);
@@ -237,7 +219,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
       await submitOperatorBatch(batch.batch_id, {
         decision: 'APPROVE',
         rejected_item_ids: [],
-        remarks: '100% inspection completed. All control items verified within specification.',
+        remarks: '100% inspection verified within spec.',
         cells: cellsArray,
       });
 
@@ -250,22 +232,17 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
     }
   };
 
-  // Operator Action: Reject (pre-checked by full sheet completion)
   const handleOperatorRejectClick = () => {
     if (!batch) return;
-
-    // FR-025A: Enforce full-sheet completion even upon rejection
     const validation = validateFullSheetCompletion();
     if (!validation.isValid) {
       setMissingFieldsList(validation.missing);
       setIsCompletionModalOpen(true);
       return;
     }
-
     setIsRejectionModalOpen(true);
   };
 
-  // Operator Confirm Reject
   const handleConfirmRejection = async (rejectedIds: number[], remarks: string) => {
     if (!batch) return;
     try {
@@ -295,7 +272,6 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
     }
   };
 
-  // Supervisor Confirm Review
   const handleSupervisorReviewConfirm = async (
     decision: string,
     remarks?: string,
@@ -316,7 +292,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
       await loadBatch();
       if (onBatchUpdated) onBatchUpdated();
     } catch (err: any) {
-      setErrorMsg(err.message || 'Supervisor review submission failed');
+      setErrorMsg(err.message || 'Supervisor review failed');
     } finally {
       setIsSubmitting(false);
     }
@@ -324,17 +300,17 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
 
   if (isLoading) {
     return (
-      <div className="p-12 text-center font-mono text-xs uppercase tracking-wider">
-        Loading Digital IFM Checksheet & Batch Quality Matrix...
+      <div className="py-20 text-center text-xs font-medium text-slate-500">
+        Loading checksheet...
       </div>
     );
   }
 
   if (!batch || !batch.template) {
     return (
-      <div className="p-8 border-2 border-black m-6 bg-zinc-50 font-mono text-center space-y-2">
-        <p className="font-extrabold text-sm uppercase">Checksheet Instance Not Found</p>
-        <p className="text-xs text-zinc-600">Scan an active QR code or select a batch from the Progress Dashboard.</p>
+      <div className="bg-white border border-slate-200 rounded-xl p-8 text-center max-w-md mx-auto my-12 space-y-2">
+        <p className="font-semibold text-slate-800 text-sm">Checksheet Not Found</p>
+        <p className="text-xs text-slate-500">Scan a QR code or choose a batch from the dashboard.</p>
       </div>
     );
   }
@@ -342,243 +318,204 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
   const { template } = batch;
 
   return (
-    <div className="space-y-4 pb-16">
-      {/* 1. FR-021A: Rescanned / Saved Read-Only Summary Banner */}
+    <div className="space-y-5 pb-16">
+      {/* Read-Only Status Banner */}
       {isReadOnly && (
-        <div className="bg-black text-white px-4 py-3 flex items-center justify-between border-b-2 border-black shadow-md no-print">
-          <div className="flex items-center gap-3">
-            <Lock className="w-5 h-5 text-white animate-pulse" />
-            <span className="font-black text-sm uppercase tracking-wider">
-              LOCKED RECORD — READ-ONLY SUMMARY MODE
-            </span>
+        <div className="bg-slate-900 text-white px-4 py-2.5 rounded-xl flex items-center justify-between text-xs shadow-sm no-print">
+          <div className="flex items-center gap-2">
+            <Lock className="w-4 h-4 text-slate-400" />
+            <span className="font-semibold">Locked Record — Read-Only Mode</span>
           </div>
-          <span className="text-xs font-mono text-zinc-300">
-            {batch.status === 'APPROVED' ? 'BATCH FINALIZED (APPROVED)' :
-             batch.status === 'REJECTED' ? 'BATCH FINALIZED (REJECTED)' :
-             batch.status === 'ON_HOLD' ? 'BATCH ON HOLD' : 'OPERATOR ENTRIES LOCKED'}
+          <span className="text-slate-300 font-medium capitalize">
+            Status: {batch.status.replace(/_/g, ' ').toLowerCase()}
           </span>
         </div>
       )}
 
-      {/* Main Checksheet Canvas (#FFFFFF Pure White) */}
-      <div className="bg-white border-2 border-black p-4 sm:p-6 shadow-sm">
-        {/* Checksheet Header Bar */}
-        <div className="border-b-2 border-black pb-4 mb-4 flex flex-wrap items-center justify-between gap-4">
+      {/* Main Container Card */}
+      <div className="bg-white border border-slate-200 rounded-xl p-5 sm:p-6 shadow-sm space-y-5">
+        {/* Top Header & Export Buttons */}
+        <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-100">
           <div>
-            <h2 className="text-base sm:text-lg font-black text-black uppercase tracking-tight">
+            <div className="flex items-center gap-2 text-xs text-slate-500 font-medium mb-1">
+              <span>{template.sheet_id}</span>
+              <ChevronRight className="w-3 h-3 text-slate-400" />
+              <span>Lot {batch.lot_number}</span>
+            </div>
+            <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
               {template.document_title}
             </h2>
-            <div className="text-xs font-mono font-bold text-zinc-700 mt-0.5">
-              (PRODUCT PARAMETER) • INITIAL FLOW MANAGEMENT CONTROL ITEMS MONITORING
-            </div>
           </div>
 
+          {/* Quick Actions */}
           <div className="flex items-center gap-2 no-print">
             <button
               onClick={() => setIsPrintModalOpen(true)}
-              className="bg-white border-2 border-black hover:bg-zinc-100 text-black font-extrabold text-xs px-3 py-1.5 uppercase flex items-center gap-1.5 transition-colors"
+              className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg flex items-center gap-1.5 transition-colors"
             >
-              <Printer className="w-3.5 h-3.5" />
+              <Printer className="w-3.5 h-3.5 text-slate-500" />
               <span>QR Label</span>
             </button>
 
             <button
               onClick={() => setIsCameraModalOpen(true)}
-              className="bg-white border-2 border-black hover:bg-zinc-100 text-black font-extrabold text-xs px-3 py-1.5 uppercase flex items-center gap-1.5 transition-colors"
+              className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg flex items-center gap-1.5 transition-colors"
             >
-              <Camera className="w-3.5 h-3.5" />
-              <span>Camera Photo</span>
+              <Camera className="w-3.5 h-3.5 text-slate-500" />
+              <span>Photo</span>
             </button>
 
             <a
               href={getExportUrl(batch.batch_id, 'pdf')}
               download
-              className="bg-black hover:bg-zinc-800 text-white font-extrabold text-xs px-3 py-1.5 uppercase flex items-center gap-1.5 transition-colors"
+              className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg flex items-center gap-1.5 transition-colors"
             >
-              <Download className="w-3.5 h-3.5" />
-              <span>PDF Report</span>
+              <Download className="w-3.5 h-3.5 text-slate-500" />
+              <span>PDF</span>
             </a>
 
             <a
               href={getExportUrl(batch.batch_id, 'xlsx')}
               download
-              className="bg-black hover:bg-zinc-800 text-white font-extrabold text-xs px-3 py-1.5 uppercase flex items-center gap-1.5 transition-colors"
+              className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg flex items-center gap-1.5 transition-colors"
             >
-              <Download className="w-3.5 h-3.5" />
-              <span>Excel (.xlsx)</span>
+              <Download className="w-3.5 h-3.5 text-slate-500" />
+              <span>Excel</span>
             </a>
           </div>
         </div>
 
-        {/* Zone A: Header Metadata Block (Section 4) */}
-        <div className="border-2 border-black mb-6">
-          <div className="grid grid-cols-2 md:grid-cols-4 divide-x-2 divide-y-2 md:divide-y-0 divide-black text-xs font-mono">
-            <div className="p-2.5">
-              <span className="font-bold text-black block">SHEET ID:</span>
-              <span className="font-extrabold text-sm">{template.sheet_id}</span>
-            </div>
-            <div className="p-2.5">
-              <span className="font-bold text-black block">PART NO.:</span>
-              <span className="font-extrabold text-sm">{template.part_no || 'N/A'}</span>
-            </div>
-            <div className="p-2.5">
-              <span className="font-bold text-black block">PART NAME:</span>
-              <span className="font-extrabold text-sm">{template.part_name || 'N/A'}</span>
-            </div>
-            <div className="p-2.5">
-              <span className="font-bold text-black block">CATEGORY:</span>
-              <span className="font-extrabold text-sm">{template.part_category || 'MAIN PART'}</span>
-            </div>
+        {/* Metadata Details Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50/70 p-4 rounded-xl border border-slate-200/80 text-xs">
+          <div>
+            <span className="text-[11px] font-medium text-slate-500 block">Part Number</span>
+            <span className="font-semibold text-slate-800">{template.part_no || 'N/A'}</span>
+          </div>
+          <div>
+            <span className="text-[11px] font-medium text-slate-500 block">Part Name</span>
+            <span className="font-semibold text-slate-800">{template.part_name || 'N/A'}</span>
+          </div>
+          <div>
+            <span className="text-[11px] font-medium text-slate-500 block">Model</span>
+            <span className="font-semibold text-slate-800">{template.model_name || 'N/A'}</span>
+          </div>
+          <div>
+            <span className="text-[11px] font-medium text-slate-500 block">Customer</span>
+            <span className="font-semibold text-slate-800">{template.customer_name || 'N/A'}</span>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 divide-x-2 divide-y-2 md:divide-y-0 divide-black text-xs font-mono border-t-2 border-black">
-            <div className="p-2.5">
-              <span className="font-bold text-black block">MODEL:</span>
-              <span className="font-extrabold text-sm">{template.model_name || 'N/A'}</span>
-            </div>
-            <div className="p-2.5">
-              <span className="font-bold text-black block">VENDOR:</span>
-              <span className="font-extrabold text-sm">{template.vendor_name || 'N/A'}</span>
-            </div>
-            <div className="p-2.5">
-              <span className="font-bold text-black block">CUSTOMER:</span>
-              <span className="font-extrabold text-sm">{template.customer_name || 'N/A'}</span>
-            </div>
-            <div className="p-2.5">
-              <span className="font-bold text-black block">INSPECTION DATE:</span>
-              <span className="font-extrabold text-sm">
-                {batch.created_at ? new Date(batch.created_at).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB')}
-              </span>
-            </div>
+          <div className="pt-2 border-t border-slate-200/60">
+            <span className="text-[11px] font-medium text-slate-500 block">Lot Quantity</span>
+            <span className="font-semibold text-slate-800">{batch.lot_quantity || 'N/A'}</span>
           </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-4 divide-x-2 divide-y-2 md:divide-y-0 divide-black text-xs font-mono border-t-2 border-black bg-zinc-50">
-            <div className="p-2.5">
-              <span className="font-bold text-black block">BATCH / LOT NO:</span>
-              <span className="font-extrabold text-sm">{batch.lot_number}</span>
-            </div>
-            <div className="p-2.5">
-              <span className="font-bold text-black block">LOT QUANTITY:</span>
-              <span className="font-extrabold text-sm">{batch.lot_quantity || 'N/A'}</span>
-            </div>
-            <div className="p-2.5">
-              <span className="font-bold text-black block">MODE:</span>
-              <span className="font-extrabold text-sm">{batch.inspection_mode} FREQUENCY</span>
-            </div>
-            <div className="p-2.5 bg-black text-white">
-              <span className="font-bold block text-zinc-300">STATUS:</span>
-              <span className="font-black text-sm uppercase tracking-wider">{batch.status.replace('_', ' ')}</span>
-            </div>
+          <div className="pt-2 border-t border-slate-200/60">
+            <span className="text-[11px] font-medium text-slate-500 block">Inspection Mode</span>
+            <span className="font-semibold text-slate-800">{batch.inspection_mode} Frequency</span>
+          </div>
+          <div className="pt-2 border-t border-slate-200/60">
+            <span className="text-[11px] font-medium text-slate-500 block">Date</span>
+            <span className="font-semibold text-slate-800">
+              {batch.created_at ? new Date(batch.created_at).toLocaleDateString('en-GB') : '-'}
+            </span>
+          </div>
+          <div className="pt-2 border-t border-slate-200/60">
+            <span className="text-[11px] font-medium text-slate-500 block">Batch Status</span>
+            <span className="inline-block mt-0.5 px-2 py-0.5 rounded text-[10px] font-semibold uppercase bg-slate-900 text-white">
+              {batch.status.replace(/_/g, ' ')}
+            </span>
           </div>
         </div>
 
-        {/* Zone B: Inspection Matrix Grid (PRD Section 4 & Design System Section 2) */}
-        <div className="overflow-x-auto border-2 border-black mb-6">
-          <table className="industrial-table min-w-full text-left">
+        {/* Clean Inspection Table */}
+        <div className="border border-slate-200 rounded-xl overflow-hidden overflow-x-auto shadow-sm">
+          <table className="clean-table min-w-full">
             <thead>
-              <tr className="industrial-header text-[11px] font-mono divide-x-2 divide-black border-b-2 border-black">
-                <th className="p-2 w-10 text-center">S.No</th>
-                <th className="p-2 w-28">Stage</th>
-                <th className="p-2 w-48">Control Items</th>
-                <th className="p-2 w-56">Content / Spec Range</th>
-                <th className="p-2 w-24">Method</th>
-                <th className="p-2 w-20 text-center">Freq.</th>
+              <tr>
+                <th className="w-12 text-center">#</th>
+                <th className="w-28">Stage</th>
+                <th className="w-48">Control Item</th>
+                <th className="w-56">Specification</th>
+                <th className="w-24">Method</th>
+                <th className="w-20 text-center">Freq</th>
                 {displayColumns.map((col) => (
-                  <th key={col} className="p-2 w-12 text-center bg-zinc-100">
+                  <th key={col} className="w-12 text-center bg-slate-100/60">
                     {col}
                   </th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y-2 divide-black text-xs font-mono">
+            <tbody>
               {template.control_items.map((item) => {
-                const isAssignedToUser = item.assigned_role === currentUser.role;
+                const isAssigned = item.assigned_role === currentUser.role;
                 const freq = batch.inspection_mode === 'IFM' ? item.ifm_frequency : item.normal_frequency;
 
                 return (
-                  <tr key={item.item_id || item.serial_no} className="divide-x-2 divide-black hover:bg-zinc-50/50">
-                    <td className="p-2 text-center font-bold">{item.serial_no}</td>
-                    <td className="p-2 font-bold text-zinc-800">{item.stage_name}</td>
-                    <td className="p-2 font-black text-black">{item.control_item_name}</td>
-                    <td className="p-2 text-zinc-700 leading-snug">{item.specification_content}</td>
-                    <td className="p-2 text-zinc-800">{item.application_method || '-'}</td>
-                    <td className="p-2 text-center font-bold">{freq || '-'}</td>
+                  <tr key={item.item_id || item.serial_no}>
+                    <td className="text-center font-semibold text-slate-500">{item.serial_no}</td>
+                    <td className="font-medium text-slate-600">{item.stage_name}</td>
+                    <td className="font-semibold text-slate-900">{item.control_item_name}</td>
+                    <td className="text-slate-600 text-xs leading-relaxed">{item.specification_content}</td>
+                    <td className="text-slate-600 text-xs">{item.application_method || '-'}</td>
+                    <td className="text-center text-xs font-medium text-slate-500">{freq || '-'}</td>
 
-                    {/* Columns Grid */}
+                    {/* Columns */}
                     {displayColumns.map((col) => {
                       const itemCols = Array.isArray(item.sample_columns) ? item.sample_columns : [];
-                      const isApplicableColumn = itemCols.includes(col);
+                      const isApplicable = itemCols.includes(col);
                       const key = `${item.item_id}_${col}`;
                       const cell = cellsMap[key];
                       const val = cell?.cell_value || '';
                       const isFailed = checkOutOfSpec(item, val);
 
-                      if (!isApplicableColumn) {
+                      if (!isApplicable) {
                         return (
-                          <td key={col} className="p-1 text-center bg-zinc-200 text-zinc-400">
+                          <td key={col} className="text-center bg-slate-100/40 text-slate-300">
                             -
                           </td>
                         );
                       }
 
-                      // Attribute Check Row (Tickbox)
+                      // Tickbox
                       if (item.row_mode === 'SERIAL_TICKBOX') {
                         const isChecked = val === 'true' || val === '1' || val === 'OK';
                         return (
-                          <td
-                            key={col}
-                            className={`p-1 text-center ${
-                              isAssignedToUser && !isReadOnly
-                                ? 'cell-assigned-active'
-                                : 'cell-unassigned-locked'
-                            }`}
-                          >
+                          <td key={col} className="text-center p-1.5">
                             <button
                               type="button"
-                              disabled={!isAssignedToUser || isReadOnly}
+                              disabled={!isAssigned || isReadOnly}
                               onClick={() => handleCellChange(item, col, isChecked ? 'false' : 'true')}
-                              className="w-full h-8 flex items-center justify-center transition-transform active:scale-95 disabled:cursor-not-allowed"
+                              className={`w-7 h-7 mx-auto rounded-md flex items-center justify-center transition-all ${
+                                isChecked
+                                  ? 'bg-slate-900 text-white'
+                                  : isAssigned && !isReadOnly
+                                  ? 'border border-slate-300 hover:border-slate-500 bg-white'
+                                  : 'border border-slate-200 bg-slate-50 opacity-40 cursor-not-allowed'
+                              }`}
                             >
-                              {isChecked ? (
-                                <span className="font-black text-base text-black">☑</span>
-                              ) : (
-                                <Square className="w-4 h-4 text-zinc-400 hover:text-black" />
-                              )}
+                              {isChecked && <Check className="w-4 h-4 stroke-[2.5]" />}
                             </button>
                           </td>
                         );
                       }
 
-                      // Variable Measurement Row (Numeric)
+                      // Numeric
                       return (
-                        <td
-                          key={col}
-                          className={`p-1 ${
-                            isFailed
-                              ? 'cell-out-of-spec'
-                              : isAssignedToUser && !isReadOnly
-                              ? 'cell-assigned-active'
-                              : 'cell-unassigned-locked'
-                          }`}
-                        >
-                          <div className="relative">
-                            <input
-                              type="number"
-                              step="0.01"
-                              disabled={!isAssignedToUser || isReadOnly}
-                              value={val}
-                              onChange={(e) => handleCellChange(item, col, e.target.value)}
-                              placeholder="0.00"
-                              className={`w-full text-center py-1 px-0.5 text-xs font-mono font-bold focus:outline-none disabled:bg-transparent ${
-                                isFailed ? 'text-black font-black' : 'text-black'
-                              }`}
-                            />
-                            {isFailed && (
-                              <div className="bg-black text-white text-[8px] font-mono font-extrabold px-1 py-0.2 text-center uppercase tracking-tighter">
-                                OUT OF SPEC
-                              </div>
-                            )}
-                          </div>
+                        <td key={col} className="p-1">
+                          <input
+                            type="number"
+                            step="0.01"
+                            disabled={!isAssigned || isReadOnly}
+                            value={val}
+                            onChange={(e) => handleCellChange(item, col, e.target.value)}
+                            placeholder="0.00"
+                            className={`w-full py-1 px-1 text-center text-xs font-semibold rounded-md transition-all focus:outline-none ${
+                              isFailed
+                                ? 'bg-red-50 text-red-700 border border-red-300 font-bold'
+                                : isAssigned && !isReadOnly
+                                ? 'bg-white border border-slate-300 text-slate-900 focus:ring-1 focus:ring-slate-800'
+                                : 'bg-slate-50 text-slate-500 border border-slate-200 opacity-60 cursor-not-allowed'
+                            }`}
+                          />
                         </td>
                       );
                     })}
@@ -586,14 +523,13 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                 );
               })}
 
-              {/* Checker Initials Row */}
-              <tr className="industrial-header divide-x-2 divide-black text-[11px] font-mono border-t-2 border-black">
-                <td className="p-2 text-center font-bold">CHK</td>
-                <td colSpan={5} className="p-2 font-bold uppercase tracking-wider">
-                  Checker Initials (Per-Sample Verification)
+              {/* Checker Initials */}
+              <tr className="bg-slate-50 font-medium text-xs text-slate-600">
+                <td className="text-center font-bold text-slate-700">CHK</td>
+                <td colSpan={5} className="font-semibold text-slate-700">
+                  Checker Initials
                 </td>
                 {displayColumns.map((col) => {
-                  // Find any checker initial entered for this column
                   let init = '';
                   for (const key in cellsMap) {
                     if (key.endsWith(`_${col}`) && cellsMap[key].checker_initials) {
@@ -602,7 +538,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                     }
                   }
                   return (
-                    <td key={col} className="p-2 text-center font-black text-black">
+                    <td key={col} className="text-center font-bold text-slate-800 text-xs">
                       {init}
                     </td>
                   );
@@ -614,26 +550,23 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
 
         {/* Photo Evidence Gallery */}
         {batch.attachments && batch.attachments.length > 0 && (
-          <div className="border-2 border-black p-4 mb-6">
-            <h3 className="font-extrabold text-xs uppercase tracking-wider text-black mb-3 flex items-center gap-2">
-              <Camera className="w-4 h-4" />
-              Shop-Floor Photo Evidence ({batch.attachments.length} Images Attached)
+          <div className="space-y-2.5 pt-2">
+            <h3 className="text-xs font-semibold text-slate-800 flex items-center gap-2">
+              <Camera className="w-4 h-4 text-slate-500" />
+              Inspection Photos ({batch.attachments.length})
             </h3>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {batch.attachments.map((att) => (
-                <div key={att.attachment_id} className="border-2 border-black p-2 bg-zinc-50 space-y-1">
-                  <div className="aspect-video bg-black flex items-center justify-center overflow-hidden">
+                <div key={att.attachment_id} className="border border-slate-200 rounded-lg p-1.5 bg-slate-50 space-y-1">
+                  <div className="aspect-video bg-slate-100 rounded overflow-hidden">
                     <img
                       src={att.file_path}
                       alt={att.file_name || 'Evidence'}
                       className="w-full h-full object-cover"
                     />
                   </div>
-                  <div className="text-[10px] font-mono text-zinc-600 truncate">
-                    {att.file_name || 'Photo'}
-                  </div>
-                  <div className="text-[9px] font-mono text-zinc-500 font-bold">
-                    SOURCE: {att.capture_source}
+                  <div className="text-[10px] text-slate-500 font-medium truncate">
+                    {att.file_name || 'Image'}
                   </div>
                 </div>
               ))}
@@ -641,117 +574,84 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
           </div>
         )}
 
-        {/* Rejection & Supervisor Review History */}
-        {(batch.decisions && batch.decisions.length > 0) || batch.hold_reason ? (
-          <div className="border-2 border-black p-4 mb-6 bg-zinc-50 font-mono text-xs space-y-2">
-            <h3 className="font-black uppercase tracking-wider text-black flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-black" />
-              Inspection Decisions & Governance Audit Trail
-            </h3>
-            <div className="divide-y divide-zinc-300">
+        {/* Decisions & Notes */}
+        {((batch.decisions && batch.decisions.length > 0) || batch.hold_reason) && (
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2 text-xs">
+            <h4 className="font-semibold text-slate-800 flex items-center gap-1.5">
+              <ShieldCheck className="w-4 h-4 text-slate-600" />
+              Inspection Decisions
+            </h4>
+            <div className="space-y-1.5 divide-y divide-slate-200/60">
               {batch.decisions?.map((d) => (
-                <div key={d.decision_id} className="py-2 flex flex-wrap justify-between gap-2">
+                <div key={d.decision_id} className="pt-1.5 flex justify-between items-center text-xs">
                   <div>
-                    <span className="font-extrabold text-black uppercase">[{d.role.toUpperCase()}]</span>{' '}
-                    <span className={`px-1.5 py-0.5 text-[10px] font-bold ${
-                      d.decision.includes('REJECT') ? 'bg-black text-white' : 'border border-black font-extrabold'
-                    }`}>
-                      {d.decision}
-                    </span>
-                    {d.remarks && <p className="text-zinc-700 mt-1">Remarks: {d.remarks}</p>}
-                    {d.rejected_item_ids && d.rejected_item_ids.length > 0 && (
-                      <p className="text-zinc-600 text-[11px] mt-0.5">
-                        Failed Item IDs: {d.rejected_item_ids.join(', ')}
-                      </p>
-                    )}
+                    <span className="font-semibold text-slate-900 uppercase">[{d.role}]</span>{' '}
+                    <span className="font-medium text-slate-700">{d.decision}</span>
+                    {d.remarks && <span className="text-slate-500 ml-2">— {d.remarks}</span>}
                   </div>
-                  <div className="text-zinc-500 text-[10px]">
-                    {d.decided_at ? new Date(d.decided_at).toLocaleString('en-GB') : '-'}
-                  </div>
+                  <span className="text-[11px] text-slate-400">
+                    {d.decided_at ? new Date(d.decided_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : ''}
+                  </span>
                 </div>
               ))}
               {batch.hold_reason && (
-                <div className="py-2 text-black font-bold">
-                  HOLD REASON: {batch.hold_reason}
+                <div className="pt-1.5 text-amber-800 font-medium">
+                  Hold Reason: {batch.hold_reason}
                 </div>
               )}
             </div>
           </div>
-        ) : null}
+        )}
 
-        {/* Zone C: Sign-off & Footer Block (Section 4) */}
-        <div className="border-2 border-black mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 divide-y-2 md:divide-y-0 md:divide-x-2 divide-black text-xs font-mono">
-            {/* Prepared by */}
-            <div className="p-3">
-              <div className="font-bold text-black uppercase border-b border-black pb-1 mb-2">
-                PREPARED BY (Operator)
-              </div>
-              <div className="space-y-0.5 text-[11px]">
-                <p>
-                  <span className="font-bold">Operator:</span>{' '}
-                  {batch.prepared_user_name || (batch.prepared_by ? `User #${batch.prepared_by}` : 'Pending Save')}
-                </p>
-                <p>
-                  <span className="font-bold">Timestamp:</span>{' '}
-                  {batch.operator_submitted_at ? new Date(batch.operator_submitted_at).toLocaleString('en-GB') : 'Not Submitted'}
-                </p>
-              </div>
+        {/* Sign-Off Footer Strip */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3 border-t border-slate-100 text-xs">
+          <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+            <span className="text-[10px] font-semibold text-slate-500 uppercase block mb-1">Prepared By (Operator)</span>
+            <div className="font-semibold text-slate-800">
+              {batch.prepared_user_name || (batch.prepared_by ? `User #${batch.prepared_by}` : 'Pending')}
             </div>
-
-            {/* Checked by */}
-            <div className="p-3">
-              <div className="font-bold text-black uppercase border-b border-black pb-1 mb-2">
-                CHECKED BY (Supervisor)
-              </div>
-              <div className="space-y-0.5 text-[11px]">
-                <p>
-                  <span className="font-bold">Supervisor:</span>{' '}
-                  {batch.checked_user_name || (batch.checked_by ? `User #${batch.checked_by}` : 'Pending Review')}
-                </p>
-                <p>
-                  <span className="font-bold">Timestamp:</span>{' '}
-                  {batch.supervisor_submitted_at ? new Date(batch.supervisor_submitted_at).toLocaleString('en-GB') : 'Not Reviewed'}
-                </p>
-              </div>
+            <div className="text-[11px] text-slate-400 mt-0.5">
+              {batch.operator_submitted_at ? new Date(batch.operator_submitted_at).toLocaleString('en-GB') : 'Not Submitted'}
             </div>
+          </div>
 
-            {/* Approved by */}
-            <div className="p-3">
-              <div className="font-bold text-black uppercase border-b border-black pb-1 mb-2">
-                APPROVED BY (Admin / QA)
-              </div>
-              <div className="space-y-0.5 text-[11px]">
-                <p>
-                  <span className="font-bold">QA Sign-Off:</span>{' '}
-                  {batch.approved_user_name || (batch.approved_by ? `User #${batch.approved_by}` : 'Pending Final Sign-Off')}
-                </p>
-                <p>
-                  <span className="font-bold">Status:</span>{' '}
-                  <span className="font-extrabold">{batch.status.replace('_', ' ')}</span>
-                </p>
-              </div>
+          <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+            <span className="text-[10px] font-semibold text-slate-500 uppercase block mb-1">Checked By (Supervisor)</span>
+            <div className="font-semibold text-slate-800">
+              {batch.checked_user_name || (batch.checked_by ? `User #${batch.checked_by}` : 'Pending')}
+            </div>
+            <div className="text-[11px] text-slate-400 mt-0.5">
+              {batch.supervisor_submitted_at ? new Date(batch.supervisor_submitted_at).toLocaleString('en-GB') : 'Not Reviewed'}
+            </div>
+          </div>
+
+          <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+            <span className="text-[10px] font-semibold text-slate-500 uppercase block mb-1">Approved By (QA)</span>
+            <div className="font-semibold text-slate-800">
+              {batch.approved_user_name || (batch.approved_by ? `User #${batch.approved_by}` : 'Pending')}
+            </div>
+            <div className="text-[11px] text-slate-400 mt-0.5">
+              Status: {batch.status.replace(/_/g, ' ')}
             </div>
           </div>
         </div>
 
-        {/* Action Controls Bar */}
-        <div className="border-t-2 border-black pt-4 flex flex-wrap items-center justify-between gap-4 no-print">
-          <div className="text-xs font-mono text-zinc-600">
-            Current User: <span className="font-bold text-black uppercase">{currentUser.full_name} ({currentUser.role})</span>
-          </div>
+        {/* Bottom Actions Bar */}
+        <div className="pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-4 no-print">
+          <span className="text-xs text-slate-500">
+            Logged in as <strong className="text-slate-800 capitalize">{currentUser.full_name} ({currentUser.role})</strong>
+          </span>
 
-          <div className="flex items-center gap-3">
-            {/* Operator Actions */}
+          <div className="flex items-center gap-2">
             {currentUser.role === 'operator' && !isReadOnly && (
               <>
                 <button
                   type="button"
                   disabled={isSubmitting}
                   onClick={handleOperatorRejectClick}
-                  className="bg-white hover:bg-zinc-100 text-black font-extrabold text-xs px-5 py-2.5 uppercase border-2 border-black flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                  className="px-4 py-2 text-xs font-semibold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg flex items-center gap-1.5 transition-colors disabled:opacity-50"
                 >
-                  <AlertTriangle className="w-4 h-4 text-black" />
+                  <AlertTriangle className="w-4 h-4 text-red-600" />
                   <span>Reject Batch</span>
                 </button>
 
@@ -759,23 +659,22 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                   type="button"
                   disabled={isSubmitting}
                   onClick={handleOperatorApprove}
-                  className="bg-black hover:bg-zinc-800 text-white font-extrabold text-xs px-6 py-2.5 uppercase flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                  className="px-5 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg flex items-center gap-1.5 transition-all shadow-sm disabled:opacity-50"
                 >
-                  <CheckCircle2 className="w-4 h-4 text-white" />
-                  <span>{isSubmitting ? 'Saving...' : 'Submit & Approve Batch'}</span>
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{isSubmitting ? 'Saving...' : 'Submit & Approve'}</span>
                 </button>
               </>
             )}
 
-            {/* Supervisor Actions */}
             {(currentUser.role === 'supervisor' || currentUser.role === 'admin') && batch.status !== 'APPROVED' && batch.status !== 'REJECTED' && (
               <button
                 type="button"
                 onClick={() => setIsSupervisorModalOpen(true)}
-                className="bg-black hover:bg-zinc-800 text-white font-extrabold text-xs px-6 py-2.5 uppercase flex items-center gap-2 transition-colors shadow-sm"
+                className="px-5 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg flex items-center gap-1.5 transition-all shadow-sm"
               >
                 <ShieldCheck className="w-4 h-4" />
-                <span>Supervisor Quality Governance</span>
+                <span>Review & Sign-Off</span>
               </button>
             )}
           </div>

@@ -8,51 +8,71 @@
 }
 
 body {
-  background-color: #FFFFFF;
-  color: #000000;
+  background-color: #F8FAFC;
+  color: #0F172A;
   margin: 0;
   padding: 0;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Industrial Grid & High-Contrast Borders */
-.industrial-table {
-  border-collapse: collapse;
+/* Clean Modern Table */
+.clean-table {
   width: 100%;
-  border: 2px solid #000000;
+  border-collapse: separate;
+  border-spacing: 0;
 }
 
-.industrial-table th,
-.industrial-table td {
-  border: 1.5px solid #000000;
-}
-
-.industrial-header {
-  background-color: #F4F4F5;
-  color: #000000;
-  font-weight: 700;
+.clean-table th {
+  background-color: #F8FAFC;
+  color: #475569;
+  font-weight: 600;
+  font-size: 0.75rem;
   text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.625rem 0.75rem;
+  border-bottom: 1px solid #E2E8F0;
+  border-right: 1px solid #E2E8F0;
 }
 
-/* Role-Based Field Emphasis (Section 2) */
-.cell-assigned-active {
-  border: 2.5px solid #000000 !important;
+.clean-table th:last-child {
+  border-right: none;
+}
+
+.clean-table td {
+  padding: 0.5rem 0.625rem;
+  border-bottom: 1px solid #F1F5F9;
+  border-right: 1px solid #F1F5F9;
+  font-size: 0.8125rem;
+}
+
+.clean-table td:last-child {
+  border-right: none;
+}
+
+.clean-table tr:hover td {
+  background-color: #F8FAFC;
+}
+
+/* Active Editable Cell */
+.cell-active {
   background-color: #FFFFFF;
-  font-weight: 700;
-  color: #000000;
+  border: 1.5px solid #0F172A !important;
+  border-radius: 4px;
 }
 
-.cell-unassigned-locked {
-  border: 1px solid #D4D4D8 !important;
-  opacity: 0.45;
-  background-color: #FAFAFA;
+/* Locked / Other Role Cell */
+.cell-locked {
+  background-color: #F8FAFC;
+  opacity: 0.55;
   cursor: not-allowed;
 }
 
-/* Out of Spec Numeric Cell (Section 2) */
+/* Out of Spec Cell */
 .cell-out-of-spec {
-  border: 2px dashed #000000 !important;
-  background-color: #FFFFFF;
-  position: relative;
+  background-color: #FEF2F2 !important;
+  border: 1.5px solid #EF4444 !important;
+  border-radius: 4px;
+  color: #B91C1C !important;
 }
 
 /* Print Optimization */
@@ -63,8 +83,5 @@ body {
   }
   .no-print {
     display: none !important;
-  }
-  .page-break {
-    page-break-before: always;
   }
 }
