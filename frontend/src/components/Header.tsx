@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { getQueuedMutations, removeQueuedMutations } from '../db';
 import { syncOfflineQueue, fetchNotifications, markNotificationsRead, loginUser } from '../api';
+import { onNotificationDispatched } from '../liveSync';
 
 interface HeaderProps {
   user: User | null;
@@ -55,6 +56,11 @@ export const Header: React.FC<HeaderProps> = ({
     checkPendingQueue();
     loadNotifs();
 
+    // Live real-time notification push
+    const unsubNotif = onNotificationDispatched(() => {
+      loadNotifs();
+    });
+
     const notifInterval = setInterval(loadNotifs, 8000);
     const syncInterval = setInterval(checkPendingQueue, 5000);
 
@@ -66,6 +72,7 @@ export const Header: React.FC<HeaderProps> = ({
     document.addEventListener('mousedown', handleClickOutside);
 
     return () => {
+      unsubNotif();
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       document.removeEventListener('mousedown', handleClickOutside);

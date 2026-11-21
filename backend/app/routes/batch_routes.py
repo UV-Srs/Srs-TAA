@@ -18,6 +18,7 @@ from backend.app.auth import get_current_user, require_any_authenticated
 from backend.app.config import UPLOAD_DIR
 from backend.app.notifications import check_overdue_holds, send_notification
 from backend.app.audit import log_audit
+from backend.app.live_sync import notify_live
 
 router = APIRouter(prefix="/api/batches", tags=["Batches & Cells"])
 
@@ -138,6 +139,7 @@ def open_batch_workflow(
     if changed:
         db.commit()
         db.refresh(batch)
+        notify_live("BATCH_UPDATED", {"batch_id": batch.batch_id, "status": batch.status, "round": batch.round})
 
     return format_batch_response(batch)
 
@@ -220,6 +222,16 @@ def update_cell_response(
 
     db.commit()
     db.refresh(resp)
+
+    notify_live("CELL_UPDATED", {
+        "batch_id": resp.batch_id,
+        "item_id": resp.item_id,
+        "column_key": resp.column_key,
+        "cell_value": resp.cell_value,
+        "is_within_spec": resp.is_within_spec,
+        "checker_initials": resp.checker_initials,
+        "updated_at": str(resp.updated_at)
+    })
 
     return {
         "status": "success",
@@ -335,6 +347,8 @@ def release_batch_hold(
 
     db.commit()
     db.refresh(batch)
+
+    notify_live("BATCH_UPDATED", {"batch_id": batch.batch_id, "status": batch.status, "round": batch.round})
 
     return format_batch_response(batch)
 

@@ -21,6 +21,7 @@ from backend.app.config import UPLOAD_DIR
 from backend.app.export_pdf import generate_pdf_report
 from backend.app.export_excel import generate_excel_report
 from backend.app.notifications import check_overdue_holds, send_notification
+from backend.app.live_sync import notify_live
 from backend.app.routes.batch_routes import format_batch_response
 
 router = APIRouter(prefix="/api/admin", tags=["Admin Management"])
@@ -170,6 +171,8 @@ def create_sheet(payload: SheetTemplateCreate, db: Session = Depends(get_db), cu
     db.commit()
     db.refresh(template)
 
+    notify_live("SHEET_UPDATED", {"sheet_id": template.sheet_id, "action": "CREATE"})
+
     log_audit(
         db=db,
         user_id=current_user.user_id,
@@ -230,6 +233,7 @@ def update_sheet(sheet_id: str, payload: SheetTemplateCreate, db: Session = Depe
 
     db.commit()
     db.refresh(template)
+    notify_live("SHEET_UPDATED", {"sheet_id": template.sheet_id, "action": "UPDATE"})
     return template
 
 # --- Batches & Progress Dashboard (FR-013, FR-049, FR-050) ---
@@ -253,6 +257,8 @@ def create_batch(payload: BatchCreate, db: Session = Depends(get_db), current_us
     db.add(batch)
     db.commit()
     db.refresh(batch)
+
+    notify_live("BATCH_CREATED", {"batch_id": batch.batch_id, "sheet_id": batch.sheet_id, "lot_number": batch.lot_number})
 
     log_audit(
         db=db,
@@ -291,6 +297,8 @@ def quick_register_batch(
     )
     db.add(batch)
     db.flush()
+
+    notify_live("BATCH_CREATED", {"batch_id": batch.batch_id, "sheet_id": batch.sheet_id, "lot_number": batch.lot_number})
 
     # Sign-off record for registration (FR-054)
     signoff = InspectionDecision(

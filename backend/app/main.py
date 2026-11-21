@@ -1,6 +1,8 @@
 import os
+import asyncio
 from pathlib import Path
-from fastapi import FastAPI
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -9,6 +11,7 @@ from backend.app.config import UPLOAD_DIR, BASE_DIR
 from backend.app.database import engine, Base, SessionLocal
 from backend.app import models
 from backend.app.seed_data import seed_database
+from backend.app.live_sync import live_manager
 
 from backend.app.routes import (
     auth_routes,
@@ -32,11 +35,19 @@ def init_db():
 # Initialize DB synchronously on import
 init_db()
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Set running event loop for live WebSocket broadcasts
+    loop = asyncio.get_running_loop()
+    live_manager.set_event_loop(loop)
+    yield
+
 # Initialize FastAPI application
 app = FastAPI(
     title="TAA – Inspection Management System",
     description="IFM Checksheet & Batch Quality Platform (Version 2.0)",
-    version="2.0.0"
+    version="2.0.0",
+    lifespan=lifespan
 )
 
 # CORS configuration
@@ -47,6 +58,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# WebSocket Endpoint for Live Real-Time Collaboration
+@app.websocket("/ws/live")
+async def websocket_live_endpoint(websocket: WebSocket):
+    await live_manager.connect(websocket)
+    try:
+        while True:
+            # Keepalive receiver
+            data = await websocket.receive_text()
+            if data == "ping":
+                await websocket.send_text('{"type":"pong"}')
+    except WebSocketDisconnect:
+        live_manager.disconnect(websocket)
+    except Exception:
+        live_manager.disconnect(websocket)
 
 # Mount static uploads
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
@@ -77,8 +103,8 @@ if (DIST_DIR / "assets").exists():
 
 @app.get("/{full_path:path}")
 def serve_frontend(full_path: str):
-    # If API or Uploads route was not matched, return 404 for API
-    if full_path.startswith("api/") or full_path.startswith("uploads/"):
+    # If API, Uploads, or WS route was not matched, return 404 for API
+    if full_path.startswith("api/") or full_path.startswith("uploads/") or full_path.startswith("ws/"):
         return {"error": "Not Found"}
     index_file = DIST_DIR / "index.html"
     if index_file.exists():

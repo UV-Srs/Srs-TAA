@@ -11,6 +11,7 @@ import { FullSheetCompletionModal } from '../components/FullSheetCompletionModal
 import { RejectionModal } from '../components/RejectionModal';
 import { CameraCaptureModal } from '../components/CameraCaptureModal';
 import { PrintLabelModal } from '../components/PrintLabelModal';
+import { onSheetUpdated, onBatchUpdated as onLiveBatchUpdated, onCellUpdated } from '../liveSync';
 import {
   Check, Lock, Camera, Printer, Download,
   AlertTriangle, ShieldCheck, CheckCircle2, ChevronRight,
@@ -71,7 +72,45 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
 
   useEffect(() => {
     loadBatch();
-  }, [batchId]);
+
+    // Live subscriptions for real-time multi-user synchronization
+    const unsubBatch = onLiveBatchUpdated((data) => {
+      if (data.batch_id === batchId) {
+        loadBatch();
+        if (onBatchUpdated) onBatchUpdated();
+      }
+    });
+
+    const unsubSheet = onSheetUpdated((data) => {
+      if (batch && data.sheet_id === batch.sheet_id) {
+        loadBatch();
+      }
+    });
+
+    const unsubCell = onCellUpdated((data) => {
+      if (data.batch_id === batchId) {
+        setCellsMap((prev) => ({
+          ...prev,
+          [`${data.item_id}_${data.column_key}`]: {
+            response_id: prev[`${data.item_id}_${data.column_key}`]?.response_id || 0,
+            batch_id: data.batch_id,
+            item_id: data.item_id,
+            column_key: data.column_key,
+            cell_value: data.cell_value,
+            is_within_spec: data.is_within_spec,
+            checker_initials: data.checker_initials,
+            updated_at: data.updated_at,
+          },
+        }));
+      }
+    });
+
+    return () => {
+      unsubBatch();
+      unsubSheet();
+      unsubCell();
+    };
+  }, [batchId, batch?.sheet_id]);
 
   const loadBatch = async () => {
     try {

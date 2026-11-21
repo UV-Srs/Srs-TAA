@@ -10,6 +10,7 @@ from backend.app.schemas import SupervisorReviewRequest, SupervisorFieldReviewRe
 from backend.app.auth import require_supervisor
 from backend.app.audit import log_audit
 from backend.app.notifications import send_notification
+from backend.app.live_sync import notify_live
 
 router = APIRouter(prefix="/api/supervisor", tags=["Supervisor Workflow"])
 
@@ -44,6 +45,14 @@ def review_single_field(
 
     db.commit()
     db.refresh(batch)
+
+    notify_live("BATCH_UPDATED", {
+        "batch_id": batch.batch_id,
+        "status": batch.status,
+        "round": batch.round,
+        "supervisor_reviews": batch.supervisor_reviews
+    })
+
     return {"status": "success", "supervisor_reviews": batch.supervisor_reviews}
 
 @router.post("/batches/{batch_id}/review")
@@ -184,6 +193,12 @@ def review_batch(
 
     db.commit()
     db.refresh(batch)
+
+    notify_live("BATCH_UPDATED", {
+        "batch_id": batch.batch_id,
+        "status": batch.status,
+        "round": batch.round
+    })
 
     return {
         "status": batch.status,

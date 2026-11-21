@@ -12,6 +12,7 @@ from backend.app.schemas import OperatorSubmitRequest, InspectionBatchResponse
 from backend.app.auth import require_operator
 from backend.app.audit import log_audit
 from backend.app.notifications import send_notification
+from backend.app.live_sync import notify_live
 
 router = APIRouter(prefix="/api/operator", tags=["Operator Workflow"])
 
@@ -198,6 +199,8 @@ def submit_operator_inspection(
 
     db.commit()
     db.refresh(batch)
+
+    notify_live("BATCH_UPDATED", {"batch_id": batch.batch_id, "status": batch.status, "round": batch.round})
 
     return {
         "status": batch.status,

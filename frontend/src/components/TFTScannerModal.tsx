@@ -63,6 +63,8 @@ export const TFTScannerModal: React.FC<TFTScannerModalProps> = ({
   const setVideoRef = useCallback((element: HTMLVideoElement | null) => {
     videoRef.current = element;
     if (element && streamRef.current) {
+      element.muted = true;
+      element.playsInline = true;
       element.srcObject = streamRef.current;
       element.play().catch((err) => {
         console.warn('Video playback warning:', err);

@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { User, InspectionBatch, QRResolveResult } from './types';
 import { getCurrentStoredUser, logoutUser, fetchBatches, fetchProgressDashboard } from './api';
+import { onBatchCreated, onBatchUpdated, onSheetUpdated } from './liveSync';
 import { Header } from './components/Header';
 import { UniversalScanBar } from './components/UniversalScanBar';
 import { BatchSidebar } from './components/BatchSidebar';
@@ -22,6 +23,23 @@ export const App: React.FC = () => {
     if (currentUser) {
       loadBatches();
     }
+
+    // Real-Time Live Sync: Automatically refresh batches and progress when any change occurs
+    const unsub1 = onBatchCreated(() => {
+      loadBatches();
+    });
+    const unsub2 = onBatchUpdated(() => {
+      loadBatches();
+    });
+    const unsub3 = onSheetUpdated(() => {
+      loadBatches();
+    });
+
+    return () => {
+      unsub1();
+      unsub2();
+      unsub3();
+    };
   }, [currentUser]);
 
   const loadBatches = async () => {

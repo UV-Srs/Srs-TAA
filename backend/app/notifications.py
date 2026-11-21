@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
 from backend.app.models import InAppNotification, InspectionBatch, User, AuditLog
+from backend.app.live_sync import notify_live
 
 def send_notification(
     db: Session,
@@ -39,6 +40,13 @@ def send_notification(
             )
             db.add(notif)
     db.flush()
+
+    notify_live("NOTIFICATION_DISPATCHED", {
+        "roles": roles,
+        "text": text,
+        "batch_id": batch_id,
+        "batch_code": batch_code
+    })
 
 def check_overdue_holds(db: Session):
     """
