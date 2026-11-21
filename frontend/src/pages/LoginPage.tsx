@@ -100,7 +100,47 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           </button>
         </form>
 
-        <div className="pt-2 text-center text-[11px] text-slate-400 border-t border-slate-100">
+        {/* Demo Credentials Box */}
+        <div className="pt-4 border-t border-slate-100 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+              Demo Credentials
+            </span>
+            <span className="text-[10px] text-slate-400">Click to fill</span>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              type="button"
+              onClick={() => { setUsername('operator'); setPassword('oper123'); }}
+              className="p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200/80 rounded-xl text-left transition-all group cursor-pointer"
+            >
+              <div className="text-[11px] font-bold text-slate-800 group-hover:text-black">Operator</div>
+              <div className="text-[10px] text-slate-500 font-mono mt-0.5 truncate">operator</div>
+              <div className="text-[10px] text-slate-400 font-mono">oper123</div>
+            </button>
+            <button
+              type="button"
+              onClick={() => { setUsername('supervisor'); setPassword('super123'); }}
+              className="p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200/80 rounded-xl text-left transition-all group cursor-pointer"
+            >
+              <div className="text-[11px] font-bold text-slate-800 group-hover:text-black">Supervisor</div>
+              <div className="text-[10px] text-slate-500 font-mono mt-0.5 truncate">supervisor</div>
+              <div className="text-[10px] text-slate-400 font-mono">super123</div>
+            </button>
+            <button
+              type="button"
+              onClick={() => { setUsername('admin'); setPassword('admin123'); }}
+              className="p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200/80 rounded-xl text-left transition-all group cursor-pointer"
+            >
+              <div className="text-[11px] font-bold text-slate-800 group-hover:text-black">Admin</div>
+              <div className="text-[10px] text-slate-500 font-mono mt-0.5 truncate">admin</div>
+              <div className="text-[10px] text-slate-400 font-mono">admin123</div>
+            </button>
+          </div>
+        </div>
+
+        <div className="pt-1 text-center text-[11px] text-slate-400 border-t border-slate-100">
           Industrial Quality & Batch Inspection Management
         </div>
       </div>
