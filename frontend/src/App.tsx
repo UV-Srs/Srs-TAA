@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { User, InspectionBatch, QRResolveResult } from './types';
 import { getCurrentStoredUser, logoutUser, fetchBatches, fetchProgressDashboard } from './api';
-import { onBatchCreated, onBatchUpdated, onSheetUpdated } from './liveSync';
+import { onBatchCreated, onBatchUpdated, onSheetUpdated, onScanResolved } from './liveSync';
 import { Header } from './components/Header';
 import { UniversalScanBar } from './components/UniversalScanBar';
 import { BatchSidebar } from './components/BatchSidebar';
@@ -35,10 +35,21 @@ export const App: React.FC = () => {
       loadBatches();
     });
 
+    // Remote-scan push: when this user scans on another device (e.g. phone),
+    // the laptop automatically opens that batch instantly.
+    const unsub4 = onScanResolved((data) => {
+      if (!currentUser) return;
+      if (data.user_id !== currentUser.user_id) return; // only react to own scans
+      setCurrentBatchId(data.batch_id);
+      setActiveTab('sheet');
+      loadBatches();
+    });
+
     return () => {
       unsub1();
       unsub2();
       unsub3();
+      unsub4();
     };
   }, [currentUser]);
 

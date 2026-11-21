@@ -10,6 +10,7 @@ from backend.app.models import User, SheetTemplate, InspectionBatch
 from backend.app.schemas import QRResolveResponse
 from backend.app.auth import get_current_user
 from backend.app.qr_engine import generate_qr_base64, generate_barcode_base64
+from backend.app.live_sync import notify_live
 
 router = APIRouter(prefix="/api/qr", tags=["QR & Barcode Engine"])
 
@@ -154,6 +155,17 @@ def resolve_code(
             read_only = True
         elif batch.supervisor_submitted_at is not None or batch.status in ["APPROVED", "REJECTED"]:
             read_only = True
+
+        # Broadcast to all sessions — the frontend filters by user_id so only
+        # the same user's other devices (e.g. laptop) auto-open this batch.
+        notify_live("SCAN_RESOLVED", {
+            "batch_id": batch.batch_id,
+            "sheet_id": target_sheet_id,
+            "lot_number": batch.lot_number,
+            "status": batch.status,
+            "user_id": current_user.user_id,
+            "role": current_user.role,
+        })
 
         return {
             "type": "BATCH",

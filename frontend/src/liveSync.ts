@@ -157,3 +157,14 @@ export function onCellUpdated(handler: (data: {
 export function onNotificationDispatched(handler: (data: any) => void) {
   return liveSync.subscribe('NOTIFICATION_DISPATCHED', handler);
 }
+
+export function onScanResolved(handler: (data: {
+  batch_id: number;
+  sheet_id: string;
+  lot_number: string;
+  status: string;
+  user_id: number;
+  role: string;
+}) => void) {
+  return liveSync.subscribe('SCAN_RESOLVED', handler);
+}
