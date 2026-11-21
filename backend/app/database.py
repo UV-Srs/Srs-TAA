@@ -2,7 +2,7 @@ import sys
 import logging
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, declarative_base
-from backend.app.config import DATABASE_URL, BASE_DIR
+from backend.app.config import DATABASE_URL, DB_NAME, DB_HOST, DB_PORT
 
 logger = logging.getLogger("taa.database")
 
@@ -10,28 +10,30 @@ Base = declarative_base()
 
 def init_engine():
     target_url = DATABASE_URL
-    connect_args = {}
+    print(f"[DB] Initializing PostgreSQL connection: {target_url.split('@')[-1]}")
     
-    if target_url.startswith("sqlite"):
-        connect_args = {"check_same_thread": False}
-        eng = create_engine(target_url, connect_args=connect_args)
-        print(f"[DB] Connected to SQLite database: {target_url}")
-        return eng
-
-    # If PostgreSQL URL is configured, test the connection
     try:
-        print(f"[DB] Attempting connection to PostgreSQL: {target_url.split('@')[-1]}")
-        eng = create_engine(target_url, pool_pre_ping=True, pool_size=10, max_overflow=20)
+        # PostgreSQL Engine with connection pooling and pre-ping
+        eng = create_engine(
+            target_url,
+            pool_pre_ping=True,
+            pool_size=10,
+            max_overflow=20,
+            pool_recycle=3600
+        )
+        # Test connection immediately
         with eng.connect() as conn:
             conn.execute(text("SELECT 1"))
-        print(f"[DB SUCCESS] Connected to PostgreSQL successfully!")
+        print(f"[DB SUCCESS] Connected to PostgreSQL '{DB_NAME}' successfully on {DB_HOST}:{DB_PORT}!")
         return eng
     except Exception as e:
-        print(f"[DB WARNING] PostgreSQL connection failed: {e}")
-        sqlite_fallback = f"sqlite:///{BASE_DIR}/taa_inspection.db"
-        print(f"[DB FALLBACK] Seamlessly falling back to local SQLite database: {sqlite_fallback}")
-        eng = create_engine(sqlite_fallback, connect_args={"check_same_thread": False})
-        return eng
+        error_msg = (
+            f"\n[FATAL DATABASE ERROR] Failed to connect to PostgreSQL database '{DB_NAME}' on {DB_HOST}:{DB_PORT}.\n"
+            f"Error details: {e}\n"
+            f"Please verify PostgreSQL service is running and credentials in backend/.env are valid.\n"
+        )
+        print(error_msg, file=sys.stderr)
+        raise RuntimeError(error_msg) from e
 
 engine = init_engine()
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

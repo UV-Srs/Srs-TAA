@@ -37,6 +37,8 @@ def sync_offline_queue(
 
         # Look up item specification for numeric validation
         item = db.query(TemplateControlItem).filter(TemplateControlItem.item_id == m.item_id).first()
+        if not item or (item.editable_by_operator is False or item.assigned_role == "supervisor"):
+            continue
         is_spec = True
         if item and item.row_mode == "NUMERIC_SAMPLE" and m.cell_value:
             try:

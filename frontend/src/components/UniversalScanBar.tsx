@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Camera, ScanLine, ArrowRight, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Camera, Search, ArrowRight, CheckCircle2, AlertCircle, Barcode } from 'lucide-react';
 import { resolveQR } from '../api';
 import { User, QRResolveResult } from '../types';
 import { OnTheFlyRegisterModal } from './OnTheFlyRegisterModal';
@@ -11,22 +11,12 @@ interface UniversalScanBarProps {
   onTemplateResolved?: (sheetId: string) => void;
 }
 
-const SAMPLES = [
-  { label: 'Barcode: TAA-B-24117', raw: 'TAA-B-24117' },
-  { label: 'QR with JSON: B-24118', raw: '{"sheet":"SH-PCB-01","batch":"B-24118"}' },
-  { label: 'QR with URL: B-24119', raw: 'https://taa.example/inspect?batch=B-24119' },
-  { label: 'GS1 lot: B-24120', raw: '(01)08901234567890(10)B-24120' },
-  { label: 'Unregistered: B-24200', raw: 'TAA-B-24200' },
-  { label: 'IFM Purge Line: LOT-2026-495A', raw: 'LOT-2026-495A' },
-];
-
 export const UniversalScanBar: React.FC<UniversalScanBarProps> = ({
   currentUser,
   onBatchResolved,
   onTemplateResolved,
 }) => {
   const [scanInput, setScanInput] = useState<string>('');
-  const [simDevice, setSimDevice] = useState<string>('TFT terminal');
   const [feedback, setFeedback] = useState<{ text: string; isError: boolean } | null>(null);
   const [isResolving, setIsResolving] = useState<boolean>(false);
   const [unregisteredCode, setUnregisteredCode] = useState<string | null>(null);
@@ -36,7 +26,7 @@ export const UniversalScanBar: React.FC<UniversalScanBarProps> = ({
   const wedgeBufferRef = useRef<string>('');
   const lastKeyTimeRef = useRef<number>(0);
 
-  // Global Keyboard-Wedge listener for TFT scanners / barcode guns anywhere on page
+  // Keyboard-wedge listener: Automatically catches USB / Bluetooth barcode scanner inputs
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
@@ -53,7 +43,7 @@ export const UniversalScanBar: React.FC<UniversalScanBarProps> = ({
           e.preventDefault();
           const code = wedgeBufferRef.current.trim();
           wedgeBufferRef.current = '';
-          handleProcessCode(code, 'hardware scanner (keyboard mode)');
+          handleProcessCode(code);
         }
         wedgeBufferRef.current = '';
         return;
@@ -68,7 +58,7 @@ export const UniversalScanBar: React.FC<UniversalScanBarProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [currentUser]);
 
-  const handleProcessCode = async (rawCode: string, source: string) => {
+  const handleProcessCode = async (rawCode: string) => {
     if (!rawCode || !rawCode.trim()) return;
     const cleanRaw = rawCode.trim();
 
@@ -78,9 +68,12 @@ export const UniversalScanBar: React.FC<UniversalScanBarProps> = ({
 
       const res = await resolveQR(cleanRaw);
       setFeedback({
-        text: `Read ${cleanRaw} via ${source} (${res.format_detected || 'Plain code'}).`,
+        text: `Loaded ${cleanRaw}`,
         isError: false,
       });
+
+      // Clear feedback after 4 seconds
+      setTimeout(() => setFeedback(null), 4000);
 
       if (res.batch_id) {
         onBatchResolved(res.batch_id);
@@ -89,8 +82,7 @@ export const UniversalScanBar: React.FC<UniversalScanBarProps> = ({
       }
     } catch (err: any) {
       const errStr = err.message || '';
-      // Check if code was not registered
-      if (errStr.includes('NOT_REGISTERED') || errStr.includes('isn\'t registered') || errStr.includes('404')) {
+      if (errStr.includes('NOT_REGISTERED') || errStr.includes("isn't registered") || errStr.includes('404')) {
         let codeOnly = cleanRaw;
         try {
           const match = cleanRaw.match(/B-?(\d{4,6})/i) || cleanRaw.match(/TAA-([A-Za-z0-9-]+)/);
@@ -100,19 +92,15 @@ export const UniversalScanBar: React.FC<UniversalScanBarProps> = ({
         if (currentUser.role === 'admin') {
           setUnregisteredCode(codeOnly);
           setIsRegisterModalOpen(true);
-          setFeedback({
-            text: `${codeOnly} isn't registered yet. Opening registration modal...`,
-            isError: false,
-          });
         } else {
           setFeedback({
-            text: `${codeOnly} isn't registered. Ask Admin to register the batch, then scan again.`,
+            text: `Batch "${codeOnly}" is not registered. Please ask an Admin to register this lot.`,
             isError: true,
           });
         }
       } else {
         setFeedback({
-          text: errStr || 'Failed to resolve scanned code.',
+          text: err.message || 'Could not find checksheet for this code.',
           isError: true,
         });
       }
@@ -123,93 +111,72 @@ export const UniversalScanBar: React.FC<UniversalScanBarProps> = ({
 
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    handleProcessCode(scanInput, 'manual entry');
+    handleProcessCode(scanInput);
     setScanInput('');
   };
 
   return (
-    <div className="bg-slate-50 border-b border-slate-200 px-4 py-3 sm:px-6 no-print text-xs">
-      <div className="max-w-7xl mx-auto space-y-2.5">
-        {/* Main Scan Form */}
-        <form onSubmit={handleFormSubmit} className="flex flex-wrap items-center gap-2">
-          <label htmlFor="scan-bar-input" className="w-full text-slate-600 font-medium">
-            Scan a batch label with any scanner, or type the code and press Enter
-          </label>
-          <div className="flex-1 flex gap-2 min-w-[260px]">
+    <div className="bg-white border-b border-slate-200 px-4 py-2.5 sm:px-6 no-print">
+      <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
+        {/* Search & Scan Box */}
+        <form onSubmit={handleFormSubmit} className="w-full sm:max-w-xl flex items-center gap-2">
+          <div className="relative flex-1">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+              <Barcode className="w-4 h-4" />
+            </div>
             <input
-              id="scan-bar-input"
               type="text"
               value={scanInput}
               onChange={(e) => setScanInput(e.target.value)}
-              placeholder="e.g. TAA-B-24117, B-24118, LOT-2026-495A"
-              className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-slate-900 focus:outline-none bg-white font-medium"
+              placeholder="Scan barcode or type Lot / Sheet ID (e.g. B-24117)..."
+              className="w-full pl-9 pr-20 py-2 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-slate-900 focus:bg-white rounded-xl text-xs font-medium text-slate-800 placeholder-slate-400 transition-all outline-none"
             />
-            <button
-              type="submit"
-              disabled={isResolving || !scanInput.trim()}
-              className="bg-slate-900 hover:bg-slate-800 text-white font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 transition-all disabled:opacity-50"
-            >
-              <ArrowRight className="w-3.5 h-3.5" />
-              <span>Open Batch</span>
-            </button>
+            <div className="absolute inset-y-0 right-1 flex items-center">
+              <button
+                type="submit"
+                disabled={isResolving || !scanInput.trim()}
+                className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-[11px] font-semibold transition-all disabled:opacity-40 disabled:hover:bg-slate-900"
+              >
+                {isResolving ? 'Opening...' : 'Open'}
+              </button>
+            </div>
           </div>
 
           <button
             type="button"
             onClick={() => setIsCameraScannerOpen(true)}
-            className="bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-medium px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition-colors"
+            title="Scan QR or barcode with camera"
+            className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-medium transition-colors shrink-0"
           >
             <Camera className="w-3.5 h-3.5 text-slate-600" />
-            <span>Scan with Camera</span>
+            <span className="hidden md:inline">Camera</span>
           </button>
         </form>
 
-        {/* Device Simulator & Quick Sample Chips */}
-        <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-600 pt-0.5">
-          <span className="font-medium text-slate-500">Simulate a device:</span>
-          <select
-            value={simDevice}
-            onChange={(e) => setSimDevice(e.target.value)}
-            className="border border-slate-200 bg-white rounded-md px-2 py-1 text-[11px] font-medium"
-          >
-            <option>TFT terminal</option>
-            <option>Handheld barcode scanner</option>
-            <option>QR scanner</option>
-            <option>Phone camera</option>
-          </select>
-
-          <span className="text-slate-400">then tap a label:</span>
-          <div className="flex flex-wrap gap-1.5">
-            {SAMPLES.map((s, idx) => (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => handleProcessCode(s.raw, `${simDevice} (simulated)`)}
-                className="border border-dashed border-slate-300 hover:border-slate-600 bg-white hover:bg-slate-50 px-2 py-0.5 rounded text-[11px] text-slate-700 transition-all font-mono"
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
+        {/* Live Status indicator & Scanner state */}
+        <div className="flex items-center gap-3 text-xs">
+          {feedback ? (
+            <div
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] font-medium transition-all ${
+                feedback.isError
+                  ? 'bg-red-50 text-red-700 border border-red-200'
+                  : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+              }`}
+            >
+              {feedback.isError ? (
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+              ) : (
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+              )}
+              <span>{feedback.text}</span>
+            </div>
+          ) : (
+            <div className="hidden sm:flex items-center gap-2 text-slate-500 text-[11px]">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span>Scanner ready (Point & shoot)</span>
+            </div>
+          )}
         </div>
-
-        {/* Scan Result Feedback Banner */}
-        {feedback && (
-          <div
-            className={`p-2 rounded-lg flex items-center gap-2 text-xs font-medium ${
-              feedback.isError
-                ? 'bg-red-50 text-red-700 border border-red-200'
-                : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-            }`}
-          >
-            {feedback.isError ? (
-              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-            ) : (
-              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-            )}
-            <span>{feedback.text}</span>
-          </div>
-        )}
       </div>
 
       {/* Admin On-The-Fly Registration Modal */}
@@ -227,7 +194,7 @@ export const UniversalScanBar: React.FC<UniversalScanBarProps> = ({
         />
       )}
 
-      {/* TFT Camera Scanner Modal */}
+      {/* Camera Scanner Modal */}
       <TFTScannerModal
         isOpen={isCameraScannerOpen}
         onClose={() => setIsCameraScannerOpen(false)}
