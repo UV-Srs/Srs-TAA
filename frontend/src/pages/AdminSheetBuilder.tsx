@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { SheetTemplate, ControlItem } from '../types';
+import { SheetTemplate, ControlItem, PartBarcodeInfo } from '../types';
 import { fetchSheets, createSheet, updateSheet } from '../api';
-import { Plus, Trash2, Save, Printer, QrCode, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, Save, Printer, QrCode, CheckCircle2, AlertCircle, Barcode, X } from 'lucide-react';
 import { PrintLabelModal } from '../components/PrintLabelModal';
 import { TFTScannerModal } from '../components/TFTScannerModal';
 
@@ -19,15 +19,17 @@ export const AdminSheetBuilder: React.FC = () => {
   const [vendorName, setVendorName] = useState<string>('Bundy India Ltd.');
   const [customerName, setCustomerName] = useState<string>('MSIL');
   const [partCategory, setPartCategory] = useState<string>('MAIN PART');
+  const [externalBarcode, setExternalBarcode] = useState<string>('');
   const [controlItems, setControlItems] = useState<ControlItem[]>([]);
 
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isSaving, setIsSaving] = useState<boolean>(false);
-  const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
   // Modals
   const [isPrintModalOpen, setIsPrintModalOpen] = useState<boolean>(false);
   const [isTFTScanOpen, setIsTFTScanOpen] = useState<boolean>(false);
+  const [scannerMode, setScannerMode] = useState<'resolve' | 'part-scan'>('resolve');
 
   useEffect(() => {
     loadSheets();
@@ -58,9 +60,10 @@ export const AdminSheetBuilder: React.FC = () => {
     setPartNo(s.part_no || '');
     setPartName(s.part_name || '');
     setModelName(s.model_name || '');
-    vendorName && setVendorName(s.vendor_name || '');
-    customerName && setCustomerName(s.customer_name || '');
+    setVendorName(s.vendor_name || '');
+    setCustomerName(s.customer_name || '');
     setPartCategory(s.part_category || 'MAIN PART');
+    setExternalBarcode(s.external_barcode || '');
     setControlItems(s.control_items || []);
     setStatusMsg(null);
   };
@@ -76,6 +79,7 @@ export const AdminSheetBuilder: React.FC = () => {
     setVendorName('');
     setCustomerName('');
     setPartCategory('MAIN PART');
+    setExternalBarcode('');
     setControlItems([
       {
         serial_no: 1,
@@ -164,7 +168,7 @@ export const AdminSheetBuilder: React.FC = () => {
     try {
       setIsSaving(true);
       setStatusMsg(null);
-      const payload: SheetTemplate = {
+      const payload: SheetTemplate & { external_barcode?: string } = {
         sheet_id: sheetId.trim(),
         document_title: documentTitle,
         part_no: partNo,
@@ -173,6 +177,7 @@ export const AdminSheetBuilder: React.FC = () => {
         vendor_name: vendorName,
         customer_name: customerName,
         part_category: partCategory,
+        external_barcode: externalBarcode.trim() || undefined,
         control_items: controlItems,
       };
 
@@ -192,11 +197,47 @@ export const AdminSheetBuilder: React.FC = () => {
     }
   };
 
+  // Called when admin scans a physical part barcode
+  const handlePartScanned = (info: PartBarcodeInfo) => {
+    // Store the raw barcode as the external barcode for this sheet
+    setExternalBarcode(info.raw_code);
+
+    // Auto-fill what we could parse
+    if (info.part_no && !partNo) setPartNo(info.part_no);
+
+    if (info.already_assigned_to && info.already_assigned_to !== sheetId) {
+      setStatusMsg({
+        type: 'info',
+        text: `This barcode is already linked to sheet '${info.already_assigned_to}'. Saving will reassign it.`,
+      });
+    } else {
+      const filled: string[] = [];
+      if (info.part_no) filled.push(`Part No: ${info.part_no}`);
+      if (info.lot_number) filled.push(`Lot: ${info.lot_number}`);
+      if (info.gtin) filled.push(`GTIN: ${info.gtin}`);
+      setStatusMsg({
+        type: 'success',
+        text: `Barcode scanned (${info.format_detected}). ${filled.length ? 'Auto-filled: ' + filled.join(', ') + '.' : 'Linked to this sheet.'}`,
+      });
+    }
+  };
+
+  // Called when admin scans a TAA QR for Sheet ID lookup (original behaviour)
   const handleQRScannedForSheetID = (res: any) => {
     if (res.sheet_id) {
       setSheetId(res.sheet_id);
       setStatusMsg({ type: 'success', text: `Scanned Sheet ID populated: ${res.sheet_id}` });
     }
+  };
+
+  const openPartScanner = () => {
+    setScannerMode('part-scan');
+    setIsTFTScanOpen(true);
+  };
+
+  const openSheetScanner = () => {
+    setScannerMode('resolve');
+    setIsTFTScanOpen(true);
   };
 
   if (isLoading) {
@@ -212,7 +253,7 @@ export const AdminSheetBuilder: React.FC = () => {
             Checksheet Template Builder
           </h2>
           <p className="text-xs text-slate-500">
-            Configure inspection rows, columns, tolerances, and generate linked QR codes
+            Configure inspection rows, columns, tolerances, and assign physical barcodes
           </p>
         </div>
 
@@ -264,9 +305,13 @@ export const AdminSheetBuilder: React.FC = () => {
         <div className={`p-3 rounded-lg text-xs flex items-center gap-2 border ${
           statusMsg.type === 'success'
             ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+            : statusMsg.type === 'info'
+            ? 'border-blue-200 bg-blue-50 text-blue-800'
             : 'border-red-200 bg-red-50 text-red-800'
         }`}>
-          {statusMsg.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <AlertCircle className="w-4 h-4 text-red-600" />}
+          {statusMsg.type === 'success'
+            ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            : <AlertCircle className="w-4 h-4 shrink-0" />}
           <span>{statusMsg.text}</span>
         </div>
       )}
@@ -275,15 +320,44 @@ export const AdminSheetBuilder: React.FC = () => {
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4 text-xs">
         <div className="flex items-center justify-between pb-3 border-b border-slate-100">
           <span className="font-semibold text-slate-900">Sheet Metadata & Identification</span>
-          <button
-            type="button"
-            onClick={() => setIsTFTScanOpen(true)}
-            className="text-[11px] font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-md flex items-center gap-1 transition-colors"
-          >
-            <QrCode className="w-3.5 h-3.5" />
-            <span>Scan QR for Sheet ID</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={openPartScanner}
+              className="text-[11px] font-medium text-white bg-slate-900 hover:bg-slate-800 px-2.5 py-1 rounded-md flex items-center gap-1 transition-colors"
+            >
+              <Barcode className="w-3.5 h-3.5" />
+              <span>Scan Part Barcode</span>
+            </button>
+            <button
+              type="button"
+              onClick={openSheetScanner}
+              className="text-[11px] font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-md flex items-center gap-1 transition-colors"
+            >
+              <QrCode className="w-3.5 h-3.5" />
+              <span>Scan QR for Sheet ID</span>
+            </button>
+          </div>
         </div>
+
+        {/* Scanned barcode banner */}
+        {externalBarcode && (
+          <div className="flex items-center gap-2 bg-slate-900 text-white rounded-lg px-3 py-2.5">
+            <Barcode className="w-4 h-4 shrink-0 text-slate-300" />
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] text-slate-400 font-medium uppercase tracking-wide">Physical Barcode Assigned</div>
+              <div className="font-mono font-semibold truncate">{externalBarcode}</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setExternalBarcode('')}
+              className="text-slate-400 hover:text-white p-0.5 rounded"
+              title="Remove barcode assignment"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
           <div className="space-y-1">
@@ -550,7 +624,9 @@ export const AdminSheetBuilder: React.FC = () => {
         <TFTScannerModal
           isOpen={true}
           onClose={() => setIsTFTScanOpen(false)}
+          mode={scannerMode}
           onResolved={handleQRScannedForSheetID}
+          onPartScanned={handlePartScanned}
         />
       )}
     </div>

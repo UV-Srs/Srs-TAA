@@ -72,6 +72,7 @@ class SheetTemplateCreate(BaseModel):
     vendor_name: Optional[str] = None
     customer_name: Optional[str] = None
     part_category: Optional[str] = "MAIN PART"
+    external_barcode: Optional[str] = None
     control_items: List[ControlItemCreate] = []
 
 class SheetTemplateResponse(BaseModel):
@@ -85,6 +86,7 @@ class SheetTemplateResponse(BaseModel):
     part_category: Optional[str] = "MAIN PART"
     qr_code_value: str
     barcode_value: str
+    external_barcode: Optional[str] = None
     created_by: Optional[int] = None
     created_at: Optional[datetime] = None
     control_items: List[ControlItemResponse] = []

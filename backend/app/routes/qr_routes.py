@@ -110,10 +110,12 @@ def resolve_code(
             (InspectionBatch.lot_number == clean_code) | (InspectionBatch.lot_number == f"TAA-{clean_code}")
         ).first()
 
-    # Query by template QR or barcode value
+    # Query by template QR, barcode, or physical external barcode
     if not batch and not template:
         template = db.query(SheetTemplate).filter(
-            (SheetTemplate.qr_code_value == clean_code) | (SheetTemplate.barcode_value == clean_code)
+            (SheetTemplate.qr_code_value == clean_code) |
+            (SheetTemplate.barcode_value == clean_code) |
+            (SheetTemplate.external_barcode == clean_code)
         ).first()
 
     # Query by batch_id directly (int)
@@ -185,6 +187,78 @@ def resolve_code(
                 "part_name": template.part_name
             }
         }
+
+def _parse_gs1(raw: str) -> dict:
+    """
+    Parse GS1-128 / GS1 DataMatrix barcodes into a structured dict.
+    Handles parenthesised AIs like (01)12345... and bracket-less runs.
+    Returns whichever fields are found; unrecognised content goes to raw_code.
+    """
+    result: dict = {"raw_code": raw, "format": "Plain"}
+    # Parenthesised GS1
+    import re as _re
+    ai_map = {
+        "01": "gtin", "10": "lot_number", "21": "serial_number",
+        "11": "manufacture_date", "17": "expiry_date",
+        "240": "part_no", "241": "customer_part_no", "30": "quantity"
+    }
+    paren_matches = _re.findall(r'\((\d{2,3})\)([^\(]+)', raw)
+    if paren_matches:
+        result["format"] = "GS1-128"
+        for ai, val in paren_matches:
+            key = ai_map.get(ai)
+            if key:
+                result[key] = val.strip()
+        return result
+    # Bracket-less GS1 starting with FNC1 / known fixed-width AIs
+    if raw.startswith('\x1d') or raw.startswith(']C1') or raw.startswith(']d1'):
+        raw_stripped = raw.lstrip('\x1d').lstrip(']C1').lstrip(']d1')
+        if raw_stripped[:2] == '01' and len(raw_stripped) >= 16:
+            result["format"] = "GS1-128"
+            result["gtin"] = raw_stripped[2:16]
+            rest = raw_stripped[16:]
+            if rest.startswith('10'):
+                lot_end = rest.find('\x1d', 2) if '\x1d' in rest else len(rest)
+                result["lot_number"] = rest[2:lot_end]
+        return result
+    # Plain / Code-128 — treat the whole value as a part number candidate
+    if raw and not raw.startswith('http') and not raw.startswith('{'):
+        result["part_no"] = raw.strip()
+    return result
+
+
+@router.get("/parse-part/{code:path}")
+def parse_part_barcode(
+    code: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Admin-only helper: decode a raw barcode/QR string from a physical part
+    and return structured part details for auto-filling the sheet creation form.
+    Also checks if the barcode is already assigned to an existing sheet.
+    """
+    raw = code.strip()
+    parsed = _parse_gs1(raw)
+
+    # Check if this barcode already maps to a sheet
+    existing = db.query(SheetTemplate).filter(
+        (SheetTemplate.external_barcode == raw) |
+        (SheetTemplate.qr_code_value == raw) |
+        (SheetTemplate.barcode_value == raw)
+    ).first()
+
+    return {
+        "raw_code": raw,
+        "format_detected": parsed.get("format", "Plain"),
+        "part_no": parsed.get("part_no") or parsed.get("customer_part_no"),
+        "lot_number": parsed.get("lot_number"),
+        "serial_number": parsed.get("serial_number"),
+        "gtin": parsed.get("gtin"),
+        "manufacture_date": parsed.get("manufacture_date"),
+        "already_assigned_to": existing.sheet_id if existing else None,
+    }
+
 
 @router.get("/codes/{sheet_id}")
 def get_template_codes(

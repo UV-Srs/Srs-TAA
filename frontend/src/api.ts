@@ -1,6 +1,6 @@
 import {
   User, SheetTemplate, InspectionBatch, CellResponse,
-  QRResolveResult, OfflineMutation, InAppNotification
+  QRResolveResult, OfflineMutation, InAppNotification, PartBarcodeInfo
 } from './types';
 
 const API_BASE = '';
@@ -249,6 +249,10 @@ export async function uploadBatchAttachment(batchId: number, file: Blob, capture
 // --- QR / Barcode ---
 export async function resolveQR(code: string): Promise<QRResolveResult> {
   return apiRequest<QRResolveResult>(`/api/qr/resolve/${encodeURIComponent(code)}`);
+}
+
+export async function parseBarcodeDetails(code: string): Promise<PartBarcodeInfo> {
+  return apiRequest<PartBarcodeInfo>(`/api/qr/parse-part/${encodeURIComponent(code)}`);
 }
 
 export async function fetchSheetQRCodes(sheetId: string): Promise<{

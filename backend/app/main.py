@@ -24,8 +24,26 @@ from backend.app.routes import (
     notification_routes,
 )
 
+def _apply_column_migrations():
+    """Add any new columns to existing tables that create_all won't auto-add."""
+    from sqlalchemy import text as _text
+    migrations = [
+        # external_barcode — added for physical part barcode assignment feature
+        "ALTER TABLE sheet_templates ADD COLUMN IF NOT EXISTS external_barcode VARCHAR(500)",
+        "CREATE INDEX IF NOT EXISTS ix_sheet_templates_external_barcode ON sheet_templates (external_barcode) WHERE external_barcode IS NOT NULL",
+    ]
+    with engine.connect() as conn:
+        for stmt in migrations:
+            try:
+                conn.execute(_text(stmt))
+            except Exception as e:
+                print(f"[DB MIGRATION] Warning: {stmt[:60]}... -> {e}")
+        conn.commit()
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
+    _apply_column_migrations()
     db = SessionLocal()
     try:
         seed_database(db)

@@ -128,6 +128,13 @@ def create_sheet(payload: SheetTemplateCreate, db: Session = Depends(get_db), cu
     qr_val = f"TAA:SHEET:{payload.sheet_id}"
     barcode_val = f"TAA-{payload.sheet_id}"
 
+    # Check external_barcode uniqueness if provided
+    ext_bc = payload.external_barcode.strip() if payload.external_barcode else None
+    if ext_bc:
+        conflict = db.query(SheetTemplate).filter(SheetTemplate.external_barcode == ext_bc).first()
+        if conflict:
+            raise HTTPException(status_code=400, detail=f"External barcode '{ext_bc}' is already assigned to sheet '{conflict.sheet_id}'")
+
     template = SheetTemplate(
         sheet_id=payload.sheet_id,
         document_title=payload.document_title,
@@ -139,6 +146,7 @@ def create_sheet(payload: SheetTemplateCreate, db: Session = Depends(get_db), cu
         part_category=payload.part_category or "MAIN PART",
         qr_code_value=qr_val,
         barcode_value=barcode_val,
+        external_barcode=ext_bc,
         created_by=current_user.user_id
     )
     db.add(template)
@@ -204,6 +212,15 @@ def update_sheet(sheet_id: str, payload: SheetTemplateCreate, db: Session = Depe
     template.vendor_name = payload.vendor_name
     template.customer_name = payload.customer_name
     template.part_category = payload.part_category
+    ext_bc_upd = payload.external_barcode.strip() if payload.external_barcode else None
+    if ext_bc_upd and ext_bc_upd != template.external_barcode:
+        conflict = db.query(SheetTemplate).filter(
+            SheetTemplate.external_barcode == ext_bc_upd,
+            SheetTemplate.sheet_id != sheet_id
+        ).first()
+        if conflict:
+            raise HTTPException(status_code=400, detail=f"External barcode '{ext_bc_upd}' is already assigned to sheet '{conflict.sheet_id}'")
+    template.external_barcode = ext_bc_upd
 
     # Replace control items
     db.query(TemplateControlItem).filter(TemplateControlItem.sheet_id == sheet_id).delete()

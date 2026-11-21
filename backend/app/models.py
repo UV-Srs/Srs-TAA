@@ -36,6 +36,8 @@ class SheetTemplate(Base):
     part_category = Column(String(50), default="MAIN PART")
     qr_code_value = Column(String(255), unique=True, nullable=False, index=True)
     barcode_value = Column(String(255), unique=True, nullable=False, index=True)
+    # Physical barcode/QR printed on the actual part — set when admin scans the part during sheet creation
+    external_barcode = Column(String(500), nullable=True, index=True)
     created_by = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
