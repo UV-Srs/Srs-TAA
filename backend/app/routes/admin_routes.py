@@ -344,7 +344,7 @@ def get_progress_dashboard(db: Session = Depends(get_db), current_user: User = D
     check_overdue_holds(db)
     now = datetime.utcnow()
     batches = db.query(InspectionBatch).order_by(InspectionBatch.created_at.desc()).all()
-    
+
     total = len(batches)
     counts = {
         "CREATED_PENDING_OPERATOR": 0,
@@ -357,6 +357,35 @@ def get_progress_dashboard(db: Session = Depends(get_db), current_user: User = D
         "REJECTED": 0
     }
 
+    # Pre-aggregate to eliminate N+1 queries
+    # Map sheet_id -> expected cell count
+    sheet_items = db.query(TemplateControlItem).all()
+    sheet_expected_cells: dict = {}
+    for it in sheet_items:
+        cols = len(it.sample_columns) if isinstance(it.sample_columns, list) else 1
+        sheet_expected_cells[it.sheet_id] = sheet_expected_cells.get(it.sheet_id, 0) + cols
+
+    # Map batch_id -> answered cell count
+    answered_rows = (
+        db.query(BatchCellResponse.batch_id, func.count(BatchCellResponse.response_id))
+        .filter(BatchCellResponse.cell_value.isnot(None), BatchCellResponse.cell_value != "")
+        .group_by(BatchCellResponse.batch_id)
+        .all()
+    )
+    batch_answered: dict = {row[0]: row[1] for row in answered_rows}
+
+    # Pre-fetch all referenced users in one query
+    user_ids = set()
+    for b in batches:
+        if b.prepared_by:
+            user_ids.add(b.prepared_by)
+        if b.checked_by:
+            user_ids.add(b.checked_by)
+    users_map: dict = {}
+    if user_ids:
+        for u in db.query(User).filter(User.user_id.in_(user_ids)).all():
+            users_map[u.user_id] = u
+
     overdue_count = 0
     batch_list = []
     for b in batches:
@@ -364,19 +393,11 @@ def get_progress_dashboard(db: Session = Depends(get_db), current_user: User = D
         is_over = bool(b.status == "ON_HOLD" and b.hold_due_at and b.hold_due_at <= now)
         if is_over:
             overdue_count += 1
-        
-        # Calculate completion %
-        total_items = db.query(TemplateControlItem).filter(TemplateControlItem.sheet_id == b.sheet_id).count()
-        answered_cells = db.query(BatchCellResponse).filter(
-            BatchCellResponse.batch_id == b.batch_id,
-            BatchCellResponse.cell_value.isnot(None),
-            BatchCellResponse.cell_value != ""
-        ).count()
-        
-        template_items = db.query(TemplateControlItem).filter(TemplateControlItem.sheet_id == b.sheet_id).all()
-        expected_cells = sum(len(it.sample_columns) if isinstance(it.sample_columns, list) else 1 for it in template_items) or 1
-        
-        pct = min(100, int((answered_cells / expected_cells) * 100)) if expected_cells > 0 else 0
+
+        # Completion % — no per-batch queries
+        expected_cells = sheet_expected_cells.get(b.sheet_id, 1) or 1
+        answered_cells = batch_answered.get(b.batch_id, 0)
+        pct = min(100, int((answered_cells / expected_cells) * 100))
         if b.status in ["APPROVED", "REJECTED", "OPERATOR_APPROVED", "OPERATOR_REJECTED"]:
             pct = 100
 
@@ -394,8 +415,8 @@ def get_progress_dashboard(db: Session = Depends(get_db), current_user: User = D
         elif b.status == "REJECTED":
             bottleneck = "Completed (Rejected)"
 
-        prep_user = db.query(User).filter(User.user_id == b.prepared_by).first() if b.prepared_by else None
-        chk_user = db.query(User).filter(User.user_id == b.checked_by).first() if b.checked_by else None
+        prep_user = users_map.get(b.prepared_by) if b.prepared_by else None
+        chk_user = users_map.get(b.checked_by) if b.checked_by else None
 
         batch_list.append({
             "batch_id": b.batch_id,

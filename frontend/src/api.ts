@@ -51,8 +51,23 @@ export async function loginUser(username: string, password: string): Promise<{ a
 }
 
 export function getCurrentStoredUser(): User | null {
-  const u = localStorage.getItem('taa_user');
-  return u ? JSON.parse(u) : null;
+  const raw = localStorage.getItem('taa_user');
+  if (!raw) return null;
+  const stored: User = JSON.parse(raw);
+
+  // Derive role from the JWT payload so a tampered localStorage user object
+  // cannot escalate UI privileges — the backend still enforces via JWT claims,
+  // but this closes the gap where admin-only tabs would appear after a local edit.
+  const token = localStorage.getItem('taa_jwt_token');
+  if (token) {
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      if (payload?.role) stored.role = payload.role;
+    } catch {
+      // malformed token — force logout on next API call which will 401
+    }
+  }
+  return stored;
 }
 
 export function logoutUser(): void {

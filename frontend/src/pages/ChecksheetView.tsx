@@ -645,8 +645,8 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                 const currentVal = cellData?.cell_value || '';
                 const isOutOfSpec = checkOutOfSpec(item, currentVal);
 
-                // Supervisor review state for this item
-                const supRevChoice = supRevs[item.control_item_name] || supRevs[String(item.item_id)];
+                // Supervisor review state for this item — keyed by item_id to avoid name-collision bugs
+                const supRevChoice = supRevs[String(item.item_id)];
                 const isItemRejectedByOp = opRejectedList.includes(item.control_item_name) || opRejectedList.includes(item.item_id);
 
                 return (
@@ -796,7 +796,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                           <div className="inline-flex rounded-lg border border-slate-300 p-0.5 bg-slate-50 gap-1">
                             <button
                               type="button"
-                              onClick={() => handleToggleFieldReview(item.control_item_name, 'confirm')}
+                              onClick={() => handleToggleFieldReview(String(item.item_id), 'confirm')}
                               className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-all ${
                                 supRevChoice === 'confirm'
                                   ? 'bg-red-600 text-white shadow-sm'
@@ -807,7 +807,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleToggleFieldReview(item.control_item_name, 'overrule')}
+                              onClick={() => handleToggleFieldReview(String(item.item_id), 'overrule')}
                               className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-all ${
                                 supRevChoice === 'overrule'
                                   ? 'bg-emerald-600 text-white shadow-sm'

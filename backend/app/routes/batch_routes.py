@@ -266,6 +266,8 @@ def release_batch_hold(
     """
     if current_user.role not in ["supervisor", "admin"]:
         raise HTTPException(status_code=403, detail="Only Supervisors and Admins can release a hold.")
+    # Note: role check kept inline here because release-hold is under require_any_authenticated;
+    # a future refactor should split this into a dedicated require_supervisor route.
 
     batch = db.query(InspectionBatch).filter(InspectionBatch.batch_id == batch_id).first()
     if not batch:

@@ -22,8 +22,7 @@ def seed_database(db: Session):
         db.add(admin_user)
         db.flush()
     else:
-        existing_admin.is_active = True
-        existing_admin.password_hash = hash_password("admin123")
+        # Never overwrite an existing admin's password or reactivate a deactivated account on restart
         admin_user = existing_admin
 
     existing_admin2 = db.query(User).filter(User.username == "admin2").first()
@@ -37,9 +36,6 @@ def seed_database(db: Session):
         )
         db.add(admin2_user)
         db.flush()
-    else:
-        existing_admin2.is_active = True
-        existing_admin2.password_hash = hash_password("admin123")
 
     existing_supervisor = db.query(User).filter(User.username == "supervisor").first()
     if not existing_supervisor:

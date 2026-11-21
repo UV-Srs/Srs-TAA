@@ -189,7 +189,8 @@ def resolve_code(
 @router.get("/codes/{sheet_id}")
 def get_template_codes(
     sheet_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     template = db.query(SheetTemplate).filter(SheetTemplate.sheet_id == sheet_id).first()
     if not template:
