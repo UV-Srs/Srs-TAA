@@ -1,6 +1,6 @@
 import {
   User, SheetTemplate, InspectionBatch, CellResponse,
-  QRResolveResult, OfflineMutation
+  QRResolveResult, OfflineMutation, InAppNotification
 } from './types';
 
 const API_BASE = '';
@@ -112,8 +112,28 @@ export async function fetchBatches(): Promise<InspectionBatch[]> {
   return apiRequest<InspectionBatch[]>('/api/batches');
 }
 
-export async function createBatch(data: { sheet_id: string; lot_number: string; lot_quantity?: number; inspection_mode?: string }): Promise<InspectionBatch> {
+export async function createBatch(data: {
+  sheet_id: string;
+  lot_number: string;
+  product_name?: string;
+  line_name?: string;
+  lot_quantity?: number;
+  inspection_mode?: string;
+}): Promise<InspectionBatch> {
   return apiRequest<InspectionBatch>('/api/admin/batches', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function quickRegisterBatch(data: {
+  code: string;
+  sheet_id: string;
+  product_name: string;
+  line_name: string;
+  lot_quantity: number;
+}): Promise<InspectionBatch> {
+  return apiRequest<InspectionBatch>('/api/admin/batches/quick-register', {
     method: 'POST',
     body: JSON.stringify(data),
   });
@@ -121,6 +141,12 @@ export async function createBatch(data: { sheet_id: string; lot_number: string; 
 
 export async function fetchBatchDetail(batchId: number): Promise<InspectionBatch> {
   return apiRequest<InspectionBatch>(`/api/batches/${batchId}`);
+}
+
+export async function openBatchWorkflow(batchId: number): Promise<InspectionBatch> {
+  return apiRequest<InspectionBatch>(`/api/batches/${batchId}/open`, {
+    method: 'POST',
+  });
 }
 
 export async function updateCellResponse(batchId: number, data: { item_id: number; column_key: string; cell_value?: string | null; checker_initials?: string; client_mutation_id?: string }): Promise<any> {
@@ -133,7 +159,7 @@ export async function updateCellResponse(batchId: number, data: { item_id: numbe
 // --- Operator & Supervisor Decisions ---
 export async function submitOperatorBatch(
   batchId: number,
-  data: { decision: 'APPROVE' | 'REJECT'; rejected_item_ids?: number[]; remarks?: string; cells: any[] }
+  data: { decision: 'APPROVE' | 'REJECT'; rejected_item_ids?: number[]; rejected_field_names?: string[]; remarks?: string; cells: any[] }
 ): Promise<any> {
   return apiRequest(`/api/operator/batches/${batchId}/submit`, {
     method: 'POST',
@@ -141,13 +167,46 @@ export async function submitOperatorBatch(
   });
 }
 
+export async function reviewSingleField(
+  batchId: number,
+  field_key: string,
+  review: 'confirm' | 'overrule'
+): Promise<any> {
+  return apiRequest(`/api/supervisor/batches/${batchId}/review-field`, {
+    method: 'POST',
+    body: JSON.stringify({ field_key, review }),
+  });
+}
+
 export async function reviewSupervisorBatch(
   batchId: number,
-  data: { decision: string; rejected_item_ids?: number[]; hold_reason?: string; remarks?: string }
+  data: { decision: string; rejected_item_ids?: number[]; hold_reason?: string; hold_note?: string; hold_due_hours?: number; remarks?: string }
 ): Promise<any> {
   return apiRequest(`/api/supervisor/batches/${batchId}/review`, {
     method: 'POST',
     body: JSON.stringify(data),
+  });
+}
+
+export async function releaseBatchHold(
+  batchId: number,
+  data: { outcome: 'approve' | 'reject' | 'reinspect'; release_note: string; rejected_item_ids?: number[] }
+): Promise<any> {
+  return apiRequest(`/api/batches/${batchId}/release-hold`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+// --- Notifications ---
+export async function fetchNotifications(limit: number = 50): Promise<InAppNotification[]> {
+  return apiRequest<InAppNotification[]>(`/api/notifications?limit=${limit}`);
+}
+
+export async function markNotificationsRead(notificationId?: number): Promise<any> {
+  return apiRequest('/api/notifications/mark-read', {
+    method: 'POST',
+    body: JSON.stringify({ notification_id: notificationId }),
   });
 }
 
@@ -206,6 +265,9 @@ export async function syncOfflineQueue(mutations: OfflineMutation[]): Promise<an
 }
 
 export function getExportUrl(batchId: number, format: 'pdf' | 'xlsx'): string {
-  const token = localStorage.getItem('taa_jwt_token') || '';
   return `/api/admin/batches/${batchId}/export?format=${format}`;
+}
+
+export function getCsvExportUrl(): string {
+  return `/api/admin/export-csv`;
 }

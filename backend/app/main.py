@@ -18,6 +18,7 @@ from backend.app.routes import (
     qr_routes,
     sync_routes,
     batch_routes,
+    notification_routes,
 )
 
 def init_db():
@@ -58,6 +59,7 @@ app.include_router(supervisor_routes.router)
 app.include_router(qr_routes.router)
 app.include_router(sync_routes.router)
 app.include_router(batch_routes.router)
+app.include_router(notification_routes.router)
 
 @app.get("/api/health")
 def health_check():

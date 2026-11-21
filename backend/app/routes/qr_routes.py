@@ -1,4 +1,7 @@
-from typing import Optional
+import json
+import re
+from urllib.parse import urlparse, parse_qs
+from typing import Optional, Dict, Any, Tuple
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
@@ -10,28 +13,77 @@ from backend.app.qr_engine import generate_qr_base64, generate_barcode_base64
 
 router = APIRouter(prefix="/api/qr", tags=["QR & Barcode Engine"])
 
-@router.get("/resolve/{code}", response_model=QRResolveResponse)
+def parse_scan_code(raw: str) -> Tuple[str, str]:
+    """
+    FR-018: Multi-format barcode/QR parser.
+    Detects plain codes, QR JSON, QR URLs, and GS1 barcodes (AI 10).
+    Returns (normalized_code, format_name).
+    """
+    raw_str = raw.strip()
+    if not raw_str:
+        return "", "Unknown"
+
+    format_name = "Plain code"
+    extracted_id = None
+
+    # 1. Try QR JSON payload
+    try:
+        data = json.loads(raw_str)
+        if isinstance(data, dict):
+            extracted_id = data.get("batch") or data.get("batchId") or data.get("b") or data.get("sheet") or data.get("sheet_id")
+            format_name = "QR with JSON payload"
+    except Exception:
+        pass
+
+    # 2. Try QR URL
+    if not extracted_id and (raw_str.startswith("http://") or raw_str.startswith("https://")):
+        try:
+            parsed = urlparse(raw_str)
+            qs = parse_qs(parsed.query)
+            if "batch" in qs:
+                extracted_id = qs["batch"][0]
+            elif "b" in qs:
+                extracted_id = qs["b"][0]
+            elif "sheet" in qs:
+                extracted_id = qs["sheet"][0]
+            else:
+                extracted_id = parsed.path.strip("/").split("/")[-1]
+            format_name = "QR with URL"
+        except Exception:
+            pass
+
+    # 3. Try GS1 barcode with AI 10 (lot number)
+    if not extracted_id:
+        gs1_match = re.search(r"\(10\)([A-Za-z0-9-_]+)", raw_str)
+        if gs1_match:
+            extracted_id = gs1_match.group(1)
+            format_name = "GS1 barcode (lot, AI 10)"
+
+    if not extracted_id:
+        extracted_id = raw_str
+
+    # Normalize code
+    code = extracted_id.strip()
+    return code, format_name
+
+@router.get("/resolve/{code:path}", response_model=QRResolveResponse)
 def resolve_code(
     code: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    FR-020, FR-021, FR-021A:
-    Resolves wired/wireless TFT QR or Barcode scan.
-    Returns target sheet/batch and enforces strict read_only flag if saved/finalized.
+    FR-017, FR-018, FR-020, FR-021, FR-021A:
+    Resolves any barcode/QR format to an inspection sheet or batch.
+    Enforces read-only locks on finalized batches.
+    Returns 404 with NOT_REGISTERED if unknown code.
     """
-    clean_code = code.strip()
-
-    # Formats:
-    # 1. TAA:BATCH:{batch_id}
-    # 2. TAA:SHEET:{sheet_id}
-    # 3. TAA-{sheet_id}
-    # 4. Raw batch_id (int) or sheet_id (str)
+    clean_code, format_detected = parse_scan_code(code)
 
     batch: Optional[InspectionBatch] = None
     template: Optional[SheetTemplate] = None
 
+    # Prefix checks
     if clean_code.startswith("TAA:BATCH:"):
         b_id_str = clean_code.replace("TAA:BATCH:", "")
         try:
@@ -42,39 +94,59 @@ def resolve_code(
         s_id = clean_code.replace("TAA:SHEET:", "")
         template = db.query(SheetTemplate).filter(SheetTemplate.sheet_id == s_id).first()
     elif clean_code.startswith("TAA-"):
-        s_id = clean_code.replace("TAA-", "")
-        template = db.query(SheetTemplate).filter(SheetTemplate.sheet_id == s_id).first()
-    else:
-        # Try finding by qr_code_value or barcode_value
+        # Could be batch like TAA-B-24117 or template like TAA-18351M62Q50-IFM
+        candidate = clean_code.replace("TAA-", "")
+        batch = db.query(InspectionBatch).filter(
+            (InspectionBatch.lot_number == clean_code) | (InspectionBatch.lot_number == candidate)
+        ).first()
+        if not batch:
+            template = db.query(SheetTemplate).filter(
+                (SheetTemplate.sheet_id == clean_code) | (SheetTemplate.sheet_id == candidate)
+            ).first()
+
+    # Query by lot_number directly (e.g. B-24117, LOT-2026-495A)
+    if not batch and not template:
+        batch = db.query(InspectionBatch).filter(
+            (InspectionBatch.lot_number == clean_code) | (InspectionBatch.lot_number == f"TAA-{clean_code}")
+        ).first()
+
+    # Query by template QR or barcode value
+    if not batch and not template:
         template = db.query(SheetTemplate).filter(
             (SheetTemplate.qr_code_value == clean_code) | (SheetTemplate.barcode_value == clean_code)
         ).first()
 
-        # If not, try by batch_id
-        if not template:
-            try:
-                batch = db.query(InspectionBatch).filter(InspectionBatch.batch_id == int(clean_code)).first()
-            except ValueError:
-                pass
+    # Query by batch_id directly (int)
+    if not batch and not template:
+        try:
+            batch = db.query(InspectionBatch).filter(InspectionBatch.batch_id == int(clean_code)).first()
+        except ValueError:
+            pass
 
-        # If not, try by sheet_id directly
-        if not template and not batch:
-            template = db.query(SheetTemplate).filter(SheetTemplate.sheet_id == clean_code).first()
+    # Query by sheet_id directly (str)
+    if not batch and not template:
+        template = db.query(SheetTemplate).filter(SheetTemplate.sheet_id == clean_code).first()
 
-    # If template found without batch, find the most recent open batch or link to template
+    # If template found without batch, find the most recent open batch
     if template and not batch:
         batch = db.query(InspectionBatch).filter(
             InspectionBatch.sheet_id == template.sheet_id
         ).order_by(InspectionBatch.created_at.desc()).first()
 
     if not template and not batch:
-        raise HTTPException(status_code=404, detail=f"No matching checksheet or batch found for scanned code: {code}")
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "NOT_REGISTERED",
+                "scanned_code": clean_code,
+                "format": format_detected,
+                "message": f"{clean_code} isn't registered yet."
+            }
+        )
 
     if batch:
         target_sheet_id = batch.sheet_id
         # FR-021A: Rescan Read-Only Rule
-        # If Operator submitted -> read_only = True for Operator
-        # If Supervisor submitted / finalized -> read_only = True for all
         read_only = False
         if current_user.role == "operator" and batch.operator_submitted_at is not None:
             read_only = True
@@ -87,10 +159,14 @@ def resolve_code(
             "batch_id": batch.batch_id,
             "read_only": read_only,
             "status": batch.status,
+            "format_detected": format_detected,
             "data": {
                 "lot_number": batch.lot_number,
                 "lot_quantity": batch.lot_quantity,
                 "inspection_mode": batch.inspection_mode,
+                "round": batch.round,
+                "product_name": batch.product_name or (batch.template.part_name if batch.template else None),
+                "line_name": batch.line_name,
                 "part_no": batch.template.part_no if batch.template else None,
                 "part_name": batch.template.part_name if batch.template else None
             }
@@ -101,7 +177,8 @@ def resolve_code(
             "sheet_id": template.sheet_id,
             "batch_id": None,
             "read_only": False,
-            "status": "TEMPLATE_ONLY",
+            "status": None,
+            "format_detected": format_detected,
             "data": {
                 "document_title": template.document_title,
                 "part_no": template.part_no,
@@ -110,23 +187,23 @@ def resolve_code(
         }
 
 @router.get("/codes/{sheet_id}")
-def get_sheet_codes(sheet_id: str, db: Session = Depends(get_db)):
-    """
-    FR-019: Returns built-in QR code and 1D Code128 barcode images as base64 PNG data URLs.
-    """
+def get_template_codes(
+    sheet_id: str,
+    db: Session = Depends(get_db)
+):
     template = db.query(SheetTemplate).filter(SheetTemplate.sheet_id == sheet_id).first()
     if not template:
         raise HTTPException(status_code=404, detail="Sheet template not found")
 
-    qr_image = generate_qr_base64(template.qr_code_value)
-    barcode_image = generate_barcode_base64(template.barcode_value)
+    qr_b64 = generate_qr_base64(template.qr_code_value)
+    barcode_b64 = generate_barcode_base64(template.barcode_value)
 
     return {
         "sheet_id": template.sheet_id,
-        "document_title": template.document_title,
-        "part_no": template.part_no,
         "qr_code_value": template.qr_code_value,
         "barcode_value": template.barcode_value,
-        "qr_image_url": qr_image,
-        "barcode_image_url": barcode_image
+        "qr_image_url": f"data:image/png;base64,{qr_b64}",
+        "barcode_image_url": f"data:image/png;base64,{barcode_b64}",
+        "qr_base64": qr_b64,
+        "barcode_base64": barcode_b64
     }

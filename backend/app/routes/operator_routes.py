@@ -11,6 +11,7 @@ from backend.app.models import (
 from backend.app.schemas import OperatorSubmitRequest, InspectionBatchResponse
 from backend.app.auth import require_operator
 from backend.app.audit import log_audit
+from backend.app.notifications import send_notification
 
 router = APIRouter(prefix="/api/operator", tags=["Operator Workflow"])
 
@@ -22,46 +23,44 @@ def submit_operator_inspection(
     current_user: User = Depends(require_operator)
 ):
     """
-    FR-025A, FR-026 - FR-030:
+    FR-025A, FR-026, FR-027, FR-028, FR-052, FR-054:
     Enforces full-sheet completion before Approve or Reject.
-    Saves all cell responses, checks tolerance limits, locks Operator fields.
+    Saves submitted cells, checks tolerance limits, locks Operator fields,
+    dispatches notification to Supervisor & Admin, and writes to Approval Record.
     """
     batch = db.query(InspectionBatch).filter(InspectionBatch.batch_id == batch_id).first()
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
 
-    # If already submitted by operator, lock
     if batch.operator_submitted_at is not None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Inspection has already been submitted by an operator and is locked"
+            detail="Inspection has already been submitted by an operator for this round and is locked"
         )
 
     template = db.query(SheetTemplate).filter(SheetTemplate.sheet_id == batch.sheet_id).first()
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
 
-    required_items = [item for item in template.control_items if item.is_required]
-    
-    # 1. First, save / update all submitted cells into batch_cell_responses
-    submitted_cells_map = {}
+    # 1. Upsert submitted cells
     for c in payload.cells:
-        submitted_cells_map[(c.item_id, str(c.column_key))] = c
-
-        # Find item definition for tolerance check
         item = next((it for it in template.control_items if it.item_id == c.item_id), None)
         is_spec = True
-        if item and item.row_mode == "NUMERIC_SAMPLE" and c.cell_value:
-            try:
-                num_val = float(c.cell_value)
-                if item.min_val is not None and num_val < item.min_val:
+        if item and c.cell_value is not None and str(c.cell_value).strip() != "":
+            val_str = str(c.cell_value).strip()
+            if item.row_mode == "NUMERIC_SAMPLE" or item.html_input_type == "number":
+                try:
+                    num_val = float(val_str)
+                    if item.min_val is not None and num_val < item.min_val:
+                        is_spec = False
+                    if item.max_val is not None and num_val > item.max_val:
+                        is_spec = False
+                except ValueError:
                     is_spec = False
-                if item.max_val is not None and num_val > item.max_val:
+            elif item.html_input_type == "pf" or val_str in ["Pass", "Fail"]:
+                if val_str.lower() == "fail":
                     is_spec = False
-            except ValueError:
-                is_spec = False
 
-        # Upsert cell response
         existing_resp = db.query(BatchCellResponse).filter(
             BatchCellResponse.batch_id == batch_id,
             BatchCellResponse.item_id == c.item_id,
@@ -90,71 +89,109 @@ def submit_operator_inspection(
 
     db.flush()
 
-    # 2. FR-025A: Enforce full-sheet completion check across all required items
-    # Check that for each required item, all its sample columns have a non-empty cell response
+    # 2. Query all cells for validation
     all_responses = db.query(BatchCellResponse).filter(BatchCellResponse.batch_id == batch_id).all()
-    response_lookup = {(r.item_id, str(r.column_key)): r.cell_value for r in all_responses}
+    resp_map = {(r.item_id, str(r.column_key)): r for r in all_responses}
 
+    required_items = [it for it in template.control_items if it.is_required]
     missing_fields = []
+    bad_fields = []
+
     for item in required_items:
         cols = item.sample_columns if isinstance(item.sample_columns, list) else []
         for col in cols:
-            val = response_lookup.get((item.item_id, str(col)))
-            if val is None or str(val).strip() == "":
-                missing_fields.append(f"{item.control_item_name} (Col {col})")
+            cell = resp_map.get((item.item_id, str(col)))
+            if not cell or cell.cell_value is None or str(cell.cell_value).strip() == "":
+                missing_fields.append(f"{item.control_item_name} [{col}]")
+            elif not cell.is_within_spec:
+                bad_fields.append(f"{item.control_item_name} [{col}]")
 
-    if missing_fields:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={
-                "message": "FR-025A Violation: All required inspection fields must be completed across the sheet before submitting Approve or Reject.",
-                "missing_count": len(missing_fields),
-                "missing_fields": missing_fields[:10]  # sample list
-            }
-        )
+    decision_norm = payload.decision.upper()
 
-    # 3. Decision validation
-    decision_val = payload.decision.upper()
-    if decision_val not in ["APPROVE", "REJECT"]:
-        raise HTTPException(status_code=400, detail="Decision must be 'APPROVE' or 'REJECT'")
+    # 3. FR-025A: Full sheet completion enforcement
+    if decision_norm == "APPROVE":
+        if missing_fields:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"FR-025A Violation: All required inspection fields must be completed before submitting approval or rejection. Missing {len(missing_fields)} fields: {', '.join(missing_fields[:5])}"
+            )
+        if bad_fields:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Values fail or are out of spec. Correct the values or submit a rejection: {', '.join(bad_fields[:5])}"
+            )
 
-    if decision_val == "REJECT":
+    # 4. FR-027: Rejection multi-select enforcement
+    if decision_norm == "REJECT":
         if not payload.rejected_item_ids:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="FR-027 Violation: Reject decision requires multi-selecting one or more failed control items."
+                detail="FR-027 Violation: Rejecting a batch requires multi-selecting one or more failed items."
             )
 
-    # 4. Lock Operator fields & update batch status
     now = datetime.utcnow()
     batch.operator_submitted_at = now
     batch.prepared_by = current_user.user_id
-    batch.status = "OPERATOR_APPROVED" if decision_val == "APPROVE" else "OPERATOR_REJECTED"
+    batch.operator_decision = "Approved" if decision_norm == "APPROVE" else "Rejected"
     batch.updated_at = now
 
-    # Record decision
+    if decision_norm == "APPROVE":
+        batch.status = "OPERATOR_APPROVED"
+        batch.operator_rejected_fields = None
+    else:
+        batch.status = "OPERATOR_REJECTED"
+        batch.operator_rejected_fields = payload.rejected_item_ids
+
+    # Find human-readable names of rejected items
+    rejected_names = []
+    if payload.rejected_item_ids:
+        for it in template.control_items:
+            if it.item_id in payload.rejected_item_ids:
+                rejected_names.append(it.control_item_name)
+
+    # 5. FR-054: Write to Approval Record
     decision_record = InspectionDecision(
         batch_id=batch_id,
+        round=batch.round or 1,
+        stage="Inspection",
         decided_by=current_user.user_id,
         role="operator",
-        decision=decision_val,
+        decision="Approved" if decision_norm == "APPROVE" else "Rejected",
         rejected_item_ids=payload.rejected_item_ids or [],
+        rejected_fields=rejected_names,
         remarks=payload.remarks,
         decided_at=now
     )
     db.add(decision_record)
 
-    # Record audit log
+    # 6. FR-052: In-app Notification to Supervisor & Admin
+    if decision_norm == "APPROVE":
+        notif_text = f"{current_user.full_name} approved {batch.lot_number} ({template.document_title or template.sheet_id}). Ready for review."
+    else:
+        failed_summary = ", ".join(rejected_names) if rejected_names else "items failed"
+        notif_text = f"{current_user.full_name} rejected {batch.lot_number}. Rejected: {failed_summary}."
+
+    send_notification(
+        db=db,
+        roles=["supervisor", "admin"],
+        text=notif_text,
+        batch_id=batch.batch_id,
+        batch_code=batch.lot_number
+    )
+
+    # 7. Audit log
     log_audit(
         db=db,
         user_id=current_user.user_id,
         role=current_user.role,
-        action_type=f"OPERATOR_INSPECTION_{decision_val}",
+        action_type=f"OPERATOR_SUBMIT_{decision_norm}",
         sheet_id=batch.sheet_id,
         batch_id=batch_id,
         details={
-            "decision": decision_val,
+            "decision": decision_norm,
+            "round": batch.round,
             "rejected_item_ids": payload.rejected_item_ids,
+            "rejected_fields": rejected_names,
             "remarks": payload.remarks
         }
     )
@@ -163,9 +200,10 @@ def submit_operator_inspection(
     db.refresh(batch)
 
     return {
-        "success": True,
-        "message": f"Inspection submitted successfully as {batch.status}. Operator fields are now locked.",
-        "batch_id": batch.batch_id,
         "status": batch.status,
+        "batch_id": batch.batch_id,
+        "new_status": batch.status,
+        "round": batch.round,
+        "operator_decision": batch.operator_decision,
         "operator_submitted_at": batch.operator_submitted_at
     }

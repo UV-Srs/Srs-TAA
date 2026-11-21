@@ -30,11 +30,13 @@ export interface ControlItem {
   normal_frequency?: string;
   ifm_frequency?: string;
   row_mode: 'SERIAL_TICKBOX' | 'NUMERIC_SAMPLE' | 'STANDARD_INPUT';
-  html_input_type: 'checkbox' | 'number' | 'text' | 'select' | 'radio' | 'date';
+  html_input_type: 'checkbox' | 'number' | 'text' | 'select' | 'radio' | 'date' | 'pf';
   sample_columns: string[];
   min_val?: number | null;
   max_val?: number | null;
+  unit?: string | null;
   assigned_role: UserRole;
+  is_supervisor_checkpoint?: boolean;
   visible_to_operator: boolean;
   editable_by_operator: boolean;
   visible_to_supervisor: boolean;
@@ -74,9 +76,12 @@ export interface CellResponse {
 export interface InspectionDecision {
   decision_id: number;
   batch_id: number;
+  round: number;
+  stage: string;  // 'Registered', 'Inspection', 'Review', 'Hold placed', 'Hold released'
   decided_by?: number;
   role: string;
   decision: string;
+  rejected_fields?: string[] | null;
   rejected_item_ids?: number[];
   remarks?: string;
   decided_at?: string;
@@ -98,10 +103,22 @@ export interface InspectionBatch {
   batch_id: number;
   sheet_id: string;
   lot_number: string;
+  product_name?: string | null;
+  line_name?: string;
   lot_quantity?: number;
   inspection_mode: 'NORMAL' | 'IFM';
+  round: number;
   status: BatchStatus;
+  operator_decision?: string | null;
+  operator_rejected_fields?: any[] | null;
+  supervisor_reviews?: Record<string, string>;
   hold_reason?: string | null;
+  hold_note?: string | null;
+  hold_by?: number | null;
+  hold_at?: string | null;
+  hold_due_at?: string | null;
+  hold_alerted?: boolean;
+  is_overdue?: boolean;
   operator_submitted_at?: string | null;
   supervisor_submitted_at?: string | null;
   prepared_by?: number;
@@ -116,6 +133,18 @@ export interface InspectionBatch {
   prepared_user_name?: string | null;
   checked_user_name?: string | null;
   approved_user_name?: string | null;
+  hold_user_name?: string | null;
+}
+
+export interface InAppNotification {
+  notification_id: number;
+  recipient_role?: string;
+  recipient_user_id?: number;
+  batch_id?: number;
+  batch_code?: string;
+  text: string;
+  is_read: boolean;
+  created_at: string;
 }
 
 export interface QRResolveResult {
@@ -124,6 +153,7 @@ export interface QRResolveResult {
   batch_id?: number | null;
   read_only: boolean;
   status?: string;
+  format_detected?: string;
   data?: any;
 }
 

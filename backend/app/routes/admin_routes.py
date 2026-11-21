@@ -1,3 +1,6 @@
+import io
+import csv
+from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
 from sqlalchemy.orm import Session
@@ -10,13 +13,15 @@ from backend.app.models import (
 )
 from backend.app.schemas import (
     UserCreate, UserResponse, SheetTemplateCreate, SheetTemplateResponse,
-    BatchCreate, InspectionBatchResponse, AuditLogResponse
+    BatchCreate, QuickBatchRegisterRequest, InspectionBatchResponse, AuditLogResponse
 )
 from backend.app.auth import require_admin, hash_password
 from backend.app.audit import log_audit, purge_user_audit_logs
 from backend.app.config import UPLOAD_DIR
 from backend.app.export_pdf import generate_pdf_report
 from backend.app.export_excel import generate_excel_report
+from backend.app.notifications import check_overdue_holds, send_notification
+from backend.app.routes.batch_routes import format_batch_response
 
 router = APIRouter(prefix="/api/admin", tags=["Admin Management"])
 
@@ -238,9 +243,12 @@ def create_batch(payload: BatchCreate, db: Session = Depends(get_db), current_us
     batch = InspectionBatch(
         sheet_id=payload.sheet_id,
         lot_number=payload.lot_number,
+        product_name=payload.product_name,
+        line_name=payload.line_name or "Line 1",
         lot_quantity=payload.lot_quantity,
         inspection_mode=payload.inspection_mode or "IFM",
-        status="CREATED_PENDING_OPERATOR"
+        status="CREATED_PENDING_OPERATOR",
+        round=1
     )
     db.add(batch)
     db.commit()
@@ -256,14 +264,77 @@ def create_batch(payload: BatchCreate, db: Session = Depends(get_db), current_us
         details={"lot_number": payload.lot_number, "mode": payload.inspection_mode}
     )
 
-    return batch
+    return format_batch_response(batch)
+
+@router.post("/batches/quick-register", response_model=InspectionBatchResponse)
+def quick_register_batch(
+    payload: QuickBatchRegisterRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """
+    FR-019: On-the-fly registration when Admin scans an unregistered code.
+    Links the code to a template, product, line, and quantity immediately.
+    """
+    template = db.query(SheetTemplate).filter(SheetTemplate.sheet_id == payload.sheet_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail=f"Sheet template '{payload.sheet_id}' not found")
+
+    batch = InspectionBatch(
+        sheet_id=payload.sheet_id,
+        lot_number=payload.code,
+        product_name=payload.product_name,
+        line_name=payload.line_name,
+        lot_quantity=payload.lot_quantity,
+        status="CREATED_PENDING_OPERATOR",
+        round=1
+    )
+    db.add(batch)
+    db.flush()
+
+    # Sign-off record for registration (FR-054)
+    signoff = InspectionDecision(
+        batch_id=batch.batch_id,
+        round=1,
+        stage="Registered",
+        decided_by=current_user.user_id,
+        role="admin",
+        decision="Registered",
+        remarks=f"Registered batch {payload.code} for {payload.line_name}"
+    )
+    db.add(signoff)
+
+    # In-app notification to Operators
+    send_notification(
+        db=db,
+        roles=["operator"],
+        text=f"New batch {payload.code} ({template.part_name or template.document_title}) is ready for inspection on {payload.line_name}.",
+        batch_id=batch.batch_id,
+        batch_code=batch.lot_number
+    )
+
+    log_audit(
+        db=db,
+        user_id=current_user.user_id,
+        role=current_user.role,
+        action_type="BATCH_QUICK_REGISTERED",
+        sheet_id=payload.sheet_id,
+        batch_id=batch.batch_id,
+        details={"code": payload.code, "line": payload.line_name, "product": payload.product_name}
+    )
+
+    db.commit()
+    db.refresh(batch)
+    return format_batch_response(batch)
 
 @router.get("/progress")
 def get_progress_dashboard(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
     """
     Returns real-time progress across all batches, including status counts,
-    completion percentages, and bottleneck stages.
+    overdue holds, completion percentages, and bottleneck stages.
     """
+    check_overdue_holds(db)
+    now = datetime.utcnow()
     batches = db.query(InspectionBatch).order_by(InspectionBatch.created_at.desc()).all()
     
     total = len(batches)
@@ -278,9 +349,13 @@ def get_progress_dashboard(db: Session = Depends(get_db), current_user: User = D
         "REJECTED": 0
     }
 
+    overdue_count = 0
     batch_list = []
     for b in batches:
         counts[b.status] = counts.get(b.status, 0) + 1
+        is_over = bool(b.status == "ON_HOLD" and b.hold_due_at and b.hold_due_at <= now)
+        if is_over:
+            overdue_count += 1
         
         # Calculate completion %
         total_items = db.query(TemplateControlItem).filter(TemplateControlItem.sheet_id == b.sheet_id).count()
@@ -290,7 +365,6 @@ def get_progress_dashboard(db: Session = Depends(get_db), current_user: User = D
             BatchCellResponse.cell_value != ""
         ).count()
         
-        # Estimate total expected cells: sum of length of sample_columns
         template_items = db.query(TemplateControlItem).filter(TemplateControlItem.sheet_id == b.sheet_id).all()
         expected_cells = sum(len(it.sample_columns) if isinstance(it.sample_columns, list) else 1 for it in template_items) or 1
         
@@ -298,7 +372,6 @@ def get_progress_dashboard(db: Session = Depends(get_db), current_user: User = D
         if b.status in ["APPROVED", "REJECTED", "OPERATOR_APPROVED", "OPERATOR_REJECTED"]:
             pct = 100
 
-        # Bottleneck stage identification
         bottleneck = "None"
         if b.status == "CREATED_PENDING_OPERATOR":
             bottleneck = "Pending Operator Scan"
@@ -307,7 +380,7 @@ def get_progress_dashboard(db: Session = Depends(get_db), current_user: User = D
         elif b.status in ["OPERATOR_APPROVED", "OPERATOR_REJECTED"]:
             bottleneck = "Awaiting Supervisor Review"
         elif b.status == "ON_HOLD":
-            bottleneck = f"Supervisor Hold: {b.hold_reason or 'Validation required'}"
+            bottleneck = f"Supervisor Hold: {b.hold_reason or 'Validation required'}{' (OVERDUE)' if is_over else ''}"
         elif b.status == "APPROVED":
             bottleneck = "Completed (Pass)"
         elif b.status == "REJECTED":
@@ -321,10 +394,14 @@ def get_progress_dashboard(db: Session = Depends(get_db), current_user: User = D
             "sheet_id": b.sheet_id,
             "part_no": b.template.part_no if b.template else None,
             "part_name": b.template.part_name if b.template else None,
+            "product_name": b.product_name,
+            "line_name": b.line_name,
             "lot_number": b.lot_number,
             "lot_quantity": b.lot_quantity,
             "inspection_mode": b.inspection_mode,
+            "round": b.round,
             "status": b.status,
+            "is_overdue": is_over,
             "completion_pct": pct,
             "bottleneck_stage": bottleneck,
             "operator_name": prep_user.full_name if prep_user else None,
@@ -336,15 +413,81 @@ def get_progress_dashboard(db: Session = Depends(get_db), current_user: User = D
     return {
         "summary": {
             "total_batches": total,
-            "pending_operator": counts["CREATED_PENDING_OPERATOR"] + counts["OPERATOR_IN_PROGRESS"],
-            "awaiting_supervisor": counts["OPERATOR_APPROVED"] + counts["OPERATOR_REJECTED"],
+            "with_operator": counts["CREATED_PENDING_OPERATOR"] + counts["OPERATOR_IN_PROGRESS"],
+            "with_supervisor": counts["OPERATOR_APPROVED"] + counts["OPERATOR_REJECTED"] + counts["SUPERVISOR_IN_PROGRESS"],
             "on_hold": counts["ON_HOLD"],
+            "overdue_holds": overdue_count,
             "approved": counts["APPROVED"],
             "rejected": counts["REJECTED"],
             "counts_by_status": counts
         },
         "batches": batch_list
     }
+
+@router.get("/export-csv")
+def export_all_records_csv(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    """
+    Exports comprehensive inspection ledger to CSV conforming to the POC spec:
+    Batch, Sheet ID, Sheet, Product, Line, Qty, Status, Round, Inspected by,
+    Inspection decision, Inspected at, Reviewed by, Review decision, Reviewed at,
+    Hold reason, Hold placed by, Hold released by, Field values.
+    """
+    check_overdue_holds(db)
+    batches = db.query(InspectionBatch).order_by(InspectionBatch.created_at.desc()).all()
+
+    output = io.StringIO()
+    writer = csv.writer(output, quoting=csv.QUOTE_ALL)
+
+    head = [
+        "Batch", "Sheet ID", "Sheet", "Product", "Line", "Qty", "Status", "Round",
+        "Inspected by", "Inspection decision", "Inspected at",
+        "Reviewed by", "Review decision", "Reviewed at",
+        "Hold reason", "Hold placed by", "Hold released by", "Field values"
+    ]
+    writer.writerow(head)
+
+    for b in batches:
+        decisions = b.decisions or []
+        last_ins = next((d for d in reversed(decisions) if d.stage == "Inspection"), None)
+        last_rev = next((d for d in reversed(decisions) if d.stage == "Review"), None)
+        last_hp = next((d for d in reversed(decisions) if d.stage == "Hold placed"), None)
+        last_hr = next((d for d in reversed(decisions) if d.stage == "Hold released"), None)
+
+        def fmt_user(d):
+            if not d:
+                return ""
+            return d.user.full_name if d.user else f"User #{d.decided_by}"
+
+        cells = db.query(BatchCellResponse).filter(BatchCellResponse.batch_id == b.batch_id).all()
+        cell_summary = "; ".join([f"{c.item.control_item_name if c.item else c.item_id}[{c.column_key}]={c.cell_value}" for c in cells])
+
+        writer.writerow([
+            b.lot_number,
+            b.sheet_id,
+            b.template.document_title if b.template else b.sheet_id,
+            b.product_name or (b.template.part_name if b.template else ""),
+            b.line_name or "Line 1",
+            b.lot_quantity or "",
+            b.status,
+            b.round or 1,
+            fmt_user(last_ins),
+            last_ins.decision if last_ins else "",
+            last_ins.decided_at.isoformat() if last_ins and last_ins.decided_at else "",
+            fmt_user(last_rev),
+            last_rev.decision if last_rev else "",
+            last_rev.decided_at.isoformat() if last_rev and last_rev.decided_at else "",
+            b.hold_reason or "",
+            fmt_user(last_hp),
+            fmt_user(last_hr),
+            cell_summary
+        ])
+
+    csv_data = output.getvalue()
+    return Response(
+        content=csv_data,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="taa-inspection-records.csv"'}
+    )
 
 # --- Report Exports (FR-014, FR-051) ---
 

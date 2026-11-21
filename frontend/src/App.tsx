@@ -1,35 +1,43 @@
 import React, { useState, useEffect } from 'react';
-import { User, QRResolveResult } from './types';
-import { getCurrentStoredUser, logoutUser, fetchBatches } from './api';
+import { User, InspectionBatch, QRResolveResult } from './types';
+import { getCurrentStoredUser, logoutUser, fetchBatches, fetchProgressDashboard } from './api';
 import { Header } from './components/Header';
+import { UniversalScanBar } from './components/UniversalScanBar';
+import { BatchSidebar } from './components/BatchSidebar';
 import { LoginPage } from './pages/LoginPage';
 import { ChecksheetView } from './pages/ChecksheetView';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { AdminSheetBuilder } from './pages/AdminSheetBuilder';
 import { AdminUserManagement } from './pages/AdminUserManagement';
 import { AuditLogsView } from './pages/AuditLogsView';
-import { TFTScannerModal } from './components/TFTScannerModal';
 
 export const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(getCurrentStoredUser());
   const [activeTab, setActiveTab] = useState<string>('sheet');
-  const [currentBatchId, setCurrentBatchId] = useState<number>(1);
-  const [isScannerModalOpen, setIsScannerModalOpen] = useState<boolean>(false);
+  const [currentBatchId, setCurrentBatchId] = useState<number | null>(null);
+  const [batches, setBatches] = useState<InspectionBatch[]>([]);
+  const [progressSummary, setProgressSummary] = useState<any>(null);
 
   useEffect(() => {
     if (currentUser) {
-      loadInitialBatch();
+      loadBatches();
     }
   }, [currentUser]);
 
-  const loadInitialBatch = async () => {
+  const loadBatches = async () => {
     try {
-      const batches = await fetchBatches();
-      if (batches.length > 0) {
-        setCurrentBatchId(batches[0].batch_id);
+      const bList = await fetchBatches();
+      setBatches(bList);
+      if (bList.length > 0 && !currentBatchId) {
+        setCurrentBatchId(bList[0].batch_id);
       }
-    } catch {
-      // ignore
+
+      if (currentUser?.role === 'admin') {
+        const prog = await fetchProgressDashboard();
+        setProgressSummary(prog?.summary || null);
+      }
+    } catch (err) {
+      console.warn('Failed to load batch list:', err);
     }
   };
 
@@ -38,12 +46,11 @@ export const App: React.FC = () => {
     setCurrentUser(null);
   };
 
-  const handleQRResolved = (result: QRResolveResult) => {
-    if (result.batch_id) {
-      setCurrentBatchId(result.batch_id);
+  const handleSelectBatchByCode = (batchCode: string) => {
+    const found = batches.find((b) => b.lot_number === batchCode || b.lot_number === `TAA-${batchCode}`);
+    if (found) {
+      setCurrentBatchId(found.batch_id);
       setActiveTab('sheet');
-    } else if (result.type === 'TEMPLATE') {
-      setActiveTab('builder');
     }
   };
 
@@ -52,23 +59,62 @@ export const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-white text-black flex flex-col">
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
+      {/* Universal Top Header with Role Switcher & In-App Notification Bell */}
       <Header
         user={currentUser}
         onLogout={handleLogout}
-        onOpenScanner={() => setIsScannerModalOpen(true)}
+        onOpenScanner={() => {}}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
+        onSelectBatchByCode={handleSelectBatchByCode}
+        onUserSwitched={(newUser) => {
+          setCurrentUser(newUser);
+          loadBatches();
+        }}
+      />
+
+      {/* Universal Scan Adapter & Device Simulator Bar (FR-017, FR-018, FR-019) */}
+      <UniversalScanBar
+        currentUser={currentUser}
+        onBatchResolved={(bId) => {
+          setCurrentBatchId(bId);
+          setActiveTab('sheet');
+          loadBatches();
+        }}
+        onTemplateResolved={() => {
+          setActiveTab('builder');
+        }}
       />
 
       {/* Main Workspace Canvas */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-4 md:p-6">
         {activeTab === 'sheet' && (
-          <ChecksheetView
-            batchId={currentBatchId}
-            currentUser={currentUser}
-            onBatchUpdated={loadInitialBatch}
-          />
+          <div className="flex flex-col lg:flex-row gap-5 items-start">
+            {/* Left Queue Sidebar (Ready for inspection / Awaiting review / All batches + Progress) */}
+            <BatchSidebar
+              batches={batches}
+              selectedBatchId={currentBatchId}
+              currentUser={currentUser}
+              onSelectBatch={(bId) => setCurrentBatchId(bId)}
+              progressSummary={progressSummary}
+            />
+
+            {/* Right Main Checksheet Matrix & Approval Ledger */}
+            <div className="flex-1 min-w-0 w-full">
+              {currentBatchId ? (
+                <ChecksheetView
+                  batchId={currentBatchId}
+                  currentUser={currentUser}
+                  onBatchUpdated={loadBatches}
+                />
+              ) : (
+                <div className="p-8 text-center text-slate-400 border border-dashed border-slate-200 rounded-2xl bg-white">
+                  No batch selected. Scan a code or pick one from the queue.
+                </div>
+              )}
+            </div>
+          </div>
         )}
 
         {activeTab === 'dashboard' && currentUser.role === 'admin' && (
@@ -92,14 +138,8 @@ export const App: React.FC = () => {
           <AuditLogsView />
         )}
       </main>
-
-      {/* Global TFT Barcode & QR Scanner Modal */}
-      <TFTScannerModal
-        isOpen={isScannerModalOpen}
-        onClose={() => setIsScannerModalOpen(false)}
-        onResolved={handleQRResolved}
-      />
     </div>
   );
 };
+
 export default App;
