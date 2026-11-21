@@ -11,6 +11,13 @@ import { AdminDashboard } from './pages/AdminDashboard';
 import { AdminSheetBuilder } from './pages/AdminSheetBuilder';
 import { AdminUserManagement } from './pages/AdminUserManagement';
 import { AuditLogsView } from './pages/AuditLogsView';
+import { MobileScannerPage } from './pages/MobileScannerPage';
+
+// True when the viewport is phone-sized at mount time (re-evaluate on resize not needed —
+// reloading the page on a different device is the expected UX).
+const isMobileDevice = () =>
+  typeof window !== 'undefined' && window.innerWidth < 768 &&
+  /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
 
 export const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(getCurrentStoredUser());
@@ -85,6 +92,16 @@ export const App: React.FC = () => {
 
   if (!currentUser) {
     return <LoginPage onLoginSuccess={(u) => setCurrentUser(u)} />;
+  }
+
+  // Phone detected → dedicated scanner UI (phone acts as barcode gun for the laptop)
+  if (isMobileDevice()) {
+    return (
+      <MobileScannerPage
+        currentUser={currentUser}
+        onLogout={() => setCurrentUser(null)}
+      />
+    );
   }
 
   return (
