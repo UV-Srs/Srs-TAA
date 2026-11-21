@@ -122,6 +122,18 @@ export async function updateSheet(sheetId: string, data: SheetTemplate): Promise
   });
 }
 
+export async function setDefaultSheet(sheetId: string): Promise<SheetTemplate> {
+  return apiRequest<SheetTemplate>(`/api/admin/sheets/${sheetId}/set-default`, { method: 'PATCH' });
+}
+
+export async function getDefaultSheet(): Promise<SheetTemplate | null> {
+  try {
+    return await apiRequest<SheetTemplate>('/api/admin/sheets/default');
+  } catch {
+    return null;
+  }
+}
+
 // --- Batches ---
 export async function fetchBatches(): Promise<InspectionBatch[]> {
   return apiRequest<InspectionBatch[]>('/api/batches');

@@ -87,6 +87,7 @@ class SheetTemplateResponse(BaseModel):
     qr_code_value: str
     barcode_value: str
     external_barcode: Optional[str] = None
+    is_default: bool = False
     created_by: Optional[int] = None
     created_at: Optional[datetime] = None
     control_items: List[ControlItemResponse] = []
@@ -127,7 +128,7 @@ class BatchCreate(BaseModel):
 
 class QuickBatchRegisterRequest(BaseModel):
     code: str
-    sheet_id: str
+    sheet_id: Optional[str] = None  # if omitted, the default/active template is used
     product_name: str
     line_name: str
     lot_quantity: int

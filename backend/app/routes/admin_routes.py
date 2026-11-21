@@ -1,7 +1,7 @@
 import io
 import csv
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Union
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -253,6 +253,27 @@ def update_sheet(sheet_id: str, payload: SheetTemplateCreate, db: Session = Depe
     notify_live("SHEET_UPDATED", {"sheet_id": template.sheet_id, "action": "UPDATE"})
     return template
 
+@router.patch("/sheets/{sheet_id}/set-default", response_model=SheetTemplateResponse)
+def set_default_sheet(sheet_id: str, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    """Mark one sheet template as the active default. Clears is_default on all others."""
+    template = db.query(SheetTemplate).filter(SheetTemplate.sheet_id == sheet_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="Sheet template not found")
+    # Clear existing default
+    db.query(SheetTemplate).filter(SheetTemplate.is_default == True).update({"is_default": False})
+    template.is_default = True
+    db.commit()
+    db.refresh(template)
+    notify_live("SHEET_UPDATED", {"sheet_id": template.sheet_id, "action": "SET_DEFAULT"})
+    log_audit(db=db, user_id=current_user.user_id, role=current_user.role,
+              action_type="SHEET_SET_DEFAULT", sheet_id=sheet_id, details={})
+    return template
+
+@router.get("/sheets/default", response_model=Optional[SheetTemplateResponse])
+def get_default_sheet(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    """Return the currently active default sheet template, or null if none is set."""
+    return db.query(SheetTemplate).filter(SheetTemplate.is_default == True).first()
+
 # --- Batches & Progress Dashboard (FR-013, FR-049, FR-050) ---
 
 @router.post("/batches", response_model=InspectionBatchResponse)
@@ -298,13 +319,24 @@ def quick_register_batch(
     """
     FR-019: On-the-fly registration when Admin scans an unregistered code.
     Links the code to a template, product, line, and quantity immediately.
+    If no sheet_id is provided, the active default template is used automatically.
     """
-    template = db.query(SheetTemplate).filter(SheetTemplate.sheet_id == payload.sheet_id).first()
+    sheet_id = payload.sheet_id
+    if not sheet_id:
+        default_tpl = db.query(SheetTemplate).filter(SheetTemplate.is_default == True).first()
+        if not default_tpl:
+            raise HTTPException(
+                status_code=400,
+                detail="No sheet_id provided and no active default template is set. Set a default template first."
+            )
+        sheet_id = default_tpl.sheet_id
+
+    template = db.query(SheetTemplate).filter(SheetTemplate.sheet_id == sheet_id).first()
     if not template:
-        raise HTTPException(status_code=404, detail=f"Sheet template '{payload.sheet_id}' not found")
+        raise HTTPException(status_code=404, detail=f"Sheet template '{sheet_id}' not found")
 
     batch = InspectionBatch(
-        sheet_id=payload.sheet_id,
+        sheet_id=sheet_id,
         lot_number=payload.code,
         product_name=payload.product_name,
         line_name=payload.line_name,
@@ -343,7 +375,7 @@ def quick_register_batch(
         user_id=current_user.user_id,
         role=current_user.role,
         action_type="BATCH_QUICK_REGISTERED",
-        sheet_id=payload.sheet_id,
+        sheet_id=sheet_id,
         batch_id=batch.batch_id,
         details={"code": payload.code, "line": payload.line_name, "product": payload.product_name}
     )

@@ -31,6 +31,8 @@ def _apply_column_migrations():
         # external_barcode — added for physical part barcode assignment feature
         "ALTER TABLE sheet_templates ADD COLUMN IF NOT EXISTS external_barcode VARCHAR(500)",
         "CREATE INDEX IF NOT EXISTS ix_sheet_templates_external_barcode ON sheet_templates (external_barcode) WHERE external_barcode IS NOT NULL",
+        # is_default — active/default template for new batch creation
+        "ALTER TABLE sheet_templates ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT FALSE",
     ]
     with engine.connect() as conn:
         for stmt in migrations:

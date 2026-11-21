@@ -4,7 +4,7 @@ import {
 } from '../api';
 import { SheetTemplate } from '../types';
 import {
-  Plus, Download, ExternalLink, Printer, RefreshCw, AlertCircle, CheckCircle, Clock
+  Plus, ExternalLink, Printer, RefreshCw, AlertCircle, Star
 } from 'lucide-react';
 import { PrintLabelModal } from '../components/PrintLabelModal';
 
@@ -43,8 +43,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch })
       ]);
       setData(prog);
       setSheets(sList);
+      // Auto-select the active (default) template; fall back to first
       if (sList.length > 0 && !selectedSheetId) {
-        setSelectedSheetId(sList[0].sheet_id);
+        const defaultTpl = sList.find(s => s.is_default);
+        setSelectedSheetId((defaultTpl || sList[0]).sheet_id);
       }
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to load progress dashboard.');
@@ -95,7 +97,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch })
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          {/* Active Template indicator */}
+          {sheets.find(s => s.is_default) && (() => {
+            const def = sheets.find(s => s.is_default)!;
+            return (
+              <div className="flex items-center gap-1.5 bg-slate-900 text-white text-[11px] font-medium px-3 py-1.5 rounded-lg">
+                <Star className="w-3 h-3 fill-yellow-400 text-yellow-400 shrink-0" />
+                <span className="text-slate-300">Active:</span>
+                <span className="font-mono font-semibold">{def.sheet_id}</span>
+              </div>
+            );
+          })()}
           <button
             onClick={loadDashboard}
             className="p-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 rounded-lg transition-colors"
@@ -104,7 +117,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch })
             <RefreshCw className="w-4 h-4" />
           </button>
           <button
-            onClick={() => setIsNewBatchOpen(true)}
+            onClick={() => {
+              // Always open with the default template pre-selected
+              const def = sheets.find(s => s.is_default);
+              if (def) setSelectedSheetId(def.sheet_id);
+              setIsNewBatchOpen(true);
+            }}
             className="bg-slate-900 hover:bg-slate-800 text-white font-medium text-xs px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition-all shadow-sm"
           >
             <Plus className="w-4 h-4" />
@@ -272,10 +290,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch })
                 >
                   {sheets.map((s) => (
                     <option key={s.sheet_id} value={s.sheet_id}>
-                      {s.sheet_id} — {s.part_no || ''} ({s.document_title.substring(0, 30)}...)
+                      {s.is_default ? '⭐ ' : ''}{s.sheet_id} — {s.part_no || ''}{s.is_default ? ' [ACTIVE]' : ''}
                     </option>
                   ))}
                 </select>
+                {selectedSheetId && sheets.find(s => s.sheet_id === selectedSheetId)?.is_default && (
+                  <p className="text-[11px] text-emerald-700 font-medium flex items-center gap-1">
+                    <Star className="w-3 h-3 fill-emerald-600 text-emerald-600" />
+                    Active Template — this is the default for all new batches
+                  </p>
+                )}
               </div>
 
               <div className="space-y-1">

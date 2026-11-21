@@ -190,13 +190,30 @@ def resolve_code(
 
 def _parse_gs1(raw: str) -> dict:
     """
-    Parse GS1-128 / GS1 DataMatrix barcodes into a structured dict.
-    Handles parenthesised AIs like (01)12345... and bracket-less runs.
-    Returns whichever fields are found; unrecognised content goes to raw_code.
+    Parse any barcode / QR payload into a structured dict.
+    Priority order: JSON QR → GS1-128 (parenthesised) → GS1 FNC1 → Plain.
     """
-    result: dict = {"raw_code": raw, "format": "Plain"}
-    # Parenthesised GS1
     import re as _re
+    result: dict = {"raw_code": raw, "format": "Plain"}
+
+    # 1. JSON QR — richest source: may contain part_name, part_no, sheet_id, etc.
+    try:
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            result["format"] = "JSON QR"
+            result["part_no"]   = data.get("part_no") or data.get("partNo") or data.get("part_number")
+            result["part_name"] = data.get("part_name") or data.get("partName") or data.get("name")
+            result["sheet_id"]  = data.get("sheet_id") or data.get("sheetId")
+            result["lot_number"]= data.get("lot") or data.get("lot_number") or data.get("batch")
+            result["vendor"]    = data.get("vendor") or data.get("vendor_name")
+            result["customer"]  = data.get("customer") or data.get("customer_name")
+            result["model"]     = data.get("model") or data.get("model_name")
+            result["serial_number"] = data.get("serial") or data.get("serial_number")
+            return result
+    except Exception:
+        pass
+
+    # 2. Parenthesised GS1 — e.g. (01)12345(10)LOT001(240)PCB-700
     ai_map = {
         "01": "gtin", "10": "lot_number", "21": "serial_number",
         "11": "manufacture_date", "17": "expiry_date",
@@ -210,7 +227,8 @@ def _parse_gs1(raw: str) -> dict:
             if key:
                 result[key] = val.strip()
         return result
-    # Bracket-less GS1 starting with FNC1 / known fixed-width AIs
+
+    # 3. Bracket-less GS1 (FNC1 prefix)
     if raw.startswith('\x1d') or raw.startswith(']C1') or raw.startswith(']d1'):
         raw_stripped = raw.lstrip('\x1d').lstrip(']C1').lstrip(']d1')
         if raw_stripped[:2] == '01' and len(raw_stripped) >= 16:
@@ -221,10 +239,27 @@ def _parse_gs1(raw: str) -> dict:
                 lot_end = rest.find('\x1d', 2) if '\x1d' in rest else len(rest)
                 result["lot_number"] = rest[2:lot_end]
         return result
-    # Plain / Code-128 — treat the whole value as a part number candidate
-    if raw and not raw.startswith('http') and not raw.startswith('{'):
+
+    # 4. Plain Code-128 / Code-39 / EAN — entire value is the part number
+    if raw and not raw.startswith('http'):
         result["part_no"] = raw.strip()
     return result
+
+
+def _suggest_sheet_id(parsed: dict) -> str:
+    """Generate a sensible sheet ID suggestion from parsed barcode data."""
+    import re as _re
+    base = (
+        parsed.get("sheet_id") or
+        parsed.get("part_no") or
+        parsed.get("customer_part_no") or
+        parsed.get("gtin")
+    )
+    if base:
+        # Sanitise: uppercase, replace spaces/special chars with hyphens, max 30 chars
+        clean = _re.sub(r'[^A-Za-z0-9\-_]', '-', str(base)).upper().strip('-')[:30]
+        return f"{clean}-IFM"
+    return f"IFM-{parsed['raw_code'][:12].upper()}"
 
 
 @router.get("/parse-part/{code:path}")
@@ -234,12 +269,14 @@ def parse_part_barcode(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Admin-only helper: decode a raw barcode/QR string from a physical part
-    and return structured part details for auto-filling the sheet creation form.
-    Also checks if the barcode is already assigned to an existing sheet.
+    Decode a raw barcode/QR from a physical part and return structured part
+    details for auto-filling the sheet creation form. Also suggests a Sheet ID
+    and checks if this barcode is already assigned to a sheet.
     """
     raw = code.strip()
     parsed = _parse_gs1(raw)
+
+    suggested_sheet_id = _suggest_sheet_id(parsed)
 
     # Check if this barcode already maps to a sheet
     existing = db.query(SheetTemplate).filter(
@@ -251,7 +288,12 @@ def parse_part_barcode(
     return {
         "raw_code": raw,
         "format_detected": parsed.get("format", "Plain"),
-        "part_no": parsed.get("part_no") or parsed.get("customer_part_no"),
+        "suggested_sheet_id": suggested_sheet_id,
+        "part_no":   parsed.get("part_no") or parsed.get("customer_part_no"),
+        "part_name": parsed.get("part_name"),
+        "vendor":    parsed.get("vendor"),
+        "customer":  parsed.get("customer"),
+        "model":     parsed.get("model"),
         "lot_number": parsed.get("lot_number"),
         "serial_number": parsed.get("serial_number"),
         "gtin": parsed.get("gtin"),

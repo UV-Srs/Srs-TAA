@@ -38,6 +38,8 @@ class SheetTemplate(Base):
     barcode_value = Column(String(255), unique=True, nullable=False, index=True)
     # Physical barcode/QR printed on the actual part — set when admin scans the part during sheet creation
     external_barcode = Column(String(500), nullable=True, index=True)
+    # Only one template can be is_default=True at a time — this becomes the active inspection form
+    is_default = Column(Boolean, default=False, nullable=False)
     created_by = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 

@@ -56,6 +56,7 @@ export interface SheetTemplate {
   qr_code_value?: string;
   barcode_value?: string;
   external_barcode?: string | null;
+  is_default?: boolean;
   created_by?: number;
   created_at?: string;
   control_items: ControlItem[];
@@ -64,7 +65,12 @@ export interface SheetTemplate {
 export interface PartBarcodeInfo {
   raw_code: string;
   format_detected: string;
+  suggested_sheet_id?: string | null;
   part_no?: string | null;
+  part_name?: string | null;
+  vendor?: string | null;
+  customer?: string | null;
+  model?: string | null;
   lot_number?: string | null;
   serial_number?: string | null;
   gtin?: string | null;
