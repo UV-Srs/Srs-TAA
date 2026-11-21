@@ -119,6 +119,13 @@ def delete_user(user_id: int, db: Session = Depends(get_db), current_user: User 
 def list_sheets(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
     return db.query(SheetTemplate).order_by(SheetTemplate.created_at.desc()).all()
 
+# NOTE: /sheets/default MUST be before /sheets/{sheet_id} so FastAPI doesn't
+# swallow "default" as a sheet_id parameter.
+@router.get("/sheets/default", response_model=Optional[SheetTemplateResponse])
+def get_default_sheet(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    """Return the currently active default sheet template, or null if none is set."""
+    return db.query(SheetTemplate).filter(SheetTemplate.is_default == True).first()
+
 @router.post("/sheets", response_model=SheetTemplateResponse)
 def create_sheet(payload: SheetTemplateCreate, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
     existing = db.query(SheetTemplate).filter(SheetTemplate.sheet_id == payload.sheet_id).first()
@@ -167,7 +174,9 @@ def create_sheet(payload: SheetTemplateCreate, db: Session = Depends(get_db), cu
             sample_columns=item.sample_columns,
             min_val=item.min_val,
             max_val=item.max_val,
+            unit=item.unit,
             assigned_role=item.assigned_role,
+            is_supervisor_checkpoint=item.is_supervisor_checkpoint,
             visible_to_operator=item.visible_to_operator,
             editable_by_operator=item.editable_by_operator,
             visible_to_supervisor=item.visible_to_supervisor,
@@ -239,7 +248,9 @@ def update_sheet(sheet_id: str, payload: SheetTemplateCreate, db: Session = Depe
             sample_columns=item.sample_columns,
             min_val=item.min_val,
             max_val=item.max_val,
+            unit=item.unit,
             assigned_role=item.assigned_role,
+            is_supervisor_checkpoint=item.is_supervisor_checkpoint,
             visible_to_operator=item.visible_to_operator,
             editable_by_operator=item.editable_by_operator,
             visible_to_supervisor=item.visible_to_supervisor,
@@ -268,11 +279,6 @@ def set_default_sheet(sheet_id: str, db: Session = Depends(get_db), current_user
     log_audit(db=db, user_id=current_user.user_id, role=current_user.role,
               action_type="SHEET_SET_DEFAULT", sheet_id=sheet_id, details={})
     return template
-
-@router.get("/sheets/default", response_model=Optional[SheetTemplateResponse])
-def get_default_sheet(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
-    """Return the currently active default sheet template, or null if none is set."""
-    return db.query(SheetTemplate).filter(SheetTemplate.is_default == True).first()
 
 # --- Batches & Progress Dashboard (FR-013, FR-049, FR-050) ---
 
