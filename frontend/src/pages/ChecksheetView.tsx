@@ -266,6 +266,17 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
     };
   };
 
+  const totalRequired = batch?.template?.control_items ? batch.template.control_items.filter((i) => i.is_required).length : 0;
+  const completedRequired = batch?.template?.control_items ? batch.template.control_items.filter((item) => {
+    if (!item.is_required) return false;
+    const sampleCols = Array.isArray(item.sample_columns) ? item.sample_columns : ['val'];
+    const firstColKey = sampleCols[0];
+    const cellKey = `${item.item_id}_${firstColKey}`;
+    const cellData = cellsMap[cellKey];
+    return cellData && cellData.cell_value !== null && cellData.cell_value !== undefined && cellData.cell_value !== '';
+  }).length : 0;
+  const percentComplete = totalRequired > 0 ? Math.round((completedRequired / totalRequired) * 100) : 100;
+
   const handleOperatorApprove = async () => {
     if (!batch) return;
 
@@ -524,87 +535,71 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
 
       {/* Main Checksheet Card */}
       <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-        {/* Zone A: Header Block */}
-        <div className="p-5 border-b border-slate-200 bg-slate-50/50">
-          <div className="flex flex-wrap items-start justify-between gap-4">
+        {/* Zone A: Clean Header Block */}
+        <div className="p-5 border-b border-slate-200 bg-white">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-[10px] font-mono font-bold bg-slate-200 text-slate-800 px-2 py-0.5 rounded">
-                  {template.sheet_id}
+              <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                <span className="font-mono text-xs font-bold bg-slate-900 text-white px-2.5 py-0.5 rounded-md">
+                  Lot {batch.lot_number}
                 </span>
-                <span className="text-[10px] font-mono bg-purple-100 text-purple-900 px-2 py-0.5 rounded font-semibold">
-                  Round {batch.round || 1}
+                <span className="text-xs font-mono font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
+                  Part #{template.part_no || 'N/A'}
                 </span>
+                <span className="text-xs text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md font-medium">
+                  {batch.line_name || 'Line 1'}
+                </span>
+                <span className="text-xs text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md font-medium">
+                  Qty: {batch.lot_quantity || 100} pcs
+                </span>
+                {batch.round > 1 && (
+                  <span className="text-xs bg-purple-100 text-purple-900 px-2 py-0.5 rounded-md font-bold">
+                    Round {batch.round}
+                  </span>
+                )}
               </div>
-              <h2 className="text-base font-bold text-slate-900 tracking-tight leading-snug">
-                {template.document_title}
+              <h2 className="text-lg font-bold text-slate-900 tracking-tight">
+                {batch.product_name || template.part_name || template.document_title}
               </h2>
             </div>
 
-            <div className="flex flex-wrap gap-2">
+            {/* Quick Actions */}
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => setIsPrintModalOpen(true)}
-                className="px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-medium rounded-lg flex items-center gap-1.5 transition-colors"
+                onClick={() => setIsCameraModalOpen(true)}
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium rounded-lg flex items-center gap-1.5 transition-colors text-xs"
               >
-                <Printer className="w-3.5 h-3.5 text-slate-500" />
-                <span>QR Labels</span>
+                <Camera className="w-3.5 h-3.5 text-slate-700" />
+                <span>Add Photo</span>
               </button>
 
               <button
                 type="button"
-                onClick={() => setIsCameraModalOpen(true)}
-                className="px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-medium rounded-lg flex items-center gap-1.5 transition-colors"
+                onClick={() => setIsPrintModalOpen(true)}
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium rounded-lg flex items-center gap-1.5 transition-colors text-xs"
               >
-                <Camera className="w-3.5 h-3.5 text-slate-500" />
-                <span>Attach Photo</span>
+                <Printer className="w-3.5 h-3.5 text-slate-700" />
+                <span>QR Labels</span>
               </button>
 
               <a
                 href={getExportUrl(batch.batch_id, 'pdf')}
                 download
-                className="px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-medium rounded-lg flex items-center gap-1.5 transition-colors"
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium rounded-lg flex items-center gap-1.5 transition-colors text-xs"
               >
-                <Download className="w-3.5 h-3.5 text-slate-500" />
+                <Download className="w-3.5 h-3.5 text-slate-700" />
                 <span>PDF</span>
               </a>
 
               <a
                 href={getExportUrl(batch.batch_id, 'xlsx')}
                 download
-                className="px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-medium rounded-lg flex items-center gap-1.5 transition-colors"
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium rounded-lg flex items-center gap-1.5 transition-colors text-xs"
               >
-                <Download className="w-3.5 h-3.5 text-slate-500" />
+                <Download className="w-3.5 h-3.5 text-slate-700" />
                 <span>Excel</span>
               </a>
-            </div>
-          </div>
-
-          {/* Metadata Grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3 mt-4 text-[11px] pt-3 border-t border-slate-200/60">
-            <div>
-              <span className="text-slate-400 block font-medium">Batch / Lot</span>
-              <span className="font-bold text-slate-900 font-mono">{batch.lot_number}</span>
-            </div>
-            <div>
-              <span className="text-slate-400 block font-medium">Part Number</span>
-              <span className="font-semibold text-slate-800 font-mono">{template.part_no || 'N/A'}</span>
-            </div>
-            <div>
-              <span className="text-slate-400 block font-medium">Product Name</span>
-              <span className="font-semibold text-slate-800">{batch.product_name || template.part_name || 'N/A'}</span>
-            </div>
-            <div>
-              <span className="text-slate-400 block font-medium">Line</span>
-              <span className="font-semibold text-slate-800">{batch.line_name || 'Line 1'}</span>
-            </div>
-            <div>
-              <span className="text-slate-400 block font-medium">Lot Qty</span>
-              <span className="font-semibold text-slate-800">{batch.lot_quantity || 100}</span>
-            </div>
-            <div>
-              <span className="text-slate-400 block font-medium">Status</span>
-              <span className="font-bold text-slate-900">{batch.status}</span>
             </div>
           </div>
         </div>
@@ -613,16 +608,13 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
-              <tr className="bg-slate-100 text-slate-600 border-b border-slate-200 font-semibold text-[11px]">
-                <th className="py-2.5 px-3 w-12 text-center">S.No</th>
-                <th className="py-2.5 px-3 min-w-[120px]">Stage</th>
-                <th className="py-2.5 px-3 min-w-[200px]">Control Item</th>
-                <th className="py-2.5 px-3 min-w-[180px]">Spec / Tolerance</th>
-                <th className="py-2.5 px-3 min-w-[100px]">Method</th>
-                <th className="py-2.5 px-3 min-w-[140px]">Value</th>
-                <th className="py-2.5 px-3 min-w-[120px]">Owner / Role</th>
+              <tr className="bg-slate-50 text-slate-600 border-b border-slate-200 font-semibold text-[11px] uppercase tracking-wider">
+                <th className="py-3 px-4 w-12 text-center">#</th>
+                <th className="py-3 px-4 min-w-[220px]">Inspection Item</th>
+                <th className="py-3 px-4 min-w-[180px]">Specification & Limits</th>
+                <th className="py-3 px-4 min-w-[200px]">Recorded Result</th>
                 {currentUser.role === 'supervisor' && opRejectedList.length > 0 && (
-                  <th className="py-2.5 px-3 min-w-[160px] text-center">Supervisor Review</th>
+                  <th className="py-3 px-4 min-w-[160px] text-center">Supervisor Review</th>
                 )}
               </tr>
             </thead>
@@ -864,6 +856,36 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
           <div className="mx-5 mb-4 p-3 bg-red-50 text-red-700 border border-red-200 rounded-xl flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{errorMsg}</span>
+          </div>
+        )}
+
+        {/* Operator Completion Progress Bar */}
+        {currentUser.role === 'operator' && !batch.operator_submitted_at && (
+          <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex-1 max-w-sm">
+              <div className="flex justify-between text-xs font-semibold mb-1">
+                <span className="text-slate-700">Checksheet Progress</span>
+                <span className="text-slate-900 font-bold">{completedRequired} of {totalRequired} ({percentComplete}%)</span>
+              </div>
+              <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                <div
+                  className={`h-full transition-all duration-300 ${percentComplete === 100 ? 'bg-emerald-600' : 'bg-slate-900'}`}
+                  style={{ width: `${percentComplete}%` }}
+                ></div>
+              </div>
+            </div>
+            <div className="text-xs">
+              {percentComplete === 100 ? (
+                <span className="text-emerald-700 font-bold flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <span>All required parameters recorded. Ready to submit.</span>
+                </span>
+              ) : (
+                <span className="text-slate-500 font-medium">
+                  Complete all {totalRequired} mandatory parameters to sign off.
+                </span>
+              )}
+            </div>
           </div>
         )}
 
