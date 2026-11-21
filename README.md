@@ -96,3 +96,5 @@ python -m pytest backend/tests/test_api.py -v
 ### 8. Exact IFM Report Exports (PDF & Excel)
 - `GET /api/admin/batches/{id}/export?format=pdf`: Landscape A4 ReportLab export matching exact physical IFM checksheet format with embedded QR/Barcode, stage matrix, tolerance highlights, photo evidence appendix, and sign-off blocks.
 - `GET /api/admin/batches/{id}/export?format=xlsx`: OpenPyXL workbook with formatted checksheet grid and decisions tab.
+
+##### Sheetal, Yuvraj, ShivaDatta
