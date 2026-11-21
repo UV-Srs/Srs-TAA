@@ -110,6 +110,12 @@ export const App: React.FC = () => {
               selectedBatchId={currentBatchId}
               currentUser={currentUser}
               onSelectBatch={(bId) => setCurrentBatchId(bId)}
+              onSearch={async (query) => {
+                try {
+                  const result = await fetchBatches(query || undefined);
+                  setBatches(result);
+                } catch {}
+              }}
               progressSummary={progressSummary}
             />
 

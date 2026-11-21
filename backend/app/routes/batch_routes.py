@@ -80,11 +80,30 @@ def format_batch_response(b: InspectionBatch) -> dict:
 
 @router.get("", response_model=List[InspectionBatchResponse])
 def list_batches(
+    search: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_any_authenticated)
 ):
     check_overdue_holds(db)
-    batches = db.query(InspectionBatch).order_by(InspectionBatch.created_at.desc()).all()
+    q = db.query(InspectionBatch)
+
+    # Role-scoped visibility: each role only sees their own work
+    if current_user.role == "operator":
+        q = q.filter(InspectionBatch.prepared_by == current_user.user_id)
+    elif current_user.role == "supervisor":
+        q = q.filter(InspectionBatch.checked_by == current_user.user_id)
+    # admin: unrestricted
+
+    # Optional lot-number / part-name / sheet-id search (case-insensitive contains)
+    if search and search.strip():
+        s = f"%{search.strip()}%"
+        q = q.filter(
+            (InspectionBatch.lot_number.ilike(s)) |
+            (InspectionBatch.product_name.ilike(s)) |
+            (InspectionBatch.sheet_id.ilike(s))
+        )
+
+    batches = q.order_by(InspectionBatch.created_at.desc()).all()
     return [format_batch_response(b) for b in batches]
 
 @router.get("/{batch_id}", response_model=InspectionBatchDetail)
@@ -121,6 +140,8 @@ def open_batch_workflow(
     changed = False
     if current_user.role == "operator" and batch.status in ["CREATED_PENDING_OPERATOR", "pending"]:
         batch.status = "OPERATOR_IN_PROGRESS"
+        if not batch.prepared_by:
+            batch.prepared_by = current_user.user_id
         changed = True
         log_audit(
             db=db, user_id=current_user.user_id, role=current_user.role,
@@ -129,6 +150,8 @@ def open_batch_workflow(
         )
     elif current_user.role in ["supervisor", "admin"] and batch.status in ["OPERATOR_APPROVED", "OPERATOR_REJECTED", "op_approved", "op_rejected"]:
         batch.status = "SUPERVISOR_IN_PROGRESS"
+        if not batch.checked_by:
+            batch.checked_by = current_user.user_id
         changed = True
         log_audit(
             db=db, user_id=current_user.user_id, role=current_user.role,

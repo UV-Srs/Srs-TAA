@@ -94,7 +94,7 @@ export const UniversalScanBar: React.FC<UniversalScanBarProps> = ({
           setIsRegisterModalOpen(true);
         } else {
           setFeedback({
-            text: `Batch "${codeOnly}" is not registered. Please ask an Admin to register this lot.`,
+            text: `Batch "${codeOnly}" not found. Check the lot number or ask an Admin to register it.`,
             isError: true,
           });
         }

@@ -1,13 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { InspectionBatch, User } from '../types';
 import { getCsvExportUrl } from '../api';
-import { Download, AlertCircle, Clock, Search } from 'lucide-react';
+import { Download, AlertCircle, Clock, Search, ScanLine } from 'lucide-react';
 
 interface BatchSidebarProps {
   batches: InspectionBatch[];
   selectedBatchId: number | null;
   currentUser: User;
   onSelectBatch: (batchId: number) => void;
+  onSearch?: (query: string) => void;
   progressSummary?: {
     with_operator: number;
     with_supervisor: number;
@@ -23,35 +24,25 @@ export const BatchSidebar: React.FC<BatchSidebarProps> = ({
   selectedBatchId,
   currentUser,
   onSelectBatch,
+  onSearch,
   progressSummary,
 }) => {
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const debounceRef = useRef<number | null>(null);
 
-  // Role-based filtering
-  let roleList = batches;
-  let title = 'Batches Queue';
+  const handleSearchChange = (val: string) => {
+    setSearchQuery(val);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = window.setTimeout(() => {
+      onSearch?.(val.trim());
+    }, 350);
+  };
 
-  if (currentUser.role === 'operator') {
-    roleList = batches.filter((b) =>
-      ['CREATED_PENDING_OPERATOR', 'OPERATOR_IN_PROGRESS', 'pending', 'op_progress'].includes(b.status)
-    );
-    title = 'To Inspect';
-  } else if (currentUser.role === 'supervisor') {
-    roleList = batches.filter((b) =>
-      ['OPERATOR_APPROVED', 'OPERATOR_REJECTED', 'SUPERVISOR_IN_PROGRESS', 'ON_HOLD', 'op_approved', 'op_rejected', 'sup_progress', 'hold'].includes(b.status)
-    );
-    title = 'To Review';
-  }
+  useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current); }, []);
 
-  // Search filter
-  const filteredList = roleList.filter((b) => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
-    const lot = (b.lot_number || '').toLowerCase();
-    const prod = (b.product_name || b.template?.part_name || '').toLowerCase();
-    const line = (b.line_name || '').toLowerCase();
-    return lot.includes(q) || prod.includes(q) || line.includes(q);
-  });
+  const title =
+    currentUser.role === 'operator' ? 'My Batches' :
+    currentUser.role === 'supervisor' ? 'My Reviews' : 'Batches Queue';
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -82,6 +73,8 @@ export const BatchSidebar: React.FC<BatchSidebarProps> = ({
     }
   };
 
+  const isScanRole = currentUser.role === 'operator' || currentUser.role === 'supervisor';
+
   return (
     <aside className="w-full lg:w-80 shrink-0 border border-slate-200 bg-white rounded-2xl shadow-sm p-4 space-y-3.5 text-xs">
       {/* Header & Search */}
@@ -90,7 +83,7 @@ export const BatchSidebar: React.FC<BatchSidebarProps> = ({
           <div className="flex items-center gap-2">
             <h3 className="font-bold text-sm text-slate-900">{title}</h3>
             <span className="text-[11px] font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full">
-              {filteredList.length}
+              {batches.length}
             </span>
           </div>
 
@@ -107,13 +100,13 @@ export const BatchSidebar: React.FC<BatchSidebarProps> = ({
           )}
         </div>
 
-        {/* Quick Search */}
+        {/* Quick Search — debounced, calls backend via onSearch */}
         <div className="relative">
           <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5 pointer-events-none" />
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => handleSearchChange(e.target.value)}
             placeholder="Search lot or part..."
             className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-slate-900 focus:bg-white rounded-lg text-xs font-medium text-slate-800 placeholder-slate-400 outline-none transition-all"
           />
@@ -122,14 +115,29 @@ export const BatchSidebar: React.FC<BatchSidebarProps> = ({
 
       {/* Batch Cards List */}
       <div className="space-y-1.5 max-h-[calc(100vh-280px)] overflow-y-auto pr-0.5">
-        {filteredList.length === 0 ? (
-          <div className="py-8 px-4 border border-dashed border-slate-200 rounded-xl text-center text-slate-400">
-            <Clock className="w-5 h-5 mx-auto mb-1.5 opacity-40" />
-            <p className="text-xs font-medium text-slate-500">No batches waiting</p>
-            <p className="text-[11px] text-slate-400 mt-0.5">Scan a barcode to load a sheet</p>
-          </div>
+        {batches.length === 0 ? (
+          isScanRole ? (
+            <div className="py-8 px-4 border border-dashed border-slate-200 rounded-xl text-center space-y-3">
+              <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center mx-auto">
+                <ScanLine className="w-5 h-5 text-slate-500" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-slate-700">Scan a barcode to begin</p>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Use the scan bar above or a USB / Bluetooth scanner to open your batch.
+                  Previously worked batches appear here automatically.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="py-8 px-4 border border-dashed border-slate-200 rounded-xl text-center text-slate-400">
+              <Clock className="w-5 h-5 mx-auto mb-1.5 opacity-40" />
+              <p className="text-xs font-medium text-slate-500">No batches found</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">Scan a barcode to load a sheet</p>
+            </div>
+          )
         ) : (
-          filteredList.map((b) => {
+          batches.map((b) => {
             const isSelected = b.batch_id === selectedBatchId;
             return (
               <button
@@ -156,7 +164,7 @@ export const BatchSidebar: React.FC<BatchSidebarProps> = ({
                 <div className="flex items-center justify-between text-[11px] text-slate-400 mt-1 font-medium">
                   <span>{b.line_name || 'Line 1'}</span>
                   {b.round > 1 && (
-                    <span className="text-purple-700 font-semibold bg-purple-50 px-1.5 py-0.2 rounded text-[10px]">
+                    <span className="text-purple-700 font-semibold bg-purple-50 px-1.5 py-0.5 rounded text-[10px]">
                       Round {b.round}
                     </span>
                   )}

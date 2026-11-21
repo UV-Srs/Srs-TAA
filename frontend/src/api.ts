@@ -135,8 +135,9 @@ export async function getDefaultSheet(): Promise<SheetTemplate | null> {
 }
 
 // --- Batches ---
-export async function fetchBatches(): Promise<InspectionBatch[]> {
-  return apiRequest<InspectionBatch[]>('/api/batches');
+export async function fetchBatches(search?: string): Promise<InspectionBatch[]> {
+  const qs = search ? `?search=${encodeURIComponent(search)}` : '';
+  return apiRequest<InspectionBatch[]>(`/api/batches${qs}`);
 }
 
 export async function createBatch(data: {
