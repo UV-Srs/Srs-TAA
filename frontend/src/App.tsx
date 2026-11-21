@@ -78,18 +78,13 @@ export const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
-      {/* Universal Top Header with Role Switcher & In-App Notification Bell */}
+      {/* Top Header */}
       <Header
         user={currentUser}
         onLogout={handleLogout}
-        onOpenScanner={() => {}}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         onSelectBatchByCode={handleSelectBatchByCode}
-        onUserSwitched={(newUser) => {
-          setCurrentUser(newUser);
-          loadBatches();
-        }}
       />
 
       {/* Universal Scan Adapter & Device Simulator Bar (FR-017, FR-018, FR-019) */}
