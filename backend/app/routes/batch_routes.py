@@ -174,6 +174,12 @@ def update_cell_response(
     if not item:
         raise HTTPException(status_code=404, detail="Control item not found")
 
+    if current_user.role == "operator" and (item.editable_by_operator is False or item.assigned_role == "supervisor"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Operators cannot edit fields assigned to Supervisors."
+        )
+
     is_spec = True
     if payload.cell_value is not None and str(payload.cell_value).strip() != "":
         val_str = str(payload.cell_value).strip()

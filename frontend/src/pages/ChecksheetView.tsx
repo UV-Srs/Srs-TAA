@@ -472,13 +472,13 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
     <div className="space-y-4 text-xs font-sans pb-12">
       {/* Read-Only Banner if finalized or locked */}
       {isReadOnly && (
-        <div className="bg-slate-900 text-white px-4 py-2 rounded-xl flex items-center justify-between text-xs font-medium shadow-sm">
-          <div className="flex items-center gap-2">
-            <Lock className="w-3.5 h-3.5 text-slate-300" />
+        <div className="bg-black text-white px-5 py-3 rounded-xl flex items-center justify-between text-xs font-bold tracking-wider uppercase shadow-md mb-2">
+          <div className="flex items-center gap-2.5">
+            <Lock className="w-4 h-4 text-white" />
             <span>LOCKED RECORD — READ-ONLY SUMMARY MODE</span>
           </div>
-          <span className="text-[10px] text-slate-300 font-mono">
-            Status: {batch.status}
+          <span className="text-[11px] text-zinc-300 font-mono font-semibold">
+            Status: {batch.status} (Round {batch.round || 1})
           </span>
         </div>
       )}
@@ -632,13 +632,18 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                 const isSupRole = currentUser.role === 'supervisor';
                 const isCheckpoint = item.is_supervisor_checkpoint;
 
+                // PRD Section 2 Role-Based Visual Hierarchy
+                const isAssigned =
+                  currentUser.role === 'admin' ||
+                  (isOpRole && (item.assigned_role === 'operator' || !item.assigned_role) && item.editable_by_operator !== false) ||
+                  (isSupRole && (item.assigned_role === 'supervisor' || isCheckpoint));
+
+                const canEditCell = !isReadOnly && isOpRole && isAssigned;
+
                 // Row styling
-                let rowBg = '';
-                if (isOpRole && !isReadOnly) {
-                  rowBg = 'bg-teal-50/20';
-                } else if (isSupRole && isCheckpoint) {
-                  rowBg = 'bg-purple-50/30';
-                }
+                const rowClass = isAssigned
+                  ? 'bg-white text-slate-900 border-l-4 border-l-black hover:bg-slate-50/80 font-medium'
+                  : 'opacity-50 bg-slate-50/50 text-slate-500 border-l-2 border-l-slate-300';
 
                 // Get single representative column key or first column
                 const sampleCols = Array.isArray(item.sample_columns) ? item.sample_columns : ['val'];
@@ -653,41 +658,41 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                 const isItemRejectedByOp = opRejectedList.includes(item.control_item_name) || opRejectedList.includes(item.item_id);
 
                 return (
-                  <tr key={item.item_id || idx} className={`hover:bg-slate-50/60 transition-colors ${rowBg}`}>
-                    <td className="py-2.5 px-3 text-center font-mono text-slate-500 font-medium">
+                  <tr key={item.item_id || idx} className={`transition-colors border-b border-slate-100 ${rowClass}`}>
+                    <td className="py-2.5 px-3 text-center font-mono text-slate-700 font-bold">
                       {item.serial_no}
                     </td>
-                    <td className="py-2.5 px-3 font-medium text-slate-700">
+                    <td className="py-2.5 px-3 font-semibold text-slate-800">
                       {item.stage_name}
                     </td>
-                    <td className="py-2.5 px-3 font-semibold text-slate-900">
+                    <td className="py-2.5 px-3 font-bold text-slate-950">
                       {item.control_item_name}
-                      {item.is_required && <span className="text-red-500 ml-0.5">*</span>}
+                      {item.is_required && <span className="text-red-600 ml-0.5">*</span>}
                     </td>
-                    <td className="py-2.5 px-3 text-slate-600 font-mono text-[11px]">
+                    <td className="py-2.5 px-3 font-mono text-[11px] text-slate-700">
                       {item.specification_content}
                       {item.min_val !== null && item.max_val !== null && (
-                        <span className="text-slate-400 block text-[10px]">
+                        <span className="text-slate-500 block text-[10px] font-semibold">
                           [{item.min_val} ~ {item.max_val} {item.unit || ''}]
                         </span>
                       )}
                     </td>
-                    <td className="py-2.5 px-3 text-slate-500">
+                    <td className="py-2.5 px-3 text-slate-600">
                       {item.application_method || '-'}
                     </td>
 
                     {/* Cell Input / Value */}
                     <td className="py-2.5 px-3">
-                      {!isReadOnly && currentUser.role === 'operator' ? (
+                      {canEditCell ? (
                         item.html_input_type === 'pf' ? (
-                          <div className="inline-flex rounded-lg border border-slate-300 p-0.5 bg-slate-50">
+                          <div className="inline-flex rounded-lg border-2 border-black p-0.5 bg-white shadow-2xs">
                             <button
                               type="button"
                               onClick={() => handleCellChange(item, firstColKey, 'Pass')}
-                              className={`px-3 py-1 rounded-md font-semibold text-xs transition-all ${
+                              className={`px-3 py-1 rounded font-bold text-xs transition-all ${
                                 currentVal === 'Pass'
-                                  ? 'bg-emerald-600 text-white shadow-sm'
-                                  : 'text-slate-600 hover:text-slate-900'
+                                  ? 'bg-black text-white shadow-sm'
+                                  : 'text-black hover:bg-slate-100'
                               }`}
                             >
                               Pass
@@ -695,51 +700,53 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                             <button
                               type="button"
                               onClick={() => handleCellChange(item, firstColKey, 'Fail')}
-                              className={`px-3 py-1 rounded-md font-semibold text-xs transition-all ${
+                              className={`px-3 py-1 rounded font-bold text-xs transition-all ${
                                 currentVal === 'Fail'
-                                  ? 'bg-red-600 text-white shadow-sm'
-                                  : 'text-slate-600 hover:text-slate-900'
+                                  ? 'bg-black text-white shadow-sm underline'
+                                  : 'text-black hover:bg-slate-100'
                               }`}
                             >
                               Fail
                             </button>
                           </div>
                         ) : item.html_input_type === 'number' || item.row_mode === 'NUMERIC_SAMPLE' ? (
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-2">
                             <input
                               type="number"
                               step="0.01"
                               value={currentVal}
                               onChange={(e) => handleCellChange(item, firstColKey, e.target.value)}
-                              className={`w-24 border rounded-lg px-2.5 py-1 text-xs font-mono font-medium focus:ring-2 focus:ring-slate-900 focus:outline-none ${
+                              className={`w-28 rounded-lg px-2.5 py-1 text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-black ${
                                 isOutOfSpec
-                                  ? 'border-red-500 bg-red-50 text-red-900 ring-1 ring-red-400'
-                                  : 'border-slate-300 bg-white'
+                                  ? 'border-2 border-dashed border-black bg-neutral-100 text-black'
+                                  : 'border-2 border-black bg-white text-black'
                               }`}
                               placeholder="0.00"
                             />
                             {currentVal && (
                               <span
-                                className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                                  isOutOfSpec ? 'bg-red-100 text-red-800' : 'bg-emerald-100 text-emerald-800'
+                                className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider ${
+                                  isOutOfSpec
+                                    ? 'bg-black text-white'
+                                    : 'bg-slate-200 text-slate-800'
                                 }`}
                               >
-                                {isOutOfSpec ? 'Out of spec' : 'OK'}
+                                {isOutOfSpec ? 'OUT OF SPEC' : 'OK'}
                               </span>
                             )}
                           </div>
                         ) : item.html_input_type === 'checkbox' ? (
-                          <label className="flex items-center gap-2 cursor-pointer">
+                          <label className="flex items-center gap-2 cursor-pointer select-none">
                             <input
                               type="checkbox"
                               checked={currentVal === 'true' || currentVal === 'Pass'}
                               onChange={(e) =>
                                 handleCellChange(item, firstColKey, e.target.checked ? 'Pass' : 'Fail')
                               }
-                              className="w-4 h-4 rounded text-slate-900 focus:ring-slate-900 border-slate-300"
+                              className="w-5 h-5 accent-black border-2 border-black rounded cursor-pointer transition-transform active:scale-95"
                             />
-                            <span className="font-semibold text-slate-700">
-                              {currentVal === 'Pass' || currentVal === 'true' ? 'Pass' : 'Unticked'}
+                            <span className="font-bold text-xs text-black">
+                              {currentVal === 'Pass' || currentVal === 'true' ? 'Passed' : 'Unticked'}
                             </span>
                           </label>
                         ) : (
@@ -748,21 +755,23 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                             value={currentVal}
                             onChange={(e) => handleCellChange(item, firstColKey, e.target.value)}
                             placeholder="Optional remark"
-                            className="w-full border border-slate-300 rounded-lg px-2.5 py-1 text-xs focus:ring-2 focus:ring-slate-900 focus:outline-none"
+                            className="w-full border-2 border-black rounded-lg px-2.5 py-1 text-xs font-medium focus:ring-2 focus:ring-black focus:outline-none"
                           />
                         )
                       ) : (
-                        <div className="flex items-center gap-1.5 font-mono">
+                        <div className="flex items-center gap-2 font-mono">
                           <span className="font-bold text-slate-900">
                             {currentVal || <span className="text-slate-400 font-normal italic">Empty</span>}
                           </span>
                           {currentVal && (
                             <span
-                              className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
-                                isOutOfSpec ? 'bg-red-100 text-red-800' : 'bg-emerald-50 text-emerald-800'
+                              className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider ${
+                                isOutOfSpec
+                                  ? 'bg-black text-white'
+                                  : 'bg-slate-200 text-slate-800'
                               }`}
                             >
-                              {isOutOfSpec ? 'Out of spec' : 'OK'}
+                              {isOutOfSpec ? 'OUT OF SPEC' : 'OK'}
                             </span>
                           )}
                         </div>
@@ -771,12 +780,21 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
 
                     {/* Owner / Role */}
                     <td className="py-2.5 px-3">
-                      <span className="font-medium text-slate-600 block">Operator</span>
-                      {isCheckpoint && (
-                        <span className="text-[10px] font-semibold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200">
-                          Supervisor Checkpoint
+                      <div className="flex flex-col gap-0.5">
+                        <span className={`font-bold text-xs ${isAssigned ? 'text-black' : 'text-slate-400'}`}>
+                          {item.assigned_role === 'supervisor' ? 'Supervisor' : 'Operator'}
                         </span>
-                      )}
+                        {isCheckpoint && (
+                          <span className="text-[9px] font-bold text-white bg-black px-1.5 py-0.5 rounded tracking-wide uppercase inline-block w-fit">
+                            Sup Checkpoint
+                          </span>
+                        )}
+                        {!isAssigned && (
+                          <span className="text-[10px] text-slate-400 italic">
+                            (Non-editable by {currentUser.role})
+                          </span>
+                        )}
+                      </div>
                     </td>
 
                     {/* Supervisor Review Column (Confirm / Overrule - FR-038) */}
