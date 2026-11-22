@@ -4,7 +4,8 @@ import {
 } from '../types';
 import {
   fetchBatchDetail, updateCellResponse, submitOperatorBatch,
-  reviewSupervisorBatch, reviewSingleField, releaseBatchHold, getExportUrl
+  reviewSupervisorBatch, reviewSingleField, releaseBatchHold, getExportUrl,
+  downloadBatchReport, handleReportDownloadClick
 } from '../api';
 import { saveCellOffline, getOfflineCellsForBatch, cacheBatchOffline, getCachedBatchOffline } from '../db';
 import { FullSheetCompletionModal } from '../components/FullSheetCompletionModal';
@@ -586,6 +587,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
               <a
                 href={getExportUrl(batch.batch_id, 'pdf')}
                 download
+                onClick={(e) => handleReportDownloadClick(e, () => downloadBatchReport(batch.batch_id, 'pdf'))}
                 className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium rounded-lg flex items-center gap-1.5 transition-colors text-xs"
               >
                 <Download className="w-3.5 h-3.5 text-slate-700" />
@@ -595,10 +597,21 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
               <a
                 href={getExportUrl(batch.batch_id, 'xlsx')}
                 download
+                onClick={(e) => handleReportDownloadClick(e, () => downloadBatchReport(batch.batch_id, 'xlsx'))}
                 className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium rounded-lg flex items-center gap-1.5 transition-colors text-xs"
               >
                 <Download className="w-3.5 h-3.5 text-slate-700" />
                 <span>Excel</span>
+              </a>
+
+              <a
+                href={getExportUrl(batch.batch_id, 'csv')}
+                download
+                onClick={(e) => handleReportDownloadClick(e, () => downloadBatchReport(batch.batch_id, 'csv'))}
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium rounded-lg flex items-center gap-1.5 transition-colors text-xs"
+              >
+                <Download className="w-3.5 h-3.5 text-slate-700" />
+                <span>CSV</span>
               </a>
             </div>
           </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
-  fetchProgressDashboard, createBatch, fetchSheets, getExportUrl
+  fetchProgressDashboard, createBatch, fetchSheets, getExportUrl,
+  downloadBatchReport, handleReportDownloadClick
 } from '../api';
 import { SheetTemplate } from '../types';
 import {
@@ -232,6 +233,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch })
                       <a
                         href={getExportUrl(b.batch_id, 'pdf')}
                         download
+                        onClick={(e) => handleReportDownloadClick(e, () => downloadBatchReport(b.batch_id, 'pdf'))}
                         className="px-2 py-1 text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded"
                         title="Export PDF"
                       >
@@ -240,10 +242,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch })
                       <a
                         href={getExportUrl(b.batch_id, 'xlsx')}
                         download
+                        onClick={(e) => handleReportDownloadClick(e, () => downloadBatchReport(b.batch_id, 'xlsx'))}
                         className="px-2 py-1 text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded"
                         title="Export Excel"
                       >
                         XLSX
+                      </a>
+                      <a
+                        href={getExportUrl(b.batch_id, 'csv')}
+                        download
+                        onClick={(e) => handleReportDownloadClick(e, () => downloadBatchReport(b.batch_id, 'csv'))}
+                        className="px-2 py-1 text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded"
+                        title="Export Checksheet CSV"
+                      >
+                        CSV
                       </a>
                     </div>
                   </td>
