@@ -10,6 +10,7 @@ interface CreateBatchModalProps {
   linkBarcode?: string;
   onClose: () => void;
   onBatchCreated: (batchId: number) => void;
+  onCreateNewSheet?: () => void;
 }
 
 export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
@@ -19,6 +20,7 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
   linkBarcode = '',
   onClose,
   onBatchCreated,
+  onCreateNewSheet,
 }) => {
   const [templates, setTemplates] = useState<SheetTemplate[]>([]);
   const [selectedSheetId, setSelectedSheetId] = useState<string>('');
@@ -217,19 +219,33 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
               )}
             </div>
 
-            <select
-              value={selectedSheetId}
-              onChange={e => handleTemplateChange(e.target.value)}
-              disabled={isLoadingTemplates}
-              className="w-full px-3 py-2 rounded-lg outline-none cursor-pointer"
-              style={{ border: '1px solid var(--line2)', background: 'var(--surface)', color: 'var(--ink)', fontSize: 12 }}
-            >
-              {templates.map(t => (
-                <option key={t.sheet_id} value={t.sheet_id}>
-                  {t.is_default ? '★ [Default] ' : ''}{t.sheet_id} — {t.part_name || t.document_title} ({t.part_no})
-                </option>
-              ))}
-            </select>
+            <div className="flex items-center gap-2">
+              <select
+                value={selectedSheetId}
+                onChange={e => handleTemplateChange(e.target.value)}
+                disabled={isLoadingTemplates}
+                className="flex-1 px-3 py-2 rounded-lg outline-none cursor-pointer"
+                style={{ border: '1px solid var(--line2)', background: 'var(--surface)', color: 'var(--ink)', fontSize: 12 }}
+              >
+                {templates.map(t => (
+                  <option key={t.sheet_id} value={t.sheet_id}>
+                    {t.is_default ? '★ [Default] ' : ''}{t.sheet_id} — {t.part_name || t.document_title} ({t.part_no})
+                  </option>
+                ))}
+              </select>
+
+              {onCreateNewSheet && (
+                <button
+                  type="button"
+                  onClick={() => { onClose(); onCreateNewSheet(); }}
+                  className="shrink-0 px-3 py-2 rounded-lg font-semibold text-[11px] transition-colors whitespace-nowrap"
+                  style={{ background: 'var(--accent-soft)', color: 'var(--accent)', border: '1px solid var(--accent)' }}
+                  title="Create a blank inspection sheet template"
+                >
+                  + New Sheet
+                </button>
+              )}
+            </div>
 
             {selectedTemplate && (
               <div className="p-3 rounded-lg space-y-1.5"

@@ -364,6 +364,11 @@ export const App: React.FC = () => {
         linkBarcode={createBatchLinkBarcode}
         onClose={() => setIsCreateBatchOpen(false)}
         onBatchCreated={handleBatchCreatedFromModal}
+        onCreateNewSheet={() => {
+          setIsCreateBatchOpen(false);
+          setBuilderSheetId(null);
+          setActiveTab('builder');
+        }}
       />
     </div>
   );
