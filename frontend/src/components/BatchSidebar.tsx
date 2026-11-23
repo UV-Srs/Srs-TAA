@@ -11,6 +11,7 @@ interface BatchSidebarProps {
   onBatchDeleted?: (batchId: number) => void;
   onSearch?: (query: string) => void;
   onCreateBatch?: () => void;
+  scanOnly?: boolean;
   progressSummary?: {
     with_operator: number;
     with_supervisor: number;
@@ -39,6 +40,7 @@ export const BatchSidebar: React.FC<BatchSidebarProps> = ({
   onBatchDeleted,
   onSearch,
   onCreateBatch,
+  scanOnly = false,
   progressSummary,
 }) => {
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -221,37 +223,72 @@ export const BatchSidebar: React.FC<BatchSidebarProps> = ({
                   background: isSelected ? 'var(--accent-soft)' : 'transparent',
                 }}
               >
-                {/* Main row button */}
-                <button
-                  type="button"
-                  onClick={() => { setConfirmDeleteId(null); onSelectBatch(b.batch_id); }}
-                  className="w-full text-left px-3 py-2.5 flex items-start gap-2.5"
-                >
-                  <span className="mt-[5px] w-1.5 h-1.5 rounded-full shrink-0" style={{ background: dotColor }} />
-                  <div className="flex-1 min-w-0 pr-5">
-                    <div className="flex items-baseline justify-between gap-1">
-                      <span className="font-mono font-bold text-[11px] truncate" style={{ color: 'var(--ink)' }}>
-                        {b.lot_number}
-                      </span>
-                      <span className="text-[10px] font-medium shrink-0" style={{ color: 'var(--muted)' }}>{label}</span>
-                    </div>
-                    <p className="text-[11px] truncate" style={{ color: 'var(--muted)' }}>
-                      {b.product_name || b.template?.part_name || b.sheet_id}
-                    </p>
-                    <div className="flex items-center gap-2 mt-0.5 text-[10px]" style={{ color: 'var(--muted)' }}>
-                      <span>{b.line_name || 'Line 1'}</span>
-                      {b.round > 1 && (
-                        <span className="font-semibold" style={{ color: 'var(--accent)' }}>Round {b.round}</span>
+                {/* Main row — clickable for admin, scan-only hint for operator/supervisor */}
+                {scanOnly ? (
+                  <div className="group/row w-full text-left px-3 py-2.5 flex items-start gap-2.5 cursor-default relative">
+                    <span className="mt-[5px] w-1.5 h-1.5 rounded-full shrink-0" style={{ background: dotColor }} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-baseline justify-between gap-1">
+                        <span className="font-mono font-bold text-[11px] truncate" style={{ color: 'var(--ink)' }}>
+                          {b.lot_number}
+                        </span>
+                        <span className="text-[10px] font-medium shrink-0" style={{ color: 'var(--muted)' }}>{label}</span>
+                      </div>
+                      <p className="text-[11px] truncate" style={{ color: 'var(--muted)' }}>
+                        {b.product_name || b.template?.part_name || b.sheet_id}
+                      </p>
+                      <div className="flex items-center gap-2 mt-0.5 text-[10px]" style={{ color: 'var(--muted)' }}>
+                        <span>{b.line_name || 'Line 1'}</span>
+                        {b.round > 1 && (
+                          <span className="font-semibold" style={{ color: 'var(--accent)' }}>Round {b.round}</span>
+                        )}
+                      </div>
+                      {b.is_overdue && (
+                        <div className="flex items-center gap-1 mt-1 text-[10px] font-semibold" style={{ color: 'var(--ng)' }}>
+                          <AlertCircle className="w-3 h-3 shrink-0" />
+                          Hold overdue
+                        </div>
                       )}
                     </div>
-                    {b.is_overdue && (
-                      <div className="flex items-center gap-1 mt-1 text-[10px] font-semibold" style={{ color: 'var(--ng)' }}>
-                        <AlertCircle className="w-3 h-3 shrink-0" />
-                        Hold overdue
-                      </div>
-                    )}
+                    {/* Scan hint badge — always visible */}
+                    <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1 px-1.5 py-0.5 rounded"
+                      style={{ background: 'var(--surface2)', border: '1px solid var(--line)' }}>
+                      <ScanLine className="w-3 h-3 shrink-0" style={{ color: 'var(--muted)' }} />
+                      <span className="text-[9px] font-semibold" style={{ color: 'var(--muted)' }}>Scan</span>
+                    </div>
                   </div>
-                </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => { setConfirmDeleteId(null); onSelectBatch(b.batch_id); }}
+                    className="w-full text-left px-3 py-2.5 flex items-start gap-2.5"
+                  >
+                    <span className="mt-[5px] w-1.5 h-1.5 rounded-full shrink-0" style={{ background: dotColor }} />
+                    <div className="flex-1 min-w-0 pr-5">
+                      <div className="flex items-baseline justify-between gap-1">
+                        <span className="font-mono font-bold text-[11px] truncate" style={{ color: 'var(--ink)' }}>
+                          {b.lot_number}
+                        </span>
+                        <span className="text-[10px] font-medium shrink-0" style={{ color: 'var(--muted)' }}>{label}</span>
+                      </div>
+                      <p className="text-[11px] truncate" style={{ color: 'var(--muted)' }}>
+                        {b.product_name || b.template?.part_name || b.sheet_id}
+                      </p>
+                      <div className="flex items-center gap-2 mt-0.5 text-[10px]" style={{ color: 'var(--muted)' }}>
+                        <span>{b.line_name || 'Line 1'}</span>
+                        {b.round > 1 && (
+                          <span className="font-semibold" style={{ color: 'var(--accent)' }}>Round {b.round}</span>
+                        )}
+                      </div>
+                      {b.is_overdue && (
+                        <div className="flex items-center gap-1 mt-1 text-[10px] font-semibold" style={{ color: 'var(--ng)' }}>
+                          <AlertCircle className="w-3 h-3 shrink-0" />
+                          Hold overdue
+                        </div>
+                      )}
+                    </div>
+                  </button>
+                )}
 
                 {/* Admin delete icon — appears on hover */}
                 {isAdmin && !isConfirming && (

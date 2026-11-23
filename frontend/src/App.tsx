@@ -106,7 +106,10 @@ export const App: React.FC = () => {
     try {
       const bList = await fetchBatches();
       setBatches(bList);
-      if (bList.length > 0 && !currentBatchIdRef.current) setCurrentBatchId(bList[0].batch_id);
+      // Only auto-open the first batch for admin — operators/supervisors must scan
+      if (bList.length > 0 && !currentBatchIdRef.current && currentUser?.role === 'admin') {
+        setCurrentBatchId(bList[0].batch_id);
+      }
       if (currentUser?.role === 'admin') {
         const prog = await fetchProgressDashboard();
         setProgressSummary(prog?.summary || null);
@@ -210,12 +213,10 @@ export const App: React.FC = () => {
                   batches={batches}
                   selectedBatchId={currentBatchId}
                   currentUser={currentUser}
+                  scanOnly={currentUser.role !== 'admin'}
                   onSelectBatch={async (bId) => {
+                    if (currentUser.role !== 'admin') return; // must scan
                     setCurrentBatchId(bId);
-                    if (currentUser.role !== 'admin') {
-                      try { await openBatchWorkflow(bId); } catch {}
-                      loadBatches();
-                    }
                   }}
                   onBatchDeleted={(bId) => {
                     if (currentBatchId === bId) setCurrentBatchId(null);
@@ -241,6 +242,31 @@ export const App: React.FC = () => {
                       setActiveTab('builder');
                     } : undefined}
                   />
+                ) : currentUser.role !== 'admin' ? (
+                  <div className="flex flex-col items-center justify-center h-full min-h-80 gap-5 px-8">
+                    <div className="w-20 h-20 rounded-2xl flex items-center justify-center"
+                      style={{ background: 'var(--accent-soft)', border: '2px solid var(--accent)' }}>
+                      <svg className="w-10 h-10" style={{ color: 'var(--accent)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 6.75h.75v.75h-.75v-.75zM6.75 16.5h.75v.75h-.75v-.75zM16.5 6.75h.75v.75h-.75v-.75zM13.5 13.5h.75v.75h-.75v-.75zM13.5 18.75h.75v.75h-.75v-.75zM18.75 13.5h.75v.75h-.75v-.75zM18.75 18.75h.75v.75h-.75v-.75zM16.5 16.5h.75v.75h-.75v-.75z" />
+                      </svg>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-base font-semibold" style={{ color: 'var(--ink)' }}>Scan to open your sheet</p>
+                      <p className="text-sm mt-1.5 leading-relaxed" style={{ color: 'var(--muted)' }}>
+                        Point your scanner at the lot barcode or type the lot number in the scan bar above.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium"
+                      style={{ background: 'var(--surface2)', border: '1px solid var(--line)', color: 'var(--muted)' }}>
+                      <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      {batches.length > 0
+                        ? `${batches.length} batch${batches.length > 1 ? 'es' : ''} assigned — scan any to begin`
+                        : 'No batches assigned yet — check back later'}
+                    </div>
+                  </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center h-64 rounded-xl"
                     style={{ border: '2px dashed var(--line2)', background: 'var(--surface)' }}>
