@@ -106,12 +106,13 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
       unsubSheet();
       unsubCell();
     };
-  }, [batchId, batch?.sheet_id]);
+  }, [batchId]);
 
   const loadBatch = async () => {
     try {
       setIsLoading(true);
       setErrorMsg(null);
+      setCellsMap({});
 
       let bData: InspectionBatch;
       try {
@@ -243,9 +244,12 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
   const validateFullSheetCompletion = (): { isValid: boolean; missing: string[] } => {
     if (!batch?.template?.control_items) return { isValid: true, missing: [] };
 
+    const isOp = currentUser.role === 'operator';
     const missing: string[] = [];
     batch.template.control_items.forEach((item) => {
       if (!item.is_required) return;
+      // Operators are only responsible for operator-assigned fields
+      if (isOp && (item.assigned_role === 'supervisor' || item.assigned_role === 'admin' || !item.editable_by_operator)) return;
       const cols = Array.isArray(item.sample_columns) ? item.sample_columns : [];
       cols.forEach((col) => {
         const key = `${item.item_id}_${col}`;
@@ -262,9 +266,15 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
     };
   };
 
-  const totalRequired = batch?.template?.control_items ? batch.template.control_items.filter((i) => i.is_required).length : 0;
+  const isOpRole = currentUser.role === 'operator';
+  const totalRequired = batch?.template?.control_items ? batch.template.control_items.filter((i) => {
+    if (!i.is_required) return false;
+    if (isOpRole && (i.assigned_role === 'supervisor' || i.assigned_role === 'admin' || !i.editable_by_operator)) return false;
+    return true;
+  }).length : 0;
   const completedRequired = batch?.template?.control_items ? batch.template.control_items.filter((item) => {
     if (!item.is_required) return false;
+    if (isOpRole && (item.assigned_role === 'supervisor' || item.assigned_role === 'admin' || !item.editable_by_operator)) return false;
     const sampleCols = Array.isArray(item.sample_columns) ? item.sample_columns : ['val'];
     const firstColKey = sampleCols[0];
     const cellKey = `${item.item_id}_${firstColKey}`;
@@ -530,43 +540,42 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
       )}
 
       {/* Main Checksheet Card */}
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+      <div className="sv-card flush">
         {/* Zone A: Clean Header Block */}
-        <div className="p-5 border-b border-slate-200 bg-white">
+        <div className="p-5 border-b border-[var(--line)] bg-[var(--surface)]">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                <span className="font-mono text-xs font-bold bg-slate-900 text-white px-2.5 py-0.5 rounded-md">
+                <span className="mono text-xs font-semibold bg-[var(--primary)] text-white px-2.5 py-0.5 rounded-md">
                   Lot {batch.lot_number}
                 </span>
-                <span className="text-xs font-mono font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
+                <span className="text-xs mono font-semibold text-[var(--ink)] bg-[var(--surface2)] px-2.5 py-0.5 rounded-md border border-[var(--line)]">
                   Part #{template.part_no || 'N/A'}
                 </span>
-                <span className="text-xs text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md font-medium">
+                <span className="text-xs text-[var(--muted)] bg-[var(--surface2)] px-2.5 py-0.5 rounded-md font-medium border border-[var(--line)]">
                   {batch.line_name || 'Line 1'}
                 </span>
-                <span className="text-xs text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md font-medium">
+                <span className="text-xs text-[var(--muted)] bg-[var(--surface2)] px-2.5 py-0.5 rounded-md font-medium border border-[var(--line)]">
                   Qty: {batch.lot_quantity || 100} pcs
                 </span>
                 {batch.round > 1 && (
-                  <span className="text-xs bg-purple-100 text-purple-900 px-2 py-0.5 rounded-md font-bold">
+                  <span className="pill neutral sm font-semibold">
                     Round {batch.round}
                   </span>
                 )}
               </div>
-              <h2 className="text-lg font-bold text-slate-900 tracking-tight">
+              <h2 className="text-lg font-bold text-[var(--ink)] tracking-tight">
                 {batch.product_name || template.part_name || template.document_title}
               </h2>
             </div>
-
           </div>
         </div>
 
         {/* Zone B: Inspection Matrix */}
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
+          <table className="vt w-full text-left text-xs border-collapse">
             <thead>
-              <tr className="bg-slate-50 text-slate-600 border-b border-slate-200 font-semibold text-[11px] uppercase tracking-wider">
+              <tr className="bg-[var(--surface2)] text-[var(--muted)] border-b border-[var(--line)] font-semibold text-[11px] uppercase tracking-[0.06em]">
                 <th className="py-3 px-2 sm:px-3 w-10 text-center">#</th>
                 <th className="py-3 px-3 hidden md:table-cell">Stage</th>
                 <th className="py-3 px-3 min-w-[130px] md:min-w-[180px]">Inspection Item</th>
@@ -595,8 +604,8 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
 
                 // Row styling
                 const rowClass = isAssigned
-                  ? 'bg-white text-slate-900 border-l-4 border-l-black hover:bg-slate-50/80 font-medium'
-                  : 'opacity-50 bg-slate-50/50 text-slate-500 border-l-2 border-l-slate-300';
+                  ? 'bg-[var(--surface)] text-[var(--ink)] border-l-4 border-l-[var(--primary)] hover:bg-[var(--surface2)] font-medium'
+                  : 'opacity-50 bg-[var(--surface2)]/50 text-[var(--muted)] border-l-2 border-l-[var(--line)]';
 
                 // Get single representative column key or first column
                 const sampleCols = Array.isArray(item.sample_columns) ? item.sample_columns : ['val'];

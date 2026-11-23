@@ -5,6 +5,7 @@ import { onBatchCreated, onBatchUpdated, onSheetUpdated, onScanNotFound, liveSyn
 import { Header } from './components/Header';
 import { UniversalScanBar } from './components/UniversalScanBar';
 import { BatchSidebar } from './components/BatchSidebar';
+import { Sidebar } from './components/Sidebar';
 import { CreateBatchModal } from './components/CreateBatchModal';
 import { LoginPage } from './pages/LoginPage';
 import { ChecksheetView } from './pages/ChecksheetView';
@@ -160,8 +161,10 @@ export const App: React.FC = () => {
     );
   }
 
+  const onHoldCount = batches.filter((b) => (b.status as string) === 'ON_HOLD' || (b.status as string) === 'hold').length;
+
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
+    <div className="min-h-screen bg-[var(--bg)] text-[var(--ink)] flex flex-col font-sans">
       {/* Top Header */}
       <Header
         user={currentUser}
@@ -196,57 +199,77 @@ export const App: React.FC = () => {
         onRequestCreateBatch={(code) => handleOpenCreateBatch(code, '', code)}
       />
 
-      {/* Main Workspace Canvas */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-4 md:p-6">
-        {activeTab === 'sheet' && (
-          <div className="flex flex-col lg:flex-row gap-5 items-start">
-            {/* Left Queue Sidebar (Ready for inspection / Awaiting review / All batches + Progress) */}
-            <BatchSidebar
-              batches={batches}
-              selectedBatchId={currentBatchId}
-              currentUser={currentUser}
-              onSelectBatch={(bId) => setCurrentBatchId(bId)}
-              progressSummary={progressSummary}
-            />
+      {/* Global Body: Sidebar (220px) + Main Content Area */}
+      <div className="flex-1 flex min-h-[calc(100vh-115px)]">
+        <Sidebar
+          user={currentUser}
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          onHoldCount={onHoldCount}
+        />
 
-            {/* Right Main Checksheet Matrix & Approval Ledger */}
-            <div className="flex-1 min-w-0 w-full">
-              {currentBatchId ? (
-                <ChecksheetView
-                  batchId={currentBatchId}
-                  currentUser={currentUser}
-                  onBatchUpdated={loadBatches}
-                />
-              ) : (
-                <div className="p-8 text-center text-slate-400 border border-dashed border-slate-200 rounded-2xl bg-white">
-                  No batch selected. Scan a code or pick one from the queue.
-                </div>
-              )}
+        {/* Main Workspace Canvas */}
+        <main className="svbody flex-1 min-w-0 p-3 sm:p-5 lg:p-6 w-full max-w-[1400px]">
+          {activeTab === 'sheet' && (
+            <div className="flex flex-col lg:flex-row gap-5 items-start">
+              {/* Left Queue Sidebar (Ready for inspection / Awaiting review / All batches + Progress) */}
+              <BatchSidebar
+                batches={batches}
+                selectedBatchId={currentBatchId}
+                currentUser={currentUser}
+                onSelectBatch={(bId) => setCurrentBatchId(bId)}
+                progressSummary={progressSummary}
+              />
+
+              {/* Right Main Checksheet Matrix & Approval Ledger */}
+              <div className="flex-1 min-w-0 w-full">
+                {currentBatchId ? (
+                  <ChecksheetView
+                    batchId={currentBatchId}
+                    currentUser={currentUser}
+                    onBatchUpdated={loadBatches}
+                  />
+                ) : (
+                  <div className="p-8 text-center text-[var(--muted)] border border-dashed border-[var(--line)] rounded-2xl bg-[var(--surface)]">
+                    No batch selected. Scan a code or pick one from the queue.
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {activeTab === 'dashboard' && currentUser.role === 'admin' && (
-          <AdminDashboard
-            onSelectBatch={(bId) => {
-              setCurrentBatchId(bId);
-              setActiveTab('sheet');
-            }}
-          />
-        )}
+          {activeTab === 'dashboard' && currentUser.role === 'admin' && (
+            <AdminDashboard
+              onSelectBatch={(bId) => {
+                setCurrentBatchId(bId);
+                setActiveTab('sheet');
+              }}
+              onFilterLots={() => {
+                setActiveTab('sheet');
+              }}
+            />
+          )}
 
-        {activeTab === 'builder' && currentUser.role === 'admin' && (
-          <AdminSheetBuilder />
-        )}
+          {activeTab === 'builder' && currentUser.role === 'admin' && (
+            <AdminSheetBuilder />
+          )}
 
-        {activeTab === 'users' && currentUser.role === 'admin' && (
-          <AdminUserManagement />
-        )}
+          {activeTab === 'users' && currentUser.role === 'admin' && (
+            <AdminUserManagement />
+          )}
 
-        {activeTab === 'audit' && currentUser.role === 'admin' && (
-          <AuditLogsView />
-        )}
-      </main>
+          {activeTab === 'audit' && currentUser.role === 'admin' && (
+            <AuditLogsView />
+          )}
+        </main>
+      </div>
+
+      {/* Powered by footer */}
+      <footer className="flex items-center justify-center gap-2 py-2 border-t border-[var(--line)] bg-[var(--surface)] text-[var(--muted)] text-xs select-none">
+        <span>Powered by</span>
+        <img src="/srs-logo.png" alt="SRS Consulting" className="h-5 w-5 object-contain" />
+        <span className="font-semibold text-[var(--ink)]">SRS Consulting Inc.</span>
+      </footer>
 
       {/* CreateBatchModal — opens when an unregistered barcode is scanned */}
       {isCreateBatchOpen && (

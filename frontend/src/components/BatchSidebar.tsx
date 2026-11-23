@@ -65,33 +65,33 @@ export const BatchSidebar: React.FC<BatchSidebarProps> = ({
     switch (status) {
       case 'CREATED_PENDING_OPERATOR':
       case 'pending':
-        return <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">Pending</span>;
+        return <span className="pill neutral sm">Not scanned</span>;
       case 'OPERATOR_IN_PROGRESS':
       case 'op_progress':
-        return <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-800">In Progress</span>;
+        return <span className="pill info sm">Inspecting</span>;
       case 'OPERATOR_APPROVED':
       case 'op_approved':
-        return <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800">Op Approved</span>;
+        return <span className="pill warn sm">With supervisor</span>;
       case 'OPERATOR_REJECTED':
       case 'op_rejected':
-        return <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-red-50 text-red-800">Op Flagged</span>;
+        return <span className="pill ng sm">Op Flagged</span>;
       case 'SUPERVISOR_IN_PROGRESS':
       case 'sup_progress':
-        return <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-purple-50 text-purple-800">Reviewing</span>;
+        return <span className="pill warn sm">Reviewing</span>;
       case 'ON_HOLD':
       case 'hold':
-        return <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-900 border border-amber-200">On Hold</span>;
+        return <span className="pill warn sm">On hold</span>;
       case 'APPROVED':
-        return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-900">Approved</span>;
+        return <span className="pill ok sm">Completed</span>;
       case 'REJECTED':
-        return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-900">Rejected</span>;
+        return <span className="pill ng sm">Rejected</span>;
       default:
-        return <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{status}</span>;
+        return <span className="pill neutral sm">{status}</span>;
     }
   };
 
   return (
-    <aside className="w-full lg:w-80 shrink-0 border border-slate-200 bg-white rounded-2xl shadow-sm p-4 space-y-3.5 text-xs">
+    <aside className="w-full lg:w-80 shrink-0 sv-card space-y-3.5 text-xs">
       {/* Header & Search */}
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-2">
