@@ -197,9 +197,10 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
       if (isNaN(num)) return true;
       if (item.min_val !== null && item.min_val !== undefined && num < item.min_val) return true;
       if (item.max_val !== null && item.max_val !== undefined && num > item.max_val) return true;
+      return false;
     }
     if (item.row_mode === 'SERIAL_TICKBOX' || item.html_input_type === 'checkbox') {
-      if (val === 'false' || val === 'FAIL' || val === '0') return true;
+      if (val === 'false' || val === 'FAIL' || val === 'Fail' || val === '0') return true;
     }
     if (item.html_input_type === 'pf') {
       if (val === 'Fail') return true;
@@ -269,11 +270,26 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
       if (currentUser.role === 'supervisor' && !isSupItem) return;
 
       const sampleCols = Array.isArray(item.sample_columns) ? item.sample_columns : ['val'];
-      const col = sampleCols[0];
-      const key = `${item.item_id}_${col}`;
-      const cell = cellsMap[key];
-      if (!cell || cell.cell_value === null || cell.cell_value === undefined || cell.cell_value === '') {
-        missing.push(`S.No ${item.serial_no}: ${item.control_item_name}`);
+
+      if (item.row_mode === 'SERIAL_TICKBOX') {
+        // All 100 items must have Pass or Fail before operator can submit
+        const emptyCols = sampleCols.filter((col) => {
+          const cell = cellsMap[`${item.item_id}_${col}`];
+          return !cell || cell.cell_value === null || cell.cell_value === undefined || cell.cell_value === '';
+        });
+        if (emptyCols.length > 0) {
+          missing.push(
+            `${item.control_item_name}: ${emptyCols.length} item${emptyCols.length > 1 ? 's' : ''} not checked` +
+            (emptyCols.length <= 5 ? ` (${emptyCols.join(', ')})` : ` (first unchecked: ${emptyCols.slice(0, 3).join(', ')}…)`)
+          );
+        }
+      } else {
+        const col = sampleCols[0];
+        const key = `${item.item_id}_${col}`;
+        const cell = cellsMap[key];
+        if (!cell || cell.cell_value === null || cell.cell_value === undefined || cell.cell_value === '') {
+          missing.push(`S.No ${item.serial_no}: ${item.control_item_name}`);
+        }
       }
     });
 
@@ -283,26 +299,48 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
     };
   };
 
-  const totalRequired = batch?.template?.control_items ? batch.template.control_items.filter((i) => {
-    if (!i.is_required) return false;
-    const isOpItem = i.assigned_role === 'operator' || (!i.assigned_role && i.editable_by_operator !== false);
-    const isSupItem = i.assigned_role === 'supervisor';
-    if (currentUser.role === 'operator') return isOpItem;
-    if (currentUser.role === 'supervisor') return isSupItem;
-    return true;
-  }).length : 0;
-  const completedRequired = batch?.template?.control_items ? batch.template.control_items.filter((item) => {
-    if (!item.is_required) return false;
-    const isOpItem = item.assigned_role === 'operator' || (!item.assigned_role && item.editable_by_operator !== false);
-    const isSupItem = item.assigned_role === 'supervisor';
-    if (currentUser.role === 'operator' && !isOpItem) return false;
-    if (currentUser.role === 'supervisor' && !isSupItem) return false;
-    const sampleCols = Array.isArray(item.sample_columns) ? item.sample_columns : ['val'];
-    const firstColKey = sampleCols[0];
-    const cellKey = `${item.item_id}_${firstColKey}`;
-    const cellData = cellsMap[cellKey];
-    return cellData && cellData.cell_value !== null && cellData.cell_value !== undefined && cellData.cell_value !== '';
-  }).length : 0;
+  // --- Progress calculation ---
+  // For SERIAL_TICKBOX: count how many item columns have ALL required serial rows filled.
+  // For other rows: count rows that have a value in sampleCols[0].
+  const { totalRequired, completedRequired, serialTotalItems, serialCompletedItems, hasSerialRows } = (() => {
+    if (!batch?.template?.control_items) return { totalRequired: 0, completedRequired: 0, serialTotalItems: 0, serialCompletedItems: 0, hasSerialRows: false };
+
+    const isOwnedByRole = (i: ControlItem) => {
+      const isOpItem = i.assigned_role === 'operator' || (!i.assigned_role && i.editable_by_operator !== false);
+      const isSupItem = i.assigned_role === 'supervisor';
+      if (currentUser.role === 'operator') return isOpItem;
+      if (currentUser.role === 'supervisor') return isSupItem;
+      return true;
+    };
+
+    const requiredItems = batch.template.control_items.filter((i) => i.is_required && isOwnedByRole(i));
+    const serialRows = requiredItems.filter((i) => i.row_mode === 'SERIAL_TICKBOX');
+    const nonSerialRows = requiredItems.filter((i) => i.row_mode !== 'SERIAL_TICKBOX');
+
+    // For SERIAL_TICKBOX: total items = number of columns; complete = columns where ALL serial rows have a value
+    const serialCols = serialRows.length > 0 ? (Array.isArray(serialRows[0].sample_columns) ? serialRows[0].sample_columns : []) : [];
+    const serialTotalItems = serialCols.length;
+    const serialCompletedItems = serialCols.filter((col) =>
+      serialRows.every((row) => {
+        const cell = cellsMap[`${row.item_id}_${col}`];
+        return cell && cell.cell_value !== null && cell.cell_value !== undefined && cell.cell_value !== '';
+      })
+    ).length;
+
+    // Non-serial: row-level counting
+    const totalNonSerial = nonSerialRows.length;
+    const completedNonSerial = nonSerialRows.filter((item) => {
+      const sampleCols = Array.isArray(item.sample_columns) ? item.sample_columns : ['val'];
+      const cell = cellsMap[`${item.item_id}_${sampleCols[0]}`];
+      return cell && cell.cell_value !== null && cell.cell_value !== undefined && cell.cell_value !== '';
+    }).length;
+
+    // Combined totals for percent bar
+    const totalRequired = serialTotalItems + totalNonSerial;
+    const completedRequired = serialCompletedItems + completedNonSerial;
+
+    return { totalRequired, completedRequired, serialTotalItems, serialCompletedItems, hasSerialRows: serialRows.length > 0 };
+  })();
   const percentComplete = totalRequired > 0 ? Math.round((completedRequired / totalRequired) * 100) : 100;
 
   const handlePassAll = async () => {
@@ -729,6 +767,93 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
           </div>
         </div>
 
+        {/* Supervisor Item Overview Panel — only for SERIAL_TICKBOX batches */}
+        {currentUser.role === 'supervisor' && isSupervisorTurn && (() => {
+          const serialItems = template.control_items.filter((i) => i.row_mode === 'SERIAL_TICKBOX');
+          if (serialItems.length === 0) return null;
+          const serialCols = Array.isArray(serialItems[0].sample_columns) ? serialItems[0].sample_columns : [];
+
+          // Per-column stats: for each col, check if any serial row has 'Fail'
+          const colStats = serialCols.map((col) => {
+            const hasPass = serialItems.some((row) => {
+              const v = cellsMap[`${row.item_id}_${col}`]?.cell_value;
+              return v === 'Pass' || v === 'true';
+            });
+            const hasFail = serialItems.some((row) => {
+              const v = cellsMap[`${row.item_id}_${col}`]?.cell_value;
+              return v === 'Fail';
+            });
+            const isEmpty = !hasPass && !hasFail;
+            const overrideKey = `col_${col}`;
+            const supChoice = supRevs[overrideKey] as string | undefined;
+            return { col, hasPass, hasFail, isEmpty, overrideKey, supChoice };
+          });
+
+          const failedCols = colStats.filter((c) => c.hasFail);
+          const overriddenCols = colStats.filter((c) => c.supChoice === 'overrule');
+          const confirmedFailCols = colStats.filter((c) => c.supChoice === 'confirm');
+          const passedCols = colStats.filter((c) => c.hasPass && !c.hasFail);
+
+          return (
+            <div className="border-t border-slate-200 bg-amber-50/40 px-5 py-4">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="font-bold text-slate-800 text-xs tracking-wide uppercase">
+                  Item Inspection Summary — Supervisor View
+                </h4>
+                <div className="flex gap-3 text-[11px] font-semibold">
+                  <span className="text-emerald-700">✓ {passedCols.length} Passed</span>
+                  <span className="text-red-600">✗ {failedCols.length} Failed</span>
+                  {overriddenCols.length > 0 && <span className="text-blue-700">↩ {overriddenCols.length} Overridden</span>}
+                  {confirmedFailCols.length > 0 && <span className="text-red-800 font-bold">⚑ {confirmedFailCols.length} Confirmed Fail</span>}
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-500 mb-3">
+                Review any items below. For failed items you disagree with, click <strong>Override</strong> to accept them.
+                You may approve the batch as long as no failures are confirmed.
+              </p>
+
+              {/* Compact item grid */}
+              <div className="flex flex-wrap gap-1.5">
+                {colStats.map(({ col, hasPass, hasFail, isEmpty, overrideKey, supChoice }) => {
+                  const isOverridden = supChoice === 'overrule';
+                  const isConfirmedFail = supChoice === 'confirm';
+                  return (
+                    <div
+                      key={col}
+                      className={`flex flex-col items-center rounded border px-1 py-0.5 min-w-[32px] ${
+                        isOverridden ? 'border-blue-400 bg-blue-50' :
+                        isConfirmedFail ? 'border-red-700 bg-red-100' :
+                        hasFail ? 'border-red-400 bg-red-50' :
+                        hasPass ? 'border-emerald-300 bg-emerald-50' :
+                        'border-slate-200 bg-white'
+                      }`}
+                    >
+                      <span className="text-[9px] text-slate-500 font-mono leading-tight">{col}</span>
+                      <span className={`text-sm font-bold leading-none ${
+                        isOverridden ? 'text-blue-600' :
+                        isConfirmedFail ? 'text-red-800' :
+                        hasFail ? 'text-red-500' :
+                        hasPass ? 'text-emerald-600' :
+                        'text-slate-200'
+                      }`}>
+                        {isOverridden ? '↩' : isConfirmedFail ? '⚑' : hasFail ? '✗' : hasPass ? '✓' : '○'}
+                      </span>
+                      {hasFail && !isOverridden && !isConfirmedFail && (
+                        <button
+                          type="button"
+                          onClick={() => handleToggleFieldReview(overrideKey, 'overrule')}
+                          className="text-[8px] font-bold px-0.5 mt-0.5 rounded bg-white border border-blue-300 text-blue-600 hover:bg-blue-50 transition-colors"
+                          title="Override — accept this failed item"
+                        >OVR</button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Zone B: Inspection Matrix */}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
@@ -880,20 +1005,35 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                             )}
                           </div>
                         ) : item.row_mode === 'SERIAL_TICKBOX' ? (
-                          <div className="grid grid-cols-5 gap-1" style={{ minWidth: '220px' }}>
+                          <div className="flex flex-wrap gap-1" style={{ minWidth: '320px' }}>
                             {sampleCols.map((col) => {
                               const colVal = cellsMap[`${item.item_id}_${col}`]?.cell_value || '';
-                              const isChecked = colVal === 'Pass' || colVal === 'true';
+                              const isPassed = colVal === 'Pass';
+                              const isFailed = colVal === 'Fail';
                               return (
-                                <label key={col} className="flex flex-col items-center gap-0.5 cursor-pointer select-none">
+                                <div key={col} className="flex flex-col items-center gap-0.5">
                                   <span className="text-[9px] text-slate-400 font-mono leading-none">{col}</span>
-                                  <input
-                                    type="checkbox"
-                                    checked={isChecked}
-                                    onChange={(e) => handleCellChange(item, col, e.target.checked ? 'Pass' : '')}
-                                    className="w-5 h-5 accent-black cursor-pointer"
-                                  />
-                                </label>
+                                  <div className={`inline-flex rounded border overflow-hidden ${
+                                    isPassed ? 'border-emerald-500' : isFailed ? 'border-red-500' : 'border-slate-300'
+                                  }`}>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCellChange(item, col, isPassed ? '' : 'Pass')}
+                                      className={`w-5 h-5 flex items-center justify-center text-[9px] font-bold transition-colors ${
+                                        isPassed ? 'bg-emerald-500 text-white' : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50'
+                                      }`}
+                                      title={`Item ${col}: Pass`}
+                                    >P</button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCellChange(item, col, isFailed ? '' : 'Fail')}
+                                      className={`w-5 h-5 flex items-center justify-center text-[9px] font-bold transition-colors ${
+                                        isFailed ? 'bg-red-500 text-white' : 'text-slate-400 hover:text-red-600 hover:bg-red-50'
+                                      }`}
+                                      title={`Item ${col}: Fail`}
+                                    >F</button>
+                                  </div>
+                                </div>
                               );
                             })}
                           </div>
@@ -921,15 +1061,18 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                           />
                         )
                       ) : item.row_mode === 'SERIAL_TICKBOX' ? (
-                        <div className="grid grid-cols-5 gap-1" style={{ minWidth: '220px' }}>
+                        <div className="flex flex-wrap gap-1" style={{ minWidth: '220px' }}>
                           {sampleCols.map((col) => {
                             const colVal = cellsMap[`${item.item_id}_${col}`]?.cell_value || '';
-                            const isChecked = colVal === 'Pass' || colVal === 'true';
+                            const isPassed = colVal === 'Pass' || colVal === 'true';
+                            const isFailed = colVal === 'Fail';
                             return (
-                              <div key={col} className="flex flex-col items-center">
-                                <span className="text-[9px] text-slate-400 font-mono">{col}</span>
-                                <span className={`text-base leading-none font-bold ${isChecked ? 'text-emerald-600' : 'text-slate-200'}`}>
-                                  {isChecked ? '✓' : '○'}
+                              <div key={col} className="flex flex-col items-center gap-0.5">
+                                <span className="text-[9px] text-slate-400 font-mono leading-none">{col}</span>
+                                <span className={`text-sm font-bold leading-none ${
+                                  isPassed ? 'text-emerald-600' : isFailed ? 'text-red-600' : 'text-slate-200'
+                                }`}>
+                                  {isPassed ? '✓' : isFailed ? '✗' : '○'}
                                 </span>
                               </div>
                             );
@@ -1044,8 +1187,14 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
           <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex-1 max-w-sm">
               <div className="flex justify-between text-xs font-semibold mb-1">
-                <span className="text-slate-700">Checksheet Progress</span>
-                <span className="text-slate-900 font-bold">{completedRequired} of {totalRequired} ({percentComplete}%)</span>
+                <span className="text-slate-700">
+                  {hasSerialRows ? 'Items Inspected' : 'Checksheet Progress'}
+                </span>
+                <span className="text-slate-900 font-bold">
+                  {hasSerialRows
+                    ? `${serialCompletedItems} / ${serialTotalItems} items (${percentComplete}%)`
+                    : `${completedRequired} of ${totalRequired} (${percentComplete}%)`}
+                </span>
               </div>
               <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
                 <div
@@ -1062,7 +1211,9 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                 </span>
               ) : (
                 <span className="text-slate-500 font-medium">
-                  Complete all {totalRequired} mandatory parameters to sign off.
+                  {hasSerialRows
+                    ? `Check all ${serialTotalItems} items (P or F) to submit.`
+                    : `Complete all ${totalRequired} mandatory parameters to sign off.`}
                 </span>
               )}
             </div>

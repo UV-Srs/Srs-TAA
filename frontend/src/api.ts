@@ -403,7 +403,7 @@ export async function downloadCsvExport(): Promise<void> {
 }
 
 export async function adminResetPassword(userId: number, newPassword: string): Promise<void> {
-  await apiFetch(`/api/admin/users/${userId}/reset-password`, {
+  await apiRequest(`/api/admin/users/${userId}/reset-password`, {
     method: 'PATCH',
     body: JSON.stringify({ new_password: newPassword }),
   });

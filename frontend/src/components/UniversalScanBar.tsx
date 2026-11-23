@@ -216,17 +216,6 @@ export const UniversalScanBar: React.FC<UniversalScanBarProps> = ({
             onRequestCreateBatch(code);
           }
         }}
-        onNotFound={(code) => {
-          if (currentUser.role === 'admin') {
-            setUnregisteredCode(code);
-            setIsRegisterModalOpen(true);
-          } else {
-            setFeedback({
-              text: `"${code}" not registered. Ask an Admin to register it.`,
-              isError: true,
-            });
-          }
-        }}
       />
     </div>
   );
