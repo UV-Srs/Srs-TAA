@@ -235,6 +235,38 @@ body {
 .att-title   { font-size: 14px; font-weight: 600; color: var(--ink); }
 .att-caption { font-size: 12px; color: var(--muted); margin-top: 1px; }
 
+/* Responsive table wrapper */
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Responsive KPI grid — 2 cols on small, 4 on lg+ */
+@media (max-width: 1023px) {
+  .kpis.cols-4 { grid-template-columns: repeat(2, 1fr); }
+  .kpis.cols-3 { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 639px) {
+  .kpis.cols-4,
+  .kpis.cols-3 { grid-template-columns: 1fr 1fr; }
+}
+
+/* Batch panel collapse transition */
+.batch-panel {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: width 0.2s ease, min-width 0.2s ease;
+}
+.batch-panel.open  { width: 288px; min-width: 288px; }
+.batch-panel.closed { width: 0;    min-width: 0; }
+
+@media (min-width: 1280px) {
+  .batch-panel.open { width: 320px; min-width: 320px; }
+}
+
 /* Print Optimization */
 @media print {
   body {

@@ -16,6 +16,7 @@ import { MobileScannerPage } from './pages/MobileScannerPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { SupervisorDashboard } from './pages/SupervisorDashboard';
 import { CreateBatchModal } from './components/CreateBatchModal';
+import { PanelLeft } from 'lucide-react';
 
 const isMobileDevice = () =>
   typeof window !== 'undefined' && window.innerWidth < 768 &&
@@ -35,6 +36,7 @@ export const App: React.FC = () => {
   const [builderSheetId, setBuilderSheetId] = useState<string | null>(null);
 
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState<boolean>(false);
+  const [batchPanelOpen, setBatchPanelOpen] = useState<boolean>(true);
   const currentBatchIdRef = useRef<number | null>(currentBatchId);
   useEffect(() => { currentBatchIdRef.current = currentBatchId; }, [currentBatchId]);
 
@@ -168,24 +170,42 @@ export const App: React.FC = () => {
           {activeTab === 'sheet' && (
             <div className="flex flex-col h-full">
               {/* Scan bar — only on inspection tab */}
-              <div className="px-4 py-2 shrink-0" style={{ background: 'var(--surface)', borderBottom: '1px solid var(--line)' }}>
-                <UniversalScanBar
-                  currentUser={currentUser}
-                  onBatchResolved={(bId) => {
-                    setCurrentBatchId(bId);
-                    setActiveTab('sheet');
-                    loadBatches();
+              <div className="px-3 py-2 shrink-0 flex items-center gap-2" style={{ background: 'var(--surface)', borderBottom: '1px solid var(--line)' }}>
+                <button
+                  type="button"
+                  onClick={() => setBatchPanelOpen(o => !o)}
+                  className="p-2 rounded-lg shrink-0 transition-colors"
+                  style={{
+                    color: batchPanelOpen ? 'var(--primary)' : 'var(--muted)',
+                    background: batchPanelOpen ? 'var(--accent-soft)' : 'var(--surface2)',
+                    border: '1px solid var(--line)',
                   }}
-                  onTemplateResolved={(sheetId) => {
-                    if (currentUser.role === 'admin') handleOpenCreateBatch('', sheetId);
-                    else setActiveTab('builder');
-                  }}
-                  onRequestCreateBatch={handleOpenCreateBatch}
-                />
+                  title={batchPanelOpen ? 'Hide batch queue' : 'Show batch queue'}
+                >
+                  <PanelLeft className="w-4 h-4" />
+                </button>
+                <div className="flex-1 min-w-0">
+                  <UniversalScanBar
+                    currentUser={currentUser}
+                    onBatchResolved={(bId) => {
+                      setCurrentBatchId(bId);
+                      setActiveTab('sheet');
+                      loadBatches();
+                    }}
+                    onTemplateResolved={(sheetId) => {
+                      if (currentUser.role === 'admin') handleOpenCreateBatch('', sheetId);
+                      else setActiveTab('builder');
+                    }}
+                    onRequestCreateBatch={handleOpenCreateBatch}
+                  />
+                </div>
               </div>
             <div className="flex flex-1 min-h-0">
-              {/* Batch queue panel */}
-              <div className="w-72 xl:w-80 shrink-0 flex flex-col" style={{ background: 'var(--surface)', borderRight: '1px solid var(--line)' }}>
+              {/* Batch queue panel — collapsible */}
+              <div
+                className={`batch-panel${batchPanelOpen ? ' open' : ' closed'}`}
+                style={{ background: 'var(--surface)', borderRight: batchPanelOpen ? '1px solid var(--line)' : 'none' }}
+              >
                 <BatchSidebar
                   batches={batches}
                   selectedBatchId={currentBatchId}

@@ -133,34 +133,38 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs select-none">
-      <div className="bg-white border border-slate-200 rounded-lg w-full max-w-lg shadow-xl overflow-hidden text-xs">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 select-none"
+      style={{ background: 'rgba(27,37,51,0.4)', backdropFilter: 'blur(4px)' }}>
+      <div className="w-full max-w-lg shadow-2xl overflow-hidden text-xs"
+        style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 16 }}>
 
         {/* Header */}
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+        <div className="px-5 py-4 flex items-center justify-between"
+          style={{ borderBottom: '1px solid var(--line)' }}>
           <div>
-            <h3 className="font-semibold text-slate-900">New Inspection Batch</h3>
-            <p className="text-[11px] text-slate-500 mt-0.5">Release lot to shop floor for operator inspection</p>
+            <h3 className="font-semibold text-sm" style={{ color: 'var(--ink)' }}>New Inspection Batch</h3>
+            <p className="text-[11px] mt-0.5" style={{ color: 'var(--muted)' }}>Release lot to shop floor for operator inspection</p>
           </div>
-          <button type="button" onClick={onClose}
-            className="text-slate-400 hover:text-slate-700 p-1.5 rounded hover:bg-slate-100 transition-colors">
+          <button type="button" onClick={onClose} className="p-1.5 rounded-lg transition-colors" style={{ color: 'var(--muted)' }}>
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Parsed Part Info Banner */}
         {isParsing && (
-          <div className="px-5 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center gap-2 text-slate-500">
+          <div className="px-5 py-2.5 flex items-center gap-2"
+            style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>
             <ScanLine className="w-3.5 h-3.5 animate-pulse" />
             <span className="text-[11px]">Reading barcode…</span>
           </div>
         )}
         {!isParsing && parsedPart && (parsedPart.part_name || parsedPart.part_no) && (
-          <div className="px-5 py-3 bg-emerald-50 border-b border-emerald-100 flex items-start gap-2.5">
-            <ScanLine className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+          <div className="px-5 py-3 flex items-start gap-2.5"
+            style={{ background: 'var(--ok-bg)', borderBottom: '1px solid #b2dcc5' }}>
+            <ScanLine className="w-3.5 h-3.5 shrink-0 mt-0.5" style={{ color: 'var(--ok)' }} />
             <div className="min-w-0">
-              <p className="text-[11px] font-semibold text-emerald-800">Part identified from barcode</p>
-              <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5 text-[10px] text-emerald-700">
+              <p className="text-[11px] font-semibold" style={{ color: 'var(--ok)' }}>Part identified from barcode</p>
+              <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5 text-[10px]" style={{ color: 'var(--ok)' }}>
                 {parsedPart.part_name && <span className="font-medium">{parsedPart.part_name}</span>}
                 {parsedPart.part_no && <span className="font-mono">#{parsedPart.part_no}</span>}
                 {parsedPart.vendor && <span>Vendor: {parsedPart.vendor}</span>}
@@ -176,12 +180,12 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
           {/* Lot Number */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <label className="font-medium text-slate-700 flex items-center gap-1.5">
-                <Barcode className="w-3.5 h-3.5 text-slate-400" />
+              <label className="font-medium flex items-center gap-1.5" style={{ color: 'var(--ink)' }}>
+                <Barcode className="w-3.5 h-3.5" style={{ color: 'var(--muted)' }} />
                 Lot / Batch Number
               </label>
               {initialCode && !isParsing && (
-                <span className="text-[10px] text-emerald-700 font-medium">Scanned</span>
+                <span className="text-[10px] font-semibold" style={{ color: 'var(--ok)' }}>Scanned</span>
               )}
             </div>
             <input
@@ -191,20 +195,23 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
               value={lotNumber}
               onChange={e => setLotNumber(e.target.value)}
               placeholder="e.g. B-24125 or LOT-2026-500"
-              className="w-full border border-slate-300 rounded px-3 py-2 text-xs text-slate-900 font-mono focus:border-slate-700 focus:ring-1 focus:ring-slate-700 outline-none transition-all"
+              className="w-full px-3 py-2 rounded-lg font-mono outline-none transition-all"
+              style={{ border: '1px solid var(--line2)', background: 'var(--surface)', color: 'var(--ink)', fontSize: 12 }}
+              onFocus={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.boxShadow = '0 0 0 3px var(--accent-soft)'; }}
+              onBlur={e => { e.currentTarget.style.borderColor = 'var(--line2)'; e.currentTarget.style.boxShadow = 'none'; }}
             />
           </div>
 
           {/* Template Selection */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <label className="font-medium text-slate-700 flex items-center gap-1.5">
-                <Layers className="w-3.5 h-3.5 text-slate-400" />
+              <label className="font-medium flex items-center gap-1.5" style={{ color: 'var(--ink)' }}>
+                <Layers className="w-3.5 h-3.5" style={{ color: 'var(--muted)' }} />
                 Inspection Sheet Template
               </label>
               {selectedTemplate?.is_default && (
-                <span className="text-[10px] text-amber-700 font-medium flex items-center gap-1">
-                  <Star className="w-3 h-3 fill-amber-500 text-amber-500" />
+                <span className="text-[10px] font-semibold flex items-center gap-1" style={{ color: 'var(--warn)' }}>
+                  <Star className="w-3 h-3 fill-current" />
                   Default
                 </span>
               )}
@@ -214,7 +221,8 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
               value={selectedSheetId}
               onChange={e => handleTemplateChange(e.target.value)}
               disabled={isLoadingTemplates}
-              className="w-full border border-slate-300 rounded px-3 py-2 text-xs text-slate-900 focus:border-slate-700 focus:ring-1 focus:ring-slate-700 outline-none bg-white transition-all cursor-pointer"
+              className="w-full px-3 py-2 rounded-lg outline-none cursor-pointer"
+              style={{ border: '1px solid var(--line2)', background: 'var(--surface)', color: 'var(--ink)', fontSize: 12 }}
             >
               {templates.map(t => (
                 <option key={t.sheet_id} value={t.sheet_id}>
@@ -224,19 +232,20 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
             </select>
 
             {selectedTemplate && (
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded space-y-1.5">
+              <div className="p-3 rounded-lg space-y-1.5"
+                style={{ background: 'var(--surface2)', border: '1px solid var(--line)' }}>
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-semibold text-slate-800">
+                  <span className="text-[11px] font-semibold" style={{ color: 'var(--ink)' }}>
                     {selectedTemplate.part_name || 'Standard Part'}
                   </span>
-                  <span className="text-[10px] font-mono text-slate-500">Part #{selectedTemplate.part_no}</span>
+                  <span className="text-[10px] font-mono" style={{ color: 'var(--muted)' }}>Part #{selectedTemplate.part_no}</span>
                 </div>
-                <p className="text-[11px] text-slate-500 line-clamp-1">{selectedTemplate.document_title}</p>
-                <div className="flex items-center gap-3 text-[10px] text-slate-400 pt-1 border-t border-slate-200">
+                <p className="text-[11px] line-clamp-1" style={{ color: 'var(--muted)' }}>{selectedTemplate.document_title}</p>
+                <div className="flex items-center gap-3 text-[10px] pt-1" style={{ borderTop: '1px solid var(--line)', color: 'var(--muted)' }}>
                   <span>Customer: {selectedTemplate.customer_name || 'N/A'}</span>
-                  <span>•</span>
+                  <span>·</span>
                   <span>Vendor: {selectedTemplate.vendor_name || 'N/A'}</span>
-                  <span>•</span>
+                  <span>·</span>
                   <span>{selectedTemplate.control_items?.length || 0} checkpoints</span>
                 </div>
               </div>
@@ -244,34 +253,37 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
           </div>
 
           {/* Lot Quantity */}
-          <div className="space-y-1">
-            <label className="font-medium text-slate-700 block">Lot Quantity (pcs)</label>
+          <div className="space-y-1.5">
+            <label className="font-medium block" style={{ color: 'var(--ink)' }}>Lot Quantity (pcs)</label>
             <input
               type="number"
               value={lotQuantity}
               onChange={e => setLotQuantity(Number(e.target.value))}
               min="1"
               required
-              className="w-full border border-slate-300 rounded px-3 py-2 text-xs focus:border-slate-700 focus:ring-1 focus:ring-slate-700 outline-none"
+              className="w-full px-3 py-2 rounded-lg outline-none"
+              style={{ border: '1px solid var(--line2)', background: 'var(--surface)', color: 'var(--ink)', fontSize: 12 }}
+              onFocus={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.boxShadow = '0 0 0 3px var(--accent-soft)'; }}
+              onBlur={e => { e.currentTarget.style.borderColor = 'var(--line2)'; e.currentTarget.style.boxShadow = 'none'; }}
             />
           </div>
 
           {errorMsg && (
-            <div className="border border-red-200 bg-red-50 text-red-700 p-3 rounded flex items-center gap-2 text-xs">
-              <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
+            <div className="p-3 rounded-lg flex items-center gap-2"
+              style={{ border: '1px solid #f1b8b5', background: 'var(--ng-bg)', color: 'var(--ng)' }}>
+              <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{errorMsg}</span>
             </div>
           )}
 
           {/* Footer */}
-          <div className="flex gap-2 pt-2 border-t border-slate-100">
-            <button type="button" onClick={onClose}
-              className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded transition-colors cursor-pointer">
+          <div className="flex gap-2 pt-2" style={{ borderTop: '1px solid var(--line)' }}>
+            <button type="button" onClick={onClose} className="btn secondary sm flex-1">
               Cancel
             </button>
             <button type="submit"
               disabled={isSubmitting || isParsing || !lotNumber || !selectedSheetId}
-              className="flex-1 py-2 bg-slate-900 hover:bg-slate-700 text-white font-semibold rounded flex items-center justify-center gap-1.5 transition-colors disabled:opacity-40 cursor-pointer">
+              className="btn primary sm flex-1">
               <CheckCircle2 className="w-3.5 h-3.5" />
               <span>{isSubmitting ? 'Creating...' : isParsing ? 'Reading barcode…' : 'Create Batch'}</span>
             </button>
