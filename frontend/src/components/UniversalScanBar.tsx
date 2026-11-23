@@ -9,12 +9,14 @@ interface UniversalScanBarProps {
   currentUser: User;
   onBatchResolved: (batchId: number) => void;
   onTemplateResolved?: (sheetId: string) => void;
+  onRequestCreateBatch?: (code: string) => void;
 }
 
 export const UniversalScanBar: React.FC<UniversalScanBarProps> = ({
   currentUser,
   onBatchResolved,
   onTemplateResolved,
+  onRequestCreateBatch,
 }) => {
   const [scanInput, setScanInput] = useState<string>('');
   const [feedback, setFeedback] = useState<{ text: string; isError: boolean } | null>(null);
@@ -90,8 +92,12 @@ export const UniversalScanBar: React.FC<UniversalScanBarProps> = ({
         } catch {}
 
         if (currentUser.role === 'admin') {
-          setUnregisteredCode(codeOnly);
-          setIsRegisterModalOpen(true);
+          if (onRequestCreateBatch) {
+            onRequestCreateBatch(codeOnly);
+          } else {
+            setUnregisteredCode(codeOnly);
+            setIsRegisterModalOpen(true);
+          }
         } else {
           setFeedback({
             text: `Batch "${codeOnly}" is not registered. Please ask an Admin to register this lot.`,
@@ -201,6 +207,13 @@ export const UniversalScanBar: React.FC<UniversalScanBarProps> = ({
         onResolved={(res) => {
           if (res.batch_id) onBatchResolved(res.batch_id);
           else if (res.sheet_id && onTemplateResolved) onTemplateResolved(res.sheet_id);
+        }}
+        onScanError={(code, err) => {
+          const isNotFound = typeof err?.message === 'string' && (err.message.includes("isn't registered") || err.message.includes('NOT_REGISTERED'));
+          if (isNotFound && currentUser.role === 'admin' && onRequestCreateBatch) {
+            setIsCameraScannerOpen(false);
+            onRequestCreateBatch(code);
+          }
         }}
       />
     </div>

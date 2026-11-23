@@ -346,3 +346,9 @@ export function handleReportDownloadClick(
     window.alert(`Report download failed: ${err instanceof Error ? err.message : String(err)}`);
   });
 }
+
+// Polling fallback: returns and clears the latest pending scan event for this user
+export async function fetchPendingScan(): Promise<any | null> {
+  const result = await apiRequest<{ scan: any | null }>('/api/qr/pending-scan', { method: 'GET' });
+  return result.scan ?? null;
+}

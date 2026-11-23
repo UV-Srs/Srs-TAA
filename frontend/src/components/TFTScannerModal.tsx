@@ -10,6 +10,7 @@ interface TFTScannerModalProps {
   onResolved: (result: QRResolveResult) => void;
   onUnregisteredCode?: (code: string) => void;
   scanAsPartNumber?: boolean;
+  onScanError?: (code: string, error: any) => void;
 }
 
 export const TFTScannerModal: React.FC<TFTScannerModalProps> = ({
@@ -18,6 +19,7 @@ export const TFTScannerModal: React.FC<TFTScannerModalProps> = ({
   onResolved,
   onUnregisteredCode,
   scanAsPartNumber = false,
+  onScanError,
 }) => {
   const [manualCode, setManualCode] = useState<string>('');
   const [cameraActive, setCameraActive] = useState<boolean>(false);
@@ -130,8 +132,13 @@ export const TFTScannerModal: React.FC<TFTScannerModalProps> = ({
       onResolved(result);
       onClose();
     } catch (err: any) {
-      const errorText = String(err.message || '');
-      setErrorMsg(errorText || 'Scanned code not found.');
+      const isNotFound = typeof err?.message === 'string' && (err.message.includes("isn't registered") || err.message.includes('NOT_REGISTERED'));
+      setErrorMsg(
+        isNotFound
+          ? `"${codeToResolve.trim()}" isn't registered yet. The laptop will prompt to create a new sheet.`
+          : err.message || 'Scanned code not found.'
+      );
+      onScanError?.(codeToResolve.trim(), err);
     } finally {
       setIsLoading(false);
     }

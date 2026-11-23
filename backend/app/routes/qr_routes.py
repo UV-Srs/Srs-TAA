@@ -1,4 +1,5 @@
 import json
+import pathlib
 import re
 from urllib.parse import urlparse, parse_qs
 from typing import Optional, Dict, Any, Tuple
@@ -11,9 +12,28 @@ from backend.app.models import User, SheetTemplate, InspectionBatch
 from backend.app.schemas import QRResolveResponse
 from backend.app.auth import get_current_user
 from backend.app.qr_engine import generate_qr_base64, generate_barcode_base64
-from backend.app.live_sync import notify_live
+from backend.app.live_sync import notify_live, notify_user
+from backend.app.config import UPLOAD_DIR
 
 router = APIRouter(prefix="/api/qr", tags=["QR & Barcode Engine"])
+
+# File-backed pending scan store — polling fallback when WebSocket isn't connected
+_PENDING_FILE = pathlib.Path(UPLOAD_DIR) / "pending_scans.json"
+
+def _load_pending() -> dict:
+    try:
+        if _PENDING_FILE.exists():
+            return json.loads(_PENDING_FILE.read_text())
+    except Exception:
+        pass
+    return {}
+
+def _save_pending(data: dict):
+    try:
+        _PENDING_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _PENDING_FILE.write_text(json.dumps(data))
+    except Exception:
+        pass
 
 def parse_scan_code(raw: str) -> Tuple[str, str]:
     """
@@ -143,6 +163,27 @@ def resolve_code(
         ).order_by(InspectionBatch.created_at.desc()).first()
 
     if not template and not batch:
+        # Emit SCAN_NOT_FOUND so the admin desktop can open CreateBatchModal immediately
+        _not_found_payload = {
+            "type": "SCAN_NOT_FOUND",
+            "raw_code": code,
+            "format_detected": format_detected,
+            "suggested_sheet_id": None,
+            "part_no": None,
+            "part_name": None,
+            "vendor": None,
+            "customer": None,
+            "model": None,
+            "lot_number": None,
+            "gtin": None,
+            "user_id": current_user.user_id,
+            "role": current_user.role,
+        }
+        store = _load_pending()
+        store[str(current_user.user_id)] = _not_found_payload
+        _save_pending(store)
+        # Send only to the user whose scan triggered this — not all connected clients
+        notify_user(current_user.user_id, "SCAN_NOT_FOUND", _not_found_payload)
         raise HTTPException(
             status_code=404,
             detail={
@@ -250,3 +291,13 @@ def get_template_codes(
         "qr_base64": qr_b64,
         "barcode_base64": barcode_b64
     }
+
+@router.get("/pending-scan")
+def get_pending_scan(current_user: User = Depends(get_current_user)):
+    """Polling fallback: returns and clears the latest SCAN_NOT_FOUND event for this user."""
+    store = _load_pending()
+    key = str(current_user.user_id)
+    scan = store.pop(key, None)
+    if scan is not None:
+        _save_pending(store)
+    return {"scan": scan}
