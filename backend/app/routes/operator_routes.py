@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -74,7 +74,7 @@ def submit_operator_inspection(
             if c.checker_initials:
                 existing_resp.checker_initials = c.checker_initials
             existing_resp.entered_by = current_user.user_id
-            existing_resp.updated_at = datetime.utcnow()
+            existing_resp.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
         else:
             new_resp = BatchCellResponse(
                 batch_id=batch_id,
@@ -94,18 +94,25 @@ def submit_operator_inspection(
     all_responses = db.query(BatchCellResponse).filter(BatchCellResponse.batch_id == batch_id).all()
     resp_map = {(r.item_id, str(r.column_key)): r for r in all_responses}
 
-    required_items = [it for it in template.control_items if it.is_required]
+    # Operator only validates their own assigned rows (not supervisor/NUMERIC_SAMPLE rows)
+    required_items = [
+        it for it in template.control_items
+        if it.is_required and it.row_mode != "NUMERIC_SAMPLE" and it.assigned_role != "supervisor"
+    ]
     missing_fields = []
     bad_fields = []
 
     for item in required_items:
         cols = item.sample_columns if isinstance(item.sample_columns, list) else []
+        if not cols:
+            cols = ["val"]
+        # For SERIAL_TICKBOX, require at least all columns ticked (Pass)
         for col in cols:
             cell = resp_map.get((item.item_id, str(col)))
             if not cell or cell.cell_value is None or str(cell.cell_value).strip() == "":
-                missing_fields.append(f"{item.control_item_name} [{col}]")
+                missing_fields.append(f"{item.control_item_name} (piece {col})")
             elif not cell.is_within_spec:
-                bad_fields.append(f"{item.control_item_name} [{col}]")
+                bad_fields.append(f"{item.control_item_name} (piece {col})")
 
     decision_norm = payload.decision.upper()
 
@@ -122,26 +129,19 @@ def submit_operator_inspection(
                 detail=f"Values fail or are out of spec. Correct the values or submit a rejection: {', '.join(bad_fields[:5])}"
             )
 
-    # 4. FR-027: Rejection multi-select enforcement
-    if decision_norm == "REJECT":
-        if not payload.rejected_item_ids:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="FR-027 Violation: Rejecting a batch requires multi-selecting one or more failed items."
-            )
-
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     batch.operator_submitted_at = now
     batch.prepared_by = current_user.user_id
     batch.operator_decision = "Approved" if decision_norm == "APPROVE" else "Rejected"
     batch.updated_at = now
 
+    # Both APPROVE and REJECT route to supervisor — operator rejection is a flag,
+    # not a terminal state; supervisor makes the final call.
+    batch.status = "OPERATOR_APPROVED"
     if decision_norm == "APPROVE":
-        batch.status = "OPERATOR_APPROVED"
         batch.operator_rejected_fields = None
     else:
-        batch.status = "OPERATOR_REJECTED"
-        batch.operator_rejected_fields = payload.rejected_item_ids
+        batch.operator_rejected_fields = payload.rejected_item_ids or []
 
     # Find human-readable names of rejected items
     rejected_names = []
@@ -167,10 +167,10 @@ def submit_operator_inspection(
 
     # 6. FR-052: In-app Notification to Supervisor & Admin
     if decision_norm == "APPROVE":
-        notif_text = f"{current_user.full_name} approved {batch.lot_number} ({template.document_title or template.sheet_id}). Ready for review."
+        notif_text = f"{current_user.full_name} approved {batch.lot_number} ({template.document_title or template.sheet_id}). Ready for supervisor review."
     else:
-        failed_summary = ", ".join(rejected_names) if rejected_names else "items failed"
-        notif_text = f"{current_user.full_name} rejected {batch.lot_number}. Rejected: {failed_summary}."
+        failed_summary = ", ".join(rejected_names) if rejected_names else "unspecified fields"
+        notif_text = f"{current_user.full_name} FLAGGED {batch.lot_number} for rejection. Fields: {failed_summary}. Awaiting supervisor decision."
 
     send_notification(
         db=db,
@@ -185,7 +185,7 @@ def submit_operator_inspection(
         db=db,
         user_id=current_user.user_id,
         role=current_user.role,
-        action_type=f"OPERATOR_SUBMIT_{decision_norm}",
+        action_type="OPERATOR_SUBMITTED",
         sheet_id=batch.sheet_id,
         batch_id=batch_id,
         details={

@@ -1,6 +1,6 @@
 from datetime import datetime
-from typing import Optional, List, Any, Dict
-from pydantic import BaseModel, Field
+from typing import Optional, List, Any, Dict, Literal
+from pydantic import BaseModel, Field, field_validator
 
 # --- User & Auth ---
 class UserLogin(BaseModel):
@@ -8,10 +8,10 @@ class UserLogin(BaseModel):
     password: str
 
 class UserCreate(BaseModel):
-    username: str
-    full_name: str
-    password: str
-    role: str  # 'admin', 'supervisor', 'operator'
+    username: str = Field(min_length=1, max_length=100)
+    full_name: str = Field(min_length=1, max_length=200)
+    password: str = Field(min_length=6, max_length=200)
+    role: Literal["admin", "supervisor", "operator"]
 
 class UserResponse(BaseModel):
     user_id: int
@@ -23,6 +23,9 @@ class UserResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class PasswordResetRequest(BaseModel):
+    new_password: str = Field(min_length=6, max_length=200)
 
 class TokenResponse(BaseModel):
     access_token: str
@@ -125,6 +128,7 @@ class BatchCreate(BaseModel):
     line_name: Optional[str] = "Line 1"
     lot_quantity: Optional[int] = 100
     inspection_mode: Optional[str] = "IFM"
+    link_barcode: Optional[str] = None  # scanned barcode to register on the template as external_barcode
 
 class QuickBatchRegisterRequest(BaseModel):
     code: str

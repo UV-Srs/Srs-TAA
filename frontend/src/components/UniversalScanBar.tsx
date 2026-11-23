@@ -1,26 +1,25 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Camera, Search, ArrowRight, CheckCircle2, AlertCircle, Barcode } from 'lucide-react';
+import { Camera, Search, ArrowRight, CheckCircle2, AlertCircle, Barcode, Plus } from 'lucide-react';
 import { resolveQR } from '../api';
 import { User, QRResolveResult } from '../types';
-import { OnTheFlyRegisterModal } from './OnTheFlyRegisterModal';
 import { TFTScannerModal } from './TFTScannerModal';
 
 interface UniversalScanBarProps {
   currentUser: User;
   onBatchResolved: (batchId: number) => void;
   onTemplateResolved?: (sheetId: string) => void;
+  onRequestCreateBatch?: (code?: string, sheetId?: string) => void;
 }
 
 export const UniversalScanBar: React.FC<UniversalScanBarProps> = ({
   currentUser,
   onBatchResolved,
   onTemplateResolved,
+  onRequestCreateBatch,
 }) => {
   const [scanInput, setScanInput] = useState<string>('');
   const [feedback, setFeedback] = useState<{ text: string; isError: boolean } | null>(null);
   const [isResolving, setIsResolving] = useState<boolean>(false);
-  const [unregisteredCode, setUnregisteredCode] = useState<string | null>(null);
-  const [isRegisterModalOpen, setIsRegisterModalOpen] = useState<boolean>(false);
   const [isCameraScannerOpen, setIsCameraScannerOpen] = useState<boolean>(false);
 
   const wedgeBufferRef = useRef<string>('');
@@ -77,8 +76,12 @@ export const UniversalScanBar: React.FC<UniversalScanBarProps> = ({
 
       if (res.batch_id) {
         onBatchResolved(res.batch_id);
-      } else if (res.sheet_id && onTemplateResolved) {
-        onTemplateResolved(res.sheet_id);
+      } else if (res.sheet_id) {
+        if (currentUser.role === 'admin' && onRequestCreateBatch) {
+          onRequestCreateBatch('', res.sheet_id);
+        } else if (onTemplateResolved) {
+          onTemplateResolved(res.sheet_id);
+        }
       }
     } catch (err: any) {
       const errStr = err.message || '';
@@ -89,9 +92,8 @@ export const UniversalScanBar: React.FC<UniversalScanBarProps> = ({
           if (match) codeOnly = match[0];
         } catch {}
 
-        if (currentUser.role === 'admin') {
-          setUnregisteredCode(codeOnly);
-          setIsRegisterModalOpen(true);
+        if (currentUser.role === 'admin' && onRequestCreateBatch) {
+          onRequestCreateBatch(codeOnly);
         } else {
           setFeedback({
             text: `Batch "${codeOnly}" not found. Check the lot number or ask an Admin to register it.`,
@@ -129,7 +131,7 @@ export const UniversalScanBar: React.FC<UniversalScanBarProps> = ({
               value={scanInput}
               onChange={(e) => setScanInput(e.target.value)}
               placeholder="Scan barcode or type Lot / Sheet ID (e.g. B-24117)..."
-              className="w-full pl-9 pr-20 py-2 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-slate-900 focus:bg-white rounded-xl text-xs font-medium text-slate-800 placeholder-slate-400 transition-all outline-none"
+              className="w-full pl-9 pr-20 py-2 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-slate-900 focus:bg-white rounded text-xs font-medium text-slate-800 placeholder-slate-400 transition-all outline-none"
             />
             <div className="absolute inset-y-0 right-1 flex items-center">
               <button
@@ -146,11 +148,23 @@ export const UniversalScanBar: React.FC<UniversalScanBarProps> = ({
             type="button"
             onClick={() => setIsCameraScannerOpen(true)}
             title="Scan QR or barcode with camera"
-            className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-medium transition-colors shrink-0"
+            className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-xs font-semibold transition-colors shrink-0 cursor-pointer"
           >
             <Camera className="w-3.5 h-3.5 text-slate-600" />
             <span className="hidden md:inline">Camera</span>
           </button>
+
+          {currentUser.role === 'admin' && onRequestCreateBatch && (
+            <button
+              type="button"
+              onClick={() => onRequestCreateBatch()}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-700 text-white rounded text-xs font-semibold transition-colors shrink-0 cursor-pointer"
+              title="Create New Inspection Batch"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>New Batch</span>
+            </button>
+          )}
         </form>
 
         {/* Live Status indicator & Scanner state */}
@@ -179,28 +193,28 @@ export const UniversalScanBar: React.FC<UniversalScanBarProps> = ({
         </div>
       </div>
 
-      {/* Admin On-The-Fly Registration Modal */}
-      {unregisteredCode && (
-        <OnTheFlyRegisterModal
-          isOpen={isRegisterModalOpen}
-          unregisteredCode={unregisteredCode}
-          onClose={() => {
-            setIsRegisterModalOpen(false);
-            setUnregisteredCode(null);
-          }}
-          onRegistered={(newBatchId) => {
-            onBatchResolved(newBatchId);
-          }}
-        />
-      )}
-
       {/* Camera Scanner Modal */}
       <TFTScannerModal
         isOpen={isCameraScannerOpen}
         onClose={() => setIsCameraScannerOpen(false)}
         onResolved={(res) => {
-          if (res.batch_id) onBatchResolved(res.batch_id);
-          else if (res.sheet_id && onTemplateResolved) onTemplateResolved(res.sheet_id);
+          setIsCameraScannerOpen(false);
+          if (res.batch_id) {
+            onBatchResolved(res.batch_id);
+          } else if (res.sheet_id) {
+            if (currentUser.role === 'admin' && onRequestCreateBatch) {
+              onRequestCreateBatch('', res.sheet_id);
+            } else if (onTemplateResolved) {
+              onTemplateResolved(res.sheet_id);
+            }
+          }
+        }}
+        onScanError={(code, _err) => {
+          const isNotFound = typeof _err?.message === 'string' && (_err.message.includes("isn't registered") || _err.message.includes('NOT_REGISTERED'));
+          if (isNotFound && currentUser.role === 'admin' && onRequestCreateBatch) {
+            setIsCameraScannerOpen(false);
+            onRequestCreateBatch(code);
+          }
         }}
         onNotFound={(code) => {
           if (currentUser.role === 'admin') {

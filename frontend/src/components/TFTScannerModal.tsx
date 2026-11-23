@@ -9,7 +9,7 @@ interface TFTScannerModalProps {
   mode?: 'resolve' | 'part-scan';
   onResolved?: (result: QRResolveResult) => void;
   onPartScanned?: (info: PartBarcodeInfo) => void;
-  onNotFound?: (scannedCode: string) => void;
+  onScanError?: (code: string, error: any) => void;
 }
 
 type DetectionEngine = 'native' | 'zxing' | 'none';
@@ -39,7 +39,7 @@ export const TFTScannerModal: React.FC<TFTScannerModalProps> = ({
   mode = 'resolve',
   onResolved,
   onPartScanned,
-  onNotFound,
+  onScanError,
 }) => {
   const [manualCode, setManualCode] = useState<string>('');
   const [cameraActive, setCameraActive] = useState<boolean>(false);
@@ -229,20 +229,14 @@ export const TFTScannerModal: React.FC<TFTScannerModalProps> = ({
         onClose();
       }
     } catch (err: any) {
-      const msg = err.message || '';
-      const isNotRegistered =
-        msg.includes("isn't registered yet") ||
-        msg.includes('NOT_REGISTERED');
-
-      if (isNotRegistered && onNotFound) {
-        // Close modal and hand the unregistered code to the parent to handle
-        stopCamera();
-        onNotFound(code);
-        onClose();
-        return;
-      }
-      setErrorMsg(msg || 'Code not recognised. Try again or enter manually.');
+      const isNotFound = typeof err?.message === 'string' && (err.message.includes("isn't registered") || err.message.includes('NOT_REGISTERED'));
+      setErrorMsg(
+        isNotFound
+          ? `"${code}" isn't registered yet. The laptop will prompt to create a new sheet.`
+          : err.message || 'Code not recognised. Try again or enter manually.'
+      );
       setScanPreview(null);
+      onScanError?.(code, err);
     } finally {
       setIsLoading(false);
     }
@@ -255,7 +249,7 @@ export const TFTScannerModal: React.FC<TFTScannerModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 no-print backdrop-blur-sm">
-      <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md shadow-xl overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-lg w-full max-w-md shadow-lg overflow-hidden">
 
         {/* Header */}
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">

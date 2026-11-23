@@ -17,6 +17,17 @@ export default defineConfig({
       '/uploads': {
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
+      },
+      '/ws': {
+        target: 'ws://127.0.0.1:8000',
+        ws: true,
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('error', (err: any) => {
+            if (err.code === 'ECONNRESET' || err.code === 'ECONNREFUSED') return;
+            console.error('[ws proxy]', err.message);
+          });
+        },
       }
     }
   }

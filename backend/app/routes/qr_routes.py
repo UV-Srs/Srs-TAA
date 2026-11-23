@@ -11,8 +11,29 @@ from backend.app.schemas import QRResolveResponse
 from backend.app.auth import get_current_user
 from backend.app.qr_engine import generate_qr_base64, generate_barcode_base64
 from backend.app.live_sync import notify_live
+from backend.app.audit import log_audit
+from backend.app.config import UPLOAD_DIR
 
 router = APIRouter(prefix="/api/qr", tags=["QR & Barcode Engine"])
+
+# File-backed pending scan store — stored in UPLOAD_DIR (runtime data, never in repo)
+import os, pathlib
+
+_PENDING_FILE = pathlib.Path(UPLOAD_DIR) / "pending_scans.json"
+
+def _load_pending() -> dict:
+    try:
+        if _PENDING_FILE.exists():
+            return json.loads(_PENDING_FILE.read_text())
+    except Exception:
+        pass
+    return {}
+
+def _save_pending(data: dict):
+    try:
+        _PENDING_FILE.write_text(json.dumps(data))
+    except Exception:
+        pass
 
 def parse_scan_code(raw: str) -> Tuple[str, str]:
     """
@@ -83,6 +104,7 @@ def resolve_code(
 
     batch: Optional[InspectionBatch] = None
     template: Optional[SheetTemplate] = None
+    candidate = clean_code  # fallback alias used in subsequent plain-text queries
 
     # Prefix checks
     if clean_code.startswith("TAA:BATCH:"):
@@ -119,32 +141,77 @@ def resolve_code(
             (SheetTemplate.external_barcode == clean_code)
         ).first()
 
-    # Query by batch_id directly (int)
-    if not batch and not template:
+    # Query by batch_id directly (int) — only for short numeric codes that could be a real batch_id
+    if not batch and not template and clean_code.isdigit() and len(clean_code) <= 9:
         try:
             batch = db.query(InspectionBatch).filter(InspectionBatch.batch_id == int(clean_code)).first()
-        except ValueError:
+        except (ValueError, OverflowError):
             pass
 
     # Query by sheet_id directly (str)
     if not batch and not template:
         template = db.query(SheetTemplate).filter(SheetTemplate.sheet_id == clean_code).first()
 
-    # If template found without batch, find the most recent open batch
-    if template and not batch:
+    # Query by part_no — physical part barcode often IS the part number
+    if not batch and not template:
+        template = db.query(SheetTemplate).filter(
+            SheetTemplate.part_no.ilike(clean_code)
+        ).first()
+
+    # Case-insensitive lot_number fallback
+    if not batch and not template:
+        batch = db.query(InspectionBatch).filter(
+            InspectionBatch.lot_number.ilike(clean_code)
+        ).first()
+
+    # If template found without batch, find the most recent active batch for it (unless explicit sheet QR)
+    if template and not batch and not clean_code.startswith("TAA:SHEET:"):
         batch = db.query(InspectionBatch).filter(
             InspectionBatch.sheet_id == template.sheet_id
         ).order_by(InspectionBatch.created_at.desc()).first()
 
+    # Last attempt: parse the barcode and search by the extracted part_no
+    if not batch and not template:
+        _p = _parse_gs1(code)
+        extracted_part = _p.get("part_no") or _p.get("customer_part_no") or _p.get("gtin")
+        if extracted_part and extracted_part != clean_code:
+            template = db.query(SheetTemplate).filter(
+                (SheetTemplate.part_no.ilike(extracted_part)) |
+                (SheetTemplate.external_barcode == extracted_part) |
+                (SheetTemplate.barcode_value == extracted_part)
+            ).first()
+            if template and not batch and not clean_code.startswith("TAA:SHEET:"):
+                batch = db.query(InspectionBatch).filter(
+                    InspectionBatch.sheet_id == template.sheet_id
+                ).order_by(InspectionBatch.created_at.desc()).first()
+
     if not template and not batch:
-        # Notify the same user's desktop so an admin can immediately register a batch
-        notify_live("SCAN_NOT_FOUND", {
-            "scanned_code": clean_code,
+        # Parse whatever info is embedded in the barcode itself so the laptop
+        # can pre-fill the new-sheet form without the admin having to retype anything.
+        parsed = _parse_gs1(code)   # use original raw code, not clean_code
+        suggested_id = _suggest_sheet_id(parsed)
+        _not_found_payload = {
+            "type": "SCAN_NOT_FOUND",
             "raw_code": code,
-            "format": format_detected,
-            "user_id": current_user.user_id,
-            "role": current_user.role,
-        })
+            "format_detected": format_detected,
+            "suggested_sheet_id": suggested_id,
+            "part_no":    parsed.get("part_no"),
+            "part_name":  parsed.get("part_name"),
+            "vendor":     parsed.get("vendor"),
+            "customer":   parsed.get("customer"),
+            "model":      parsed.get("model"),
+            "lot_number": parsed.get("lot_number"),
+            "gtin":       parsed.get("gtin"),
+            "user_id":    current_user.user_id,
+            "role":       current_user.role,
+        }
+        store = _load_pending()
+        store[str(current_user.user_id)] = _not_found_payload
+        _save_pending(store)
+        notify_live("SCAN_NOT_FOUND", _not_found_payload)
+        log_audit(db, current_user.user_id, current_user.role, "SCAN_NOT_FOUND",
+                  details={"scanned_code": clean_code, "format": format_detected,
+                           "part_no": parsed.get("part_no"), "suggested_id": suggested_id})
         raise HTTPException(
             status_code=404,
             detail={
@@ -164,16 +231,23 @@ def resolve_code(
         elif batch.supervisor_submitted_at is not None or batch.status in ["APPROVED", "REJECTED"]:
             read_only = True
 
-        # Broadcast to all sessions — the frontend filters by user_id so only
-        # the same user's other devices (e.g. laptop) auto-open this batch.
-        notify_live("SCAN_RESOLVED", {
+        # Store for laptop polling (reliable fallback when WebSocket is unavailable).
+        _scan_resolved = {
+            "type": "SCAN_RESOLVED",
             "batch_id": batch.batch_id,
             "sheet_id": target_sheet_id,
             "lot_number": batch.lot_number,
             "status": batch.status,
             "user_id": current_user.user_id,
             "role": current_user.role,
-        })
+        }
+        store = _load_pending()
+        store[str(current_user.user_id)] = _scan_resolved
+        _save_pending(store)
+        notify_live("SCAN_RESOLVED", _scan_resolved)
+        log_audit(db, current_user.user_id, current_user.role, "SCAN_RESOLVED",
+                  batch_id=batch.batch_id, sheet_id=batch.sheet_id,
+                  details={"lot_number": batch.lot_number, "scanned_code": clean_code, "format": format_detected})
 
         return {
             "type": "BATCH",
@@ -207,6 +281,23 @@ def resolve_code(
                 "part_name": template.part_name
             }
         }
+
+@router.get("/pending-scan")
+def get_pending_scan(
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Laptop polls this every 2 s. Returns the latest scan event for this user
+    (from their phone) and immediately clears it so it only fires once.
+    Returns null when nothing is pending.
+    """
+    store = _load_pending()
+    key = str(current_user.user_id)
+    payload = store.pop(key, None)
+    if payload is not None:
+        _save_pending(store)
+    return payload  # None → frontend gets null
+
 
 def _parse_gs1(raw: str) -> dict:
     """
@@ -319,6 +410,42 @@ def parse_part_barcode(
         "gtin": parsed.get("gtin"),
         "manufacture_date": parsed.get("manufacture_date"),
         "already_assigned_to": existing.sheet_id if existing else None,
+    }
+
+
+@router.get("/batch-codes/{batch_id}")
+def get_batch_codes(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Return QR + barcode images for a specific batch, used by the Print Label modal."""
+    batch = db.query(InspectionBatch).filter(InspectionBatch.batch_id == batch_id).first()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    template = batch.template  # relationship
+
+    # Batch QR encodes TAA:BATCH:{id} → resolve goes straight to this batch
+    batch_qr_value = f"TAA:BATCH:{batch.batch_id}"
+    batch_qr_b64   = generate_qr_base64(batch_qr_value)
+    # Lot barcode uses the lot_number (plain text — most scanners can read Code-128)
+    lot_barcode_b64 = generate_barcode_base64(batch.lot_number)
+
+    return {
+        "batch_id":        batch.batch_id,
+        "lot_number":      batch.lot_number,
+        "sheet_id":        batch.sheet_id,
+        "product_name":    batch.product_name or (template.part_name if template else ""),
+        "part_no":         template.part_no if template else "",
+        "part_name":       template.part_name if template else "",
+        "vendor":          template.vendor_name if template else "",
+        "customer":        template.customer_name if template else "",
+        "line_name":       batch.line_name or "",
+        "lot_quantity":    batch.lot_quantity,
+        "status":          batch.status,
+        "batch_qr_value":  batch_qr_value,
+        "batch_qr_url":    batch_qr_b64,
+        "lot_barcode_url": lot_barcode_b64,
     }
 
 

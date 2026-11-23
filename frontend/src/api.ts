@@ -10,6 +10,14 @@ function getAuthHeader(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+// Listeners notified when any request returns 401 (token expired / logged out elsewhere)
+const _authErrorListeners: Array<() => void> = [];
+export function onAuthError(cb: () => void): () => void {
+  _authErrorListeners.push(cb);
+  return () => { const i = _authErrorListeners.indexOf(cb); if (i !== -1) _authErrorListeners.splice(i, 1); };
+}
+function _fireAuthError() { _authErrorListeners.forEach(fn => fn()); }
+
 export async function apiRequest<T>(
   path: string,
   options: RequestInit = {}
@@ -26,6 +34,14 @@ export async function apiRequest<T>(
   });
 
   if (!response.ok) {
+    // On 401 — token expired or user logged out elsewhere; clear local session.
+    // Exclude the login endpoint itself — a wrong password returns 401 but must not
+    // wipe an existing session that's open in another tab.
+    if (response.status === 401 && !path.endsWith('/api/auth/login')) {
+      localStorage.removeItem('taa_jwt_token');
+      localStorage.removeItem('taa_user');
+      _fireAuthError();
+    }
     let errorDetail = 'API request failed';
     try {
       const errorJson = await response.json();
@@ -53,7 +69,14 @@ export async function loginUser(username: string, password: string): Promise<{ a
 export function getCurrentStoredUser(): User | null {
   const raw = localStorage.getItem('taa_user');
   if (!raw) return null;
-  const stored: User = JSON.parse(raw);
+  let stored: User;
+  try {
+    stored = JSON.parse(raw);
+  } catch {
+    localStorage.removeItem('taa_user');
+    localStorage.removeItem('taa_jwt_token');
+    return null;
+  }
 
   // Derive role from the JWT payload so a tampered localStorage user object
   // cannot escalate UI privileges — the backend still enforces via JWT claims,
@@ -73,6 +96,13 @@ export function getCurrentStoredUser(): User | null {
 export function logoutUser(): void {
   localStorage.removeItem('taa_jwt_token');
   localStorage.removeItem('taa_user');
+}
+
+export async function changePassword(currentPassword: string, newPassword: string): Promise<{ success: boolean; message: string; new_token?: string }> {
+  return apiRequest('/api/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
 }
 
 // --- Users (FR-002, FR-005) ---
@@ -126,6 +156,14 @@ export async function setDefaultSheet(sheetId: string): Promise<SheetTemplate> {
   return apiRequest<SheetTemplate>(`/api/admin/sheets/${sheetId}/set-default`, { method: 'PATCH' });
 }
 
+export async function deleteSheet(sheetId: string): Promise<{ success: boolean; batches_deleted: number }> {
+  return apiRequest(`/api/admin/sheets/${sheetId}`, { method: 'DELETE' });
+}
+
+export async function deleteBatch(batchId: number): Promise<{ success: boolean; batch_id: number; lot_number: string }> {
+  return apiRequest(`/api/admin/batches/${batchId}`, { method: 'DELETE' });
+}
+
 export async function getDefaultSheet(): Promise<SheetTemplate | null> {
   try {
     return await apiRequest<SheetTemplate>('/api/admin/sheets/default');
@@ -147,6 +185,7 @@ export async function createBatch(data: {
   line_name?: string;
   lot_quantity?: number;
   inspection_mode?: string;
+  link_barcode?: string;
 }): Promise<InspectionBatch> {
   return apiRequest<InspectionBatch>('/api/admin/batches', {
     method: 'POST',
@@ -264,6 +303,29 @@ export async function resolveQR(code: string): Promise<QRResolveResult> {
   return apiRequest<QRResolveResult>(`/api/qr/resolve/${encodeURIComponent(code)}`);
 }
 
+export async function fetchPendingScan(): Promise<any | null> {
+  return apiRequest<any | null>('/api/qr/pending-scan');
+}
+
+export async function fetchBatchQRCodes(batchId: number): Promise<{
+  batch_id: number;
+  lot_number: string;
+  sheet_id: string;
+  product_name: string;
+  part_no: string;
+  part_name: string;
+  vendor: string;
+  customer: string;
+  line_name: string;
+  lot_quantity: number;
+  status: string;
+  batch_qr_value: string;
+  batch_qr_url: string;
+  lot_barcode_url: string;
+}> {
+  return apiRequest(`/api/qr/batch-codes/${batchId}`);
+}
+
 export async function parseBarcodeDetails(code: string): Promise<PartBarcodeInfo> {
   return apiRequest<PartBarcodeInfo>(`/api/qr/parse-part/${encodeURIComponent(code)}`);
 }
@@ -285,8 +347,22 @@ export async function fetchProgressDashboard(): Promise<any> {
   return apiRequest('/api/admin/progress');
 }
 
-export async function fetchAuditLogs(): Promise<any[]> {
-  return apiRequest<any[]>('/api/admin/audit-logs');
+export async function fetchAuditLogs(params?: {
+  action_type?: string;
+  user_id?: number;
+  date_from?: string;
+  date_to?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<any[]> {
+  const qs = params
+    ? '?' + new URLSearchParams(
+        Object.entries(params)
+          .filter(([, v]) => v != null && v !== '')
+          .map(([k, v]) => [k, String(v)])
+      ).toString()
+    : '';
+  return apiRequest<any[]>(`/api/admin/audit-logs${qs}`);
 }
 
 export async function syncOfflineQueue(mutations: OfflineMutation[]): Promise<any> {
@@ -296,10 +372,39 @@ export async function syncOfflineQueue(mutations: OfflineMutation[]): Promise<an
   });
 }
 
-export function getExportUrl(batchId: number, format: 'pdf' | 'xlsx'): string {
-  return `/api/admin/batches/${batchId}/export?format=${format}`;
+export async function downloadWithAuth(url: string, filename: string): Promise<void> {
+  const token = localStorage.getItem('taa_jwt_token');
+  const response = await fetch(url, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Download failed (${response.status}): ${text}`);
+  }
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = objectUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(objectUrl);
 }
 
-export function getCsvExportUrl(): string {
-  return `/api/admin/export-csv`;
+export async function downloadBatchExport(batchId: number, format: 'pdf' | 'xlsx', lotNumber: string): Promise<void> {
+  const url = `/api/admin/batches/${batchId}/export?format=${format}`;
+  const ext = format === 'pdf' ? 'pdf' : 'xlsx';
+  await downloadWithAuth(url, `IFM_${lotNumber}.${ext}`);
+}
+
+export async function downloadCsvExport(): Promise<void> {
+  await downloadWithAuth('/api/admin/export-csv', 'taa-inspection-records.csv');
+}
+
+export async function adminResetPassword(userId: number, newPassword: string): Promise<void> {
+  await apiFetch(`/api/admin/users/${userId}/reset-password`, {
+    method: 'PATCH',
+    body: JSON.stringify({ new_password: newPassword }),
+  });
 }

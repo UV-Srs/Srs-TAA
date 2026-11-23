@@ -38,7 +38,7 @@ export const SupervisorReviewModal: React.FC<SupervisorReviewModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm no-print">
-      <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-lg shadow-xl overflow-hidden text-xs">
+      <div className="bg-white border border-slate-200 rounded-lg w-full max-w-lg shadow-lg overflow-hidden text-xs">
         {/* Header */}
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -54,7 +54,7 @@ export const SupervisorReviewModal: React.FC<SupervisorReviewModalProps> = ({
 
         {/* Body */}
         <div className="p-5 space-y-4">
-          <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex justify-between items-center">
+          <div className="bg-slate-50 p-3 rounded border border-slate-200 flex justify-between items-center">
             <div>
               <span className="text-slate-500 font-medium block">Batch Run</span>
               <span className="font-bold text-slate-900">{batch.lot_number}</span>
@@ -75,7 +75,7 @@ export const SupervisorReviewModal: React.FC<SupervisorReviewModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setSelectedDecision('ACCEPT_REJECTION')}
-                  className={`p-3 rounded-xl border text-left transition-all ${
+                  className={`p-3 rounded border text-left transition-all ${
                     selectedDecision === 'ACCEPT_REJECTION'
                       ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
                       : 'border-slate-200 bg-white hover:border-slate-300 text-slate-800'
@@ -89,7 +89,7 @@ export const SupervisorReviewModal: React.FC<SupervisorReviewModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setSelectedDecision('CONTINUE_REJECTION')}
-                  className={`p-3 rounded-xl border text-left transition-all ${
+                  className={`p-3 rounded border text-left transition-all ${
                     selectedDecision === 'CONTINUE_REJECTION'
                       ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
                       : 'border-slate-200 bg-white hover:border-slate-300 text-slate-800'
@@ -103,7 +103,7 @@ export const SupervisorReviewModal: React.FC<SupervisorReviewModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setSelectedDecision('HOLD')}
-                  className={`p-3 rounded-xl border text-left transition-all ${
+                  className={`p-3 rounded border text-left transition-all ${
                     selectedDecision === 'HOLD'
                       ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
                       : 'border-slate-200 bg-white hover:border-slate-300 text-slate-800'
@@ -119,7 +119,7 @@ export const SupervisorReviewModal: React.FC<SupervisorReviewModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setSelectedDecision('APPROVE')}
-                  className={`p-3 rounded-xl border text-left transition-all ${
+                  className={`p-3 rounded border text-left transition-all ${
                     selectedDecision === 'APPROVE'
                       ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
                       : 'border-slate-200 bg-white hover:border-slate-300 text-slate-800'
@@ -133,7 +133,7 @@ export const SupervisorReviewModal: React.FC<SupervisorReviewModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setSelectedDecision('HOLD')}
-                  className={`p-3 rounded-xl border text-left transition-all ${
+                  className={`p-3 rounded border text-left transition-all ${
                     selectedDecision === 'HOLD'
                       ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
                       : 'border-slate-200 bg-white hover:border-slate-300 text-slate-800'
@@ -147,7 +147,7 @@ export const SupervisorReviewModal: React.FC<SupervisorReviewModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setSelectedDecision('REJECT')}
-                  className={`p-3 rounded-xl border text-left transition-all ${
+                  className={`p-3 rounded border text-left transition-all ${
                     selectedDecision === 'REJECT'
                       ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
                       : 'border-slate-200 bg-white hover:border-slate-300 text-slate-800'

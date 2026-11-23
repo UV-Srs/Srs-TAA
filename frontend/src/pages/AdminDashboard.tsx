@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  fetchProgressDashboard, createBatch, fetchSheets, getExportUrl
+  fetchProgressDashboard, createBatch, fetchSheets, downloadBatchExport
 } from '../api';
 import { SheetTemplate } from '../types';
 import {
@@ -25,7 +25,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch, p
   const [selectedSheetId, setSelectedSheetId] = useState<string>('');
   const [lotNumber, setLotNumber] = useState<string>('');
   const [lotQuantity, setLotQuantity] = useState<number>(495);
-  const [inspectionMode, setInspectionMode] = useState<string>('IFM');
   const [isCreating, setIsCreating] = useState<boolean>(false);
 
   // Print Label Modal
@@ -75,7 +74,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch, p
         sheet_id: selectedSheetId,
         lot_number: lotNumber,
         lot_quantity: Number(lotQuantity),
-        inspection_mode: inspectionMode,
       });
       setIsNewBatchOpen(false);
       setLotNumber('');
@@ -151,39 +149,39 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch, p
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <div className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm">
+        <div className="bg-white border border-slate-200 p-4 rounded">
           <span className="text-[11px] font-medium text-slate-500 block">Total Batches</span>
           <span className="text-2xl font-bold text-slate-900 mt-1 block">{summary.total_batches || 0}</span>
         </div>
 
-        <div className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm">
+        <div className="bg-white border border-slate-200 p-4 rounded">
           <span className="text-[11px] font-medium text-slate-500 block">Pending Operator</span>
           <span className="text-2xl font-bold text-slate-800 mt-1 block">{summary.pending_operator || 0}</span>
         </div>
 
-        <div className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm">
+        <div className="bg-white border border-slate-200 p-4 rounded">
           <span className="text-[11px] font-medium text-slate-500 block">Awaiting Review</span>
           <span className="text-2xl font-bold text-slate-800 mt-1 block">{summary.awaiting_supervisor || 0}</span>
         </div>
 
-        <div className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm">
+        <div className="bg-white border border-slate-200 p-4 rounded">
           <span className="text-[11px] font-medium text-amber-700 block">On Hold</span>
           <span className="text-2xl font-bold text-amber-900 mt-1 block">{summary.on_hold || 0}</span>
         </div>
 
-        <div className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm">
+        <div className="bg-white border border-slate-200 p-4 rounded">
           <span className="text-[11px] font-medium text-emerald-700 block">Approved</span>
           <span className="text-2xl font-bold text-emerald-900 mt-1 block">{summary.approved || 0}</span>
         </div>
 
-        <div className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm">
+        <div className="bg-white border border-slate-200 p-4 rounded">
           <span className="text-[11px] font-medium text-red-700 block">Rejected</span>
           <span className="text-2xl font-bold text-red-900 mt-1 block">{summary.rejected || 0}</span>
         </div>
       </div>
 
       {/* Batches Table Card */}
-      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+      <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
         <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
           <span className="text-xs font-semibold text-slate-800">All Inspection Batches</span>
           <span className="text-xs text-slate-400">{batches.length} total</span>
@@ -258,22 +256,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch, p
                       >
                         <Printer className="w-3.5 h-3.5" />
                       </button>
-                      <a
-                        href={getExportUrl(b.batch_id, 'pdf')}
-                        download
+                      <button
+                        type="button"
+                        onClick={() => downloadBatchExport(b.batch_id, 'pdf', b.lot_number).catch(console.error)}
                         className="px-2 py-1 text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded"
                         title="Export PDF"
                       >
                         PDF
-                      </a>
-                      <a
-                        href={getExportUrl(b.batch_id, 'xlsx')}
-                        download
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => downloadBatchExport(b.batch_id, 'xlsx', b.lot_number).catch(console.error)}
                         className="px-2 py-1 text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded"
                         title="Export Excel"
                       >
                         XLSX
-                      </a>
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -286,7 +284,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch, p
       {/* Simple Create Batch Dialog */}
       {isNewBatchOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
-          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-xl text-xs">
+          <div className="bg-white border border-slate-200 rounded-lg w-full max-w-md p-6 space-y-4 shadow-lg text-xs">
             <h3 className="text-sm font-bold text-slate-900 pb-2 border-b border-slate-100">
               Create New Inspection Batch
             </h3>
@@ -325,27 +323,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch, p
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="font-medium text-slate-700">Lot Quantity</label>
-                  <input
-                    type="number"
-                    value={lotQuantity}
-                    onChange={(e) => setLotQuantity(Number(e.target.value))}
-                    className="w-full border border-slate-300 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="font-medium text-slate-700">Mode</label>
-                  <select
-                    value={inspectionMode}
-                    onChange={(e) => setInspectionMode(e.target.value)}
-                    className="w-full border border-slate-300 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-slate-900 bg-white"
-                  >
-                    <option value="IFM">IFM (200% / n=10)</option>
-                    <option value="NORMAL">Normal (100% / n=5)</option>
-                  </select>
-                </div>
+              <div className="space-y-1">
+                <label className="font-medium text-slate-700">Lot Quantity</label>
+                <input
+                  type="number"
+                  value={lotQuantity}
+                  onChange={(e) => setLotQuantity(Number(e.target.value))}
+                  className="w-full border border-slate-300 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                />
               </div>
 
               <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">

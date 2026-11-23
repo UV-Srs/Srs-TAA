@@ -1,6 +1,7 @@
 import io
 import csv
-from datetime import datetime
+import os
+from datetime import datetime, timezone
 from typing import List, Optional, Union
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
 from sqlalchemy.orm import Session
@@ -12,10 +13,10 @@ from backend.app.models import (
     BatchCellResponse, InspectionDecision, InspectionAttachment, AuditLog
 )
 from backend.app.schemas import (
-    UserCreate, UserResponse, SheetTemplateCreate, SheetTemplateResponse,
+    UserCreate, UserResponse, PasswordResetRequest, SheetTemplateCreate, SheetTemplateResponse,
     BatchCreate, QuickBatchRegisterRequest, InspectionBatchResponse, AuditLogResponse
 )
-from backend.app.auth import require_admin, hash_password
+from backend.app.auth import require_admin, require_any_authenticated, hash_password
 from backend.app.audit import log_audit, purge_user_audit_logs
 from backend.app.config import UPLOAD_DIR
 from backend.app.export_pdf import generate_pdf_report
@@ -37,7 +38,9 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db), current_user
     existing = db.query(User).filter(User.username == payload.username).first()
     if existing:
         raise HTTPException(status_code=400, detail="Username already exists")
-    
+    if len(payload.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
     user = User(
         username=payload.username,
         full_name=payload.full_name,
@@ -46,8 +49,7 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db), current_user
         is_active=True
     )
     db.add(user)
-    db.commit()
-    db.refresh(user)
+    db.flush()  # get user_id before commit
 
     log_audit(
         db=db,
@@ -56,6 +58,9 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db), current_user
         action_type="USER_CREATED",
         details={"created_user_id": user.user_id, "username": user.username, "role": user.role}
     )
+
+    db.commit()
+    db.refresh(user)
     return user
 
 @router.patch("/users/{user_id}/deactivate")
@@ -65,6 +70,8 @@ def deactivate_user(user_id: int, db: Session = Depends(get_db), current_user: U
     all audit_logs associated with that user_id and removes them from the database
     while preserving anonymized historical batch records.
     """
+    if user_id == current_user.user_id:
+        raise HTTPException(status_code=400, detail="Admins cannot deactivate their own account.")
     user = db.query(User).filter(User.user_id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -86,10 +93,35 @@ def activate_user(user_id: int, db: Session = Depends(get_db), current_user: Use
     user = db.query(User).filter(User.user_id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     user.is_active = True
     db.commit()
     return {"success": True, "message": f"User {user.username} activated."}
+
+@router.patch("/users/{user_id}/reset-password")
+def admin_reset_password(
+    user_id: int,
+    payload: PasswordResetRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Admin resets another user's password without knowing their current password."""
+    from backend.app.auth import hash_password as _hash
+    new_password = payload.new_password
+    user = db.query(User).filter(User.user_id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.password_hash = _hash(new_password)
+    user.password_version = (user.password_version or 1) + 1  # invalidate all existing sessions
+    log_audit(
+        db=db,
+        user_id=current_user.user_id,
+        role=current_user.role,
+        action_type="ADMIN_RESET_PASSWORD",
+        details={"target_user_id": user_id, "target_username": user.username}
+    )
+    db.commit()
+    return {"success": True, "message": f"Password reset for {user.username}. All existing sessions invalidated."}
 
 @router.delete("/users/{user_id}")
 def delete_user(user_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
@@ -97,6 +129,8 @@ def delete_user(user_id: int, db: Session = Depends(get_db), current_user: User 
     FR-005: When an Admin deletes a user account, all audit_logs associated with that
     user_id are removed, preserving historical batch records (anonymized via SET NULL).
     """
+    if user_id == current_user.user_id:
+        raise HTTPException(status_code=400, detail="Admins cannot delete their own account.")
     user = db.query(User).filter(User.user_id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -231,6 +265,20 @@ def update_sheet(sheet_id: str, payload: SheetTemplateCreate, db: Session = Depe
             raise HTTPException(status_code=400, detail=f"External barcode '{ext_bc_upd}' is already assigned to sheet '{conflict.sheet_id}'")
     template.external_barcode = ext_bc_upd
 
+    # Block edit if active (non-terminal) batches exist — deleting items cascades to cell responses
+    active_statuses = ["CREATED_PENDING_OPERATOR", "OPERATOR_IN_PROGRESS", "OPERATOR_APPROVED",
+                       "OPERATOR_REJECTED", "SUPERVISOR_IN_PROGRESS", "ON_HOLD"]
+    active_batch_count = db.query(InspectionBatch).filter(
+        InspectionBatch.sheet_id == sheet_id,
+        InspectionBatch.status.in_(active_statuses)
+    ).count()
+    if active_batch_count > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot edit template: {active_batch_count} active batch(es) are using this sheet. "
+                   "Complete or delete them first."
+        )
+
     # Replace control items
     db.query(TemplateControlItem).filter(TemplateControlItem.sheet_id == sheet_id).delete()
     for idx, item in enumerate(payload.control_items, start=1):
@@ -261,6 +309,11 @@ def update_sheet(sheet_id: str, payload: SheetTemplateCreate, db: Session = Depe
 
     db.commit()
     db.refresh(template)
+    log_audit(
+        db=db, user_id=current_user.user_id, role=current_user.role,
+        action_type="SHEET_UPDATED", sheet_id=template.sheet_id,
+        details={"control_items_count": len(template.control_items)}
+    )
     notify_live("SHEET_UPDATED", {"sheet_id": template.sheet_id, "action": "UPDATE"})
     return template
 
@@ -280,6 +333,58 @@ def set_default_sheet(sheet_id: str, db: Session = Depends(get_db), current_user
               action_type="SHEET_SET_DEFAULT", sheet_id=sheet_id, details={})
     return template
 
+@router.delete("/sheets/{sheet_id}")
+def delete_sheet(sheet_id: str, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    """
+    Delete a sheet template and ALL associated data:
+    control items, batches, cell responses, decisions, attachments.
+    """
+    template = db.query(SheetTemplate).filter(SheetTemplate.sheet_id == sheet_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="Sheet template not found")
+    if template.is_default:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete the active default template. Set another template as default first."
+        )
+    batch_count = db.query(InspectionBatch).filter(InspectionBatch.sheet_id == sheet_id).count()
+    db.delete(template)
+    db.commit()
+    log_audit(db=db, user_id=current_user.user_id, role=current_user.role,
+              action_type="SHEET_DELETED", sheet_id=sheet_id,
+              details={"batches_deleted": batch_count})
+    notify_live("SHEET_UPDATED", {"sheet_id": sheet_id, "action": "DELETED"})
+    return {"success": True, "sheet_id": sheet_id, "batches_deleted": batch_count}
+
+
+@router.delete("/batches/{batch_id}")
+def delete_batch(batch_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    """
+    Permanently delete a single inspection batch and all its data
+    (cell responses, decisions, attachments).
+    """
+    batch = db.query(InspectionBatch).filter(InspectionBatch.batch_id == batch_id).first()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    lot = batch.lot_number
+    sheet = batch.sheet_id
+    # Delete uploaded attachment files from disk before cascade-deleting DB rows
+    for att in batch.attachments:
+        try:
+            file_path = str(UPLOAD_DIR / att.file_path.lstrip("/").replace("uploads/", "", 1))
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        except Exception:
+            pass
+    db.delete(batch)
+    db.commit()
+    log_audit(db=db, user_id=current_user.user_id, role=current_user.role,
+              action_type="BATCH_DELETED", sheet_id=sheet,
+              details={"batch_id": batch_id, "lot_number": lot})
+    notify_live("BATCH_UPDATED", {"batch_id": batch_id, "action": "DELETED"})
+    return {"success": True, "batch_id": batch_id, "lot_number": lot}
+
+
 # --- Batches & Progress Dashboard (FR-013, FR-049, FR-050) ---
 
 @router.post("/batches", response_model=InspectionBatchResponse)
@@ -287,6 +392,21 @@ def create_batch(payload: BatchCreate, db: Session = Depends(get_db), current_us
     template = db.query(SheetTemplate).filter(SheetTemplate.sheet_id == payload.sheet_id).first()
     if not template:
         raise HTTPException(status_code=404, detail=f"Sheet template '{payload.sheet_id}' not found")
+
+    # Enforce barcode uniqueness — each lot number (barcode) can only be used once
+    existing = db.query(InspectionBatch).filter(
+        InspectionBatch.lot_number == payload.lot_number.strip()
+    ).first()
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Barcode '{payload.lot_number}' is already registered as Batch #{existing.batch_id}. Each barcode can only be used once."
+        )
+
+    # If a scanned barcode was provided (from SCAN_NOT_FOUND flow), link it to the template
+    # so future scans of the same barcode always resolve to this sheet.
+    if payload.link_barcode and payload.link_barcode.strip():
+        template.external_barcode = payload.link_barcode.strip()
 
     batch = InspectionBatch(
         sheet_id=payload.sheet_id,
@@ -299,6 +419,29 @@ def create_batch(payload: BatchCreate, db: Session = Depends(get_db), current_us
         round=1
     )
     db.add(batch)
+    db.flush()  # get batch_id before commit
+
+    # FR-054: Sign-off record for creation (approval ledger entry)
+    signoff = InspectionDecision(
+        batch_id=batch.batch_id,
+        round=1,
+        stage="Registered",
+        decided_by=current_user.user_id,
+        role="admin",
+        decision="Registered",
+        remarks=f"Batch {payload.lot_number} created for {payload.line_name or 'Line 1'}"
+    )
+    db.add(signoff)
+
+    # FR-052: Notify operators that a new batch is ready
+    send_notification(
+        db=db,
+        roles=["operator"],
+        text=f"New batch {payload.lot_number} ({template.part_name or template.document_title}) is ready for inspection on {payload.line_name or 'Line 1'}.",
+        batch_id=batch.batch_id,
+        batch_code=batch.lot_number
+    )
+
     db.commit()
     db.refresh(batch)
 
@@ -341,6 +484,15 @@ def quick_register_batch(
     if not template:
         raise HTTPException(status_code=404, detail=f"Sheet template '{sheet_id}' not found")
 
+    existing = db.query(InspectionBatch).filter(
+        InspectionBatch.lot_number == payload.code.strip()
+    ).first()
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Barcode '{payload.code}' is already registered as Batch #{existing.batch_id}. Each barcode can only be used once."
+        )
+
     batch = InspectionBatch(
         sheet_id=sheet_id,
         lot_number=payload.code,
@@ -352,8 +504,6 @@ def quick_register_batch(
     )
     db.add(batch)
     db.flush()
-
-    notify_live("BATCH_CREATED", {"batch_id": batch.batch_id, "sheet_id": batch.sheet_id, "lot_number": batch.lot_number})
 
     # Sign-off record for registration (FR-054)
     signoff = InspectionDecision(
@@ -388,6 +538,7 @@ def quick_register_batch(
 
     db.commit()
     db.refresh(batch)
+    notify_live("BATCH_CREATED", {"batch_id": batch.batch_id, "sheet_id": batch.sheet_id, "lot_number": batch.lot_number})
     return format_batch_response(batch)
 
 @router.get("/progress")
@@ -397,7 +548,7 @@ def get_progress_dashboard(db: Session = Depends(get_db), current_user: User = D
     overdue holds, completion percentages, and bottleneck stages.
     """
     check_overdue_holds(db)
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     batches = db.query(InspectionBatch).order_by(InspectionBatch.created_at.desc()).all()
 
     total = len(batches)
@@ -417,8 +568,7 @@ def get_progress_dashboard(db: Session = Depends(get_db), current_user: User = D
     sheet_items = db.query(TemplateControlItem).all()
     sheet_expected_cells: dict = {}
     for it in sheet_items:
-        cols = len(it.sample_columns) if isinstance(it.sample_columns, list) else 1
-        sheet_expected_cells[it.sheet_id] = sheet_expected_cells.get(it.sheet_id, 0) + cols
+        sheet_expected_cells[it.sheet_id] = sheet_expected_cells.get(it.sheet_id, 0) + 1
 
     # Map batch_id -> answered cell count
     answered_rows = (
@@ -631,8 +781,28 @@ def export_batch_report(
 
 @router.get("/audit-logs", response_model=List[AuditLogResponse])
 def get_audit_logs(
-    limit: int = 100,
+    limit: int = 200,
+    offset: int = 0,
+    action_type: Optional[str] = None,
+    user_id: Optional[int] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
-    return db.query(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit).all()
+    q = db.query(AuditLog)
+    if action_type:
+        q = q.filter(AuditLog.action_type.ilike(f"%{action_type}%"))
+    if user_id:
+        q = q.filter(AuditLog.user_id == user_id)
+    if date_from:
+        try:
+            q = q.filter(AuditLog.created_at >= datetime.fromisoformat(date_from))
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            q = q.filter(AuditLog.created_at <= datetime.fromisoformat(date_to))
+        except ValueError:
+            pass
+    return q.order_by(AuditLog.created_at.desc()).offset(offset).limit(limit).all()

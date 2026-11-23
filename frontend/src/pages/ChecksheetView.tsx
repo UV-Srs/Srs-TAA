@@ -4,7 +4,7 @@ import {
 } from '../types';
 import {
   fetchBatchDetail, updateCellResponse, submitOperatorBatch,
-  reviewSupervisorBatch, reviewSingleField, releaseBatchHold, getExportUrl
+  reviewSupervisorBatch, reviewSingleField, releaseBatchHold, downloadBatchExport
 } from '../api';
 import { saveCellOffline, getOfflineCellsForBatch, cacheBatchOffline, getCachedBatchOffline } from '../db';
 import { FullSheetCompletionModal } from '../components/FullSheetCompletionModal';
@@ -15,13 +15,14 @@ import { onSheetUpdated, onBatchUpdated as onLiveBatchUpdated, onCellUpdated } f
 import {
   Check, Lock, Camera, Printer, Download,
   AlertTriangle, ShieldCheck, CheckCircle2, ChevronRight,
-  Clock, RefreshCw, X, AlertCircle
+  Clock, RefreshCw, X, AlertCircle, Settings
 } from 'lucide-react';
 
 interface ChecksheetViewProps {
   batchId: number;
   currentUser: User;
   onBatchUpdated?: () => void;
+  onEditTemplate?: (sheetId: string) => void;
 }
 
 const HOLD_REASONS = [
@@ -44,8 +45,10 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
   batchId,
   currentUser,
   onBatchUpdated,
+  onEditTemplate,
 }) => {
   const [batch, setBatch] = useState<InspectionBatch | null>(null);
+  const batchRef = React.useRef<InspectionBatch | null>(null);
   const [cellsMap, setCellsMap] = useState<Record<string, CellResponse>>({});
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -54,9 +57,11 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
   const [isCompletionModalOpen, setIsCompletionModalOpen] = useState<boolean>(false);
   const [missingFieldsList, setMissingFieldsList] = useState<string[]>([]);
   const [isRejectionModalOpen, setIsRejectionModalOpen] = useState<boolean>(false);
+  const [isSupRejectionModalOpen, setIsSupRejectionModalOpen] = useState<boolean>(false);
   const [isCameraModalOpen, setIsCameraModalOpen] = useState<boolean>(false);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [isPassingAll, setIsPassingAll] = useState<boolean>(false);
 
   // Supervisor Hold Modal
   const [isHoldModalOpen, setIsHoldModalOpen] = useState<boolean>(false);
@@ -82,7 +87,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
     });
 
     const unsubSheet = onSheetUpdated((data) => {
-      if (batch && data.sheet_id === batch.sheet_id) {
+      if (batchRef.current && data.sheet_id === batchRef.current.sheet_id) {
         loadBatch();
       }
     });
@@ -110,12 +115,13 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
       unsubSheet();
       unsubCell();
     };
-  }, [batchId, batch?.sheet_id]);
+  }, [batchId]);
 
   const loadBatch = async () => {
     try {
       setIsLoading(true);
       setErrorMsg(null);
+      setCellsMap({});  // clear stale cells before fetch so previous batch's data never flashes
 
       let bData: InspectionBatch;
       try {
@@ -131,6 +137,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
       }
 
       setBatch(bData);
+      batchRef.current = bData;
 
       const map: Record<string, CellResponse> = {};
       if (bData.cell_responses) {
@@ -152,16 +159,24 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
     }
   };
 
+  // Globally locked — no one can edit anything
   const isReadOnly = useMemo(() => {
     if (!batch) return true;
-    if (batch.status === 'APPROVED' || batch.status === 'REJECTED') {
-      return true;
-    }
-    if (currentUser.role === 'operator' && batch.operator_submitted_at) {
-      return true;
-    }
-    return false;
-  }, [batch, currentUser]);
+    return batch.status === 'APPROVED' || batch.status === 'REJECTED';
+  }, [batch]);
+
+  // Operator's turn: batch not yet submitted by operator
+  const isOperatorTurn = useMemo(() => {
+    if (!batch) return false;
+    return !batch.operator_submitted_at &&
+      ['CREATED_PENDING_OPERATOR', 'OPERATOR_IN_PROGRESS'].includes(batch.status);
+  }, [batch]);
+
+  // Supervisor's turn: operator has submitted, awaiting supervisor decision
+  const isSupervisorTurn = useMemo(() => {
+    if (!batch) return false;
+    return ['OPERATOR_APPROVED', 'SUPERVISOR_IN_PROGRESS', 'ON_HOLD'].includes(batch.status);
+  }, [batch]);
 
   const displayColumns = useMemo(() => {
     if (!batch?.template?.control_items) return [];
@@ -194,9 +209,6 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
 
   const handleCellChange = async (item: ControlItem, columnKey: string, newValue: string) => {
     if (!batch || isReadOnly) return;
-    if (currentUser.role === 'supervisor' && batch.operator_submitted_at) {
-      return;
-    }
 
     const key = `${item.item_id}_${columnKey}`;
     const isFailed = checkOutOfSpec(item, newValue);
@@ -250,14 +262,19 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
     const missing: string[] = [];
     batch.template.control_items.forEach((item) => {
       if (!item.is_required) return;
-      const cols = Array.isArray(item.sample_columns) ? item.sample_columns : [];
-      cols.forEach((col) => {
-        const key = `${item.item_id}_${col}`;
-        const cell = cellsMap[key];
-        if (!cell || cell.cell_value === null || cell.cell_value === undefined || cell.cell_value === '') {
-          missing.push(`S.No ${item.serial_no}: ${item.control_item_name} [${col}]`);
-        }
-      });
+      // Only validate fields owned by the current user's role
+      const isOpItem = item.assigned_role === 'operator' || (!item.assigned_role && item.editable_by_operator !== false);
+      const isSupItem = item.assigned_role === 'supervisor';
+      if (currentUser.role === 'operator' && !isOpItem) return;
+      if (currentUser.role === 'supervisor' && !isSupItem) return;
+
+      const sampleCols = Array.isArray(item.sample_columns) ? item.sample_columns : ['val'];
+      const col = sampleCols[0];
+      const key = `${item.item_id}_${col}`;
+      const cell = cellsMap[key];
+      if (!cell || cell.cell_value === null || cell.cell_value === undefined || cell.cell_value === '') {
+        missing.push(`S.No ${item.serial_no}: ${item.control_item_name}`);
+      }
     });
 
     return {
@@ -266,9 +283,20 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
     };
   };
 
-  const totalRequired = batch?.template?.control_items ? batch.template.control_items.filter((i) => i.is_required).length : 0;
+  const totalRequired = batch?.template?.control_items ? batch.template.control_items.filter((i) => {
+    if (!i.is_required) return false;
+    const isOpItem = i.assigned_role === 'operator' || (!i.assigned_role && i.editable_by_operator !== false);
+    const isSupItem = i.assigned_role === 'supervisor';
+    if (currentUser.role === 'operator') return isOpItem;
+    if (currentUser.role === 'supervisor') return isSupItem;
+    return true;
+  }).length : 0;
   const completedRequired = batch?.template?.control_items ? batch.template.control_items.filter((item) => {
     if (!item.is_required) return false;
+    const isOpItem = item.assigned_role === 'operator' || (!item.assigned_role && item.editable_by_operator !== false);
+    const isSupItem = item.assigned_role === 'supervisor';
+    if (currentUser.role === 'operator' && !isOpItem) return false;
+    if (currentUser.role === 'supervisor' && !isSupItem) return false;
     const sampleCols = Array.isArray(item.sample_columns) ? item.sample_columns : ['val'];
     const firstColKey = sampleCols[0];
     const cellKey = `${item.item_id}_${firstColKey}`;
@@ -276,6 +304,75 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
     return cellData && cellData.cell_value !== null && cellData.cell_value !== undefined && cellData.cell_value !== '';
   }).length : 0;
   const percentComplete = totalRequired > 0 ? Math.round((completedRequired / totalRequired) * 100) : 100;
+
+  const handlePassAll = async () => {
+    if (!batch || isReadOnly) return;
+    setIsPassingAll(true);
+    setErrorMsg(null);
+    try {
+      const items = (batch.template?.control_items || []);
+      const role = currentUser.role;
+      const initials = currentUser.username.substring(0, 2).toUpperCase();
+      const newCells: Record<string, CellResponse> = {};
+      const apiCalls: Promise<any>[] = [];
+
+      for (const item of items) {
+        const isOpItem = item.assigned_role === 'operator' || (!item.assigned_role && item.editable_by_operator !== false);
+        const isSupItem = item.assigned_role === 'supervisor';
+        const isEditable =
+          (role === 'operator' && isOpItem && isOperatorTurn) ||
+          (role === 'supervisor' && isSupItem && isSupervisorTurn);
+        if (!isEditable) continue;
+
+        const sampleCols = Array.isArray(item.sample_columns) && item.sample_columns.length > 0
+          ? item.sample_columns
+          : ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'];
+
+        let colsToPass: string[] = [];
+        if (item.row_mode === 'SERIAL_TICKBOX') {
+          colsToPass = sampleCols;
+        } else if (item.html_input_type === 'pf' || item.html_input_type === 'checkbox') {
+          colsToPass = [sampleCols[0]];
+        } else if (item.row_mode === 'NUMERIC_SAMPLE') {
+          // Tick all verification checkboxes (the ${col}c keys) — doesn't touch number values
+          colsToPass = sampleCols.map(c => `${c}c`);
+        }
+
+        for (const col of colsToPass) {
+          const mutId = crypto.randomUUID();
+          const key = `${item.item_id}_${col}`;
+          newCells[key] = {
+            batch_id: batch.batch_id,
+            item_id: item.item_id!,
+            column_key: col,
+            cell_value: 'Pass',
+            is_within_spec: true,
+            checker_initials: initials,
+            client_mutation_id: mutId,
+            updated_at: new Date().toISOString(),
+          };
+          if (navigator.onLine) {
+            apiCalls.push(
+              updateCellResponse(batch.batch_id, {
+                item_id: item.item_id!,
+                column_key: col,
+                cell_value: 'Pass',
+                checker_initials: initials,
+                client_mutation_id: mutId,
+              }).catch(() => {})
+            );
+          }
+        }
+      }
+
+      setCellsMap(prev => ({ ...prev, ...newCells }));
+      await Promise.allSettled(apiCalls);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to mark all as pass.');
+    } finally {
+      setIsPassingAll(false);
+    }
+  };
 
   const handleOperatorApprove = async () => {
     if (!batch) return;
@@ -314,12 +411,6 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
   };
 
   const handleOperatorRejectClick = () => {
-    const { isValid, missing } = validateFullSheetCompletion();
-    if (!isValid) {
-      setMissingFieldsList(missing);
-      setIsCompletionModalOpen(true);
-      return;
-    }
     setIsRejectionModalOpen(true);
   };
 
@@ -384,15 +475,21 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
     }
   };
 
-  const handleSupervisorReject = async () => {
+  const handleSupervisorReject = () => {
+    setIsSupRejectionModalOpen(true);
+  };
+
+  const handleConfirmSupervisorRejection = async (selectedItemIds: number[], remarks: string) => {
     if (!batch) return;
     try {
       setIsSubmitting(true);
       setErrorMsg(null);
       await reviewSupervisorBatch(batch.batch_id, {
         decision: 'REJECT',
-        remarks: 'Batch rejected after supervisor review.',
+        rejected_item_ids: selectedItemIds.length ? selectedItemIds : undefined,
+        remarks: remarks || 'Batch rejected after supervisor review.',
       });
+      setIsSupRejectionModalOpen(false);
       await loadBatch();
       if (onBatchUpdated) onBatchUpdated();
     } catch (err: any) {
@@ -465,7 +562,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
 
   if (!batch || !batch.template) {
     return (
-      <div className="p-8 text-center text-slate-500 border border-slate-200 rounded-2xl bg-white">
+      <div className="p-8 text-center text-slate-500 border border-slate-200 rounded bg-white">
         <AlertTriangle className="w-8 h-8 text-amber-500 mx-auto mb-2" />
         <h3 className="font-bold text-slate-800 text-sm">No batch selected</h3>
         <p className="text-xs text-slate-500 mt-1">Scan a batch label or select a batch from the sidebar.</p>
@@ -481,9 +578,9 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
 
   return (
     <div className="space-y-4 text-xs font-sans pb-12">
-      {/* Read-Only Banner if finalized or locked */}
+      {/* Globally locked — APPROVED or REJECTED */}
       {isReadOnly && (
-        <div className="bg-black text-white px-5 py-3 rounded-xl flex items-center justify-between text-xs font-bold tracking-wider uppercase shadow-md mb-2">
+        <div className="bg-slate-900 text-white px-5 py-3 rounded-lg flex items-center justify-between text-xs font-bold tracking-widest uppercase mb-2">
           <div className="flex items-center gap-2.5">
             <Lock className="w-4 h-4 text-white" />
             <span>LOCKED RECORD — READ-ONLY SUMMARY MODE</span>
@@ -494,10 +591,26 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
         </div>
       )}
 
+      {/* Operator has submitted — waiting for supervisor */}
+      {!isReadOnly && currentUser.role === 'operator' && batch.operator_submitted_at && (
+        <div className="bg-blue-50 border border-blue-200 text-blue-900 px-4 py-3 rounded-lg flex items-center gap-2.5 text-xs font-semibold">
+          <Check className="w-4 h-4 text-blue-600 shrink-0" />
+          <span>Your entries are submitted and locked. Awaiting supervisor review.</span>
+        </div>
+      )}
+
+      {/* Supervisor turn — operator's fields are locked */}
+      {!isReadOnly && currentUser.role === 'supervisor' && isSupervisorTurn && (
+        <div className="bg-violet-50 border border-violet-200 text-violet-900 px-4 py-3 rounded-lg flex items-center gap-2.5 text-xs font-semibold">
+          <ShieldCheck className="w-4 h-4 text-violet-600 shrink-0" />
+          <span>Operator data is locked. Fill in supervisor checkpoint fields below, then approve, reject, or hold.</span>
+        </div>
+      )}
+
       {/* Overdue Hold Banner (FR-056) */}
       {batch.status === 'ON_HOLD' && (
         <div
-          className={`px-4 py-3 rounded-xl border flex flex-wrap items-center justify-between gap-3 ${
+          className={`px-4 py-3 rounded-lg border flex flex-wrap items-center justify-between gap-3 ${
             batch.is_overdue
               ? 'bg-red-50 text-red-900 border-red-300'
               : 'bg-amber-50 text-amber-900 border-amber-300'
@@ -534,72 +647,84 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
       )}
 
       {/* Main Checksheet Card */}
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-        {/* Zone A: Clean Header Block */}
-        <div className="p-5 border-b border-slate-200 bg-white">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                <span className="font-mono text-xs font-bold bg-slate-900 text-white px-2.5 py-0.5 rounded-md">
-                  Lot {batch.lot_number}
-                </span>
-                <span className="text-xs font-mono font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
-                  Part #{template.part_no || 'N/A'}
-                </span>
-                <span className="text-xs text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md font-medium">
-                  {batch.line_name || 'Line 1'}
-                </span>
-                <span className="text-xs text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md font-medium">
-                  Qty: {batch.lot_quantity || 100} pcs
-                </span>
-                {batch.round > 1 && (
-                  <span className="text-xs bg-purple-100 text-purple-900 px-2 py-0.5 rounded-md font-bold">
-                    Round {batch.round}
-                  </span>
-                )}
-              </div>
-              <h2 className="text-lg font-bold text-slate-900 tracking-tight">
+      <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+        {/* Zone A: Header Block */}
+        <div className="px-5 py-4 border-b border-slate-200 bg-white">
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+            <div className="min-w-0">
+              <h2 className="text-base font-bold text-slate-900 tracking-tight truncate">
                 {batch.product_name || template.part_name || template.document_title}
               </h2>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-xs text-slate-500">
+                <span className="font-mono font-semibold text-slate-700">Lot {batch.lot_number}</span>
+                <span className="text-slate-300">|</span>
+                <span>Part <span className="font-mono text-slate-600">#{template.part_no || 'N/A'}</span></span>
+                <span className="text-slate-300">|</span>
+                <span>{batch.line_name || 'Line 1'}</span>
+                <span className="text-slate-300">|</span>
+                <span>Qty {batch.lot_quantity || 100} pcs</span>
+                {batch.round > 1 && (
+                  <>
+                    <span className="text-slate-300">|</span>
+                    <span className="text-violet-600 font-semibold">Round {batch.round}</span>
+                  </>
+                )}
+              </div>
             </div>
 
             {/* Quick Actions */}
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+              {currentUser.role === 'admin' && onEditTemplate && batch?.sheet_id && (
+                <button
+                  type="button"
+                  onClick={() => onEditTemplate(batch.sheet_id)}
+                  className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-700 text-white font-medium rounded flex items-center gap-1.5 transition-colors text-xs"
+                  title="Open this checksheet template in the builder"
+                >
+                  <Settings className="w-3.5 h-3.5" />
+                  <span>Edit Template</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => setIsCameraModalOpen(true)}
-                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium rounded-lg flex items-center gap-1.5 transition-colors text-xs"
+                className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded flex items-center gap-1.5 transition-colors text-xs"
               >
-                <Camera className="w-3.5 h-3.5 text-slate-700" />
-                <span>Add Photo</span>
+                <Camera className="w-3.5 h-3.5" />
+                <span>Photo</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setIsPrintModalOpen(true)}
-                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium rounded-lg flex items-center gap-1.5 transition-colors text-xs"
+                className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded flex items-center gap-1.5 transition-colors text-xs"
               >
-                <Printer className="w-3.5 h-3.5 text-slate-700" />
-                <span>QR Labels</span>
+                <Printer className="w-3.5 h-3.5" />
+                <span>Labels</span>
               </button>
 
-              <a
-                href={getExportUrl(batch.batch_id, 'pdf')}
-                download
-                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium rounded-lg flex items-center gap-1.5 transition-colors text-xs"
-              >
-                <Download className="w-3.5 h-3.5 text-slate-700" />
-                <span>PDF</span>
-              </a>
+              {currentUser.role === 'admin' && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => downloadBatchExport(batch.batch_id, 'pdf', batch.lot_number).catch((e) => setErrorMsg(e.message))}
+                    className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded flex items-center gap-1.5 transition-colors text-xs"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>PDF</span>
+                  </button>
 
-              <a
-                href={getExportUrl(batch.batch_id, 'xlsx')}
-                download
-                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium rounded-lg flex items-center gap-1.5 transition-colors text-xs"
-              >
-                <Download className="w-3.5 h-3.5 text-slate-700" />
-                <span>Excel</span>
-              </a>
+                  <button
+                    type="button"
+                    onClick={() => downloadBatchExport(batch.batch_id, 'xlsx', batch.lot_number).catch((e) => setErrorMsg(e.message))}
+                    className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded flex items-center gap-1.5 transition-colors text-xs"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Excel</span>
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -610,9 +735,11 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
             <thead>
               <tr className="bg-slate-50 text-slate-600 border-b border-slate-200 font-semibold text-[11px] uppercase tracking-wider">
                 <th className="py-3 px-4 w-12 text-center">#</th>
-                <th className="py-3 px-4 min-w-[220px]">Inspection Item</th>
-                <th className="py-3 px-4 min-w-[180px]">Specification & Limits</th>
-                <th className="py-3 px-4 min-w-[200px]">Recorded Result</th>
+                <th className="py-3 px-4 min-w-[100px]">Stage</th>
+                <th className="py-3 px-4 min-w-[200px]">Inspection Item</th>
+                <th className="py-3 px-4 min-w-[160px]">Specification & Limits</th>
+                <th className="py-3 px-4 min-w-[120px]">Method / Instrument</th>
+                <th className="py-3 px-4 min-w-[320px]">Recorded Result</th>
                 {currentUser.role === 'supervisor' && opRejectedList.length > 0 && (
                   <th className="py-3 px-4 min-w-[160px] text-center">Supervisor Review</th>
                 )}
@@ -622,20 +749,26 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
               {template.control_items.map((item, idx) => {
                 const isOpRole = currentUser.role === 'operator';
                 const isSupRole = currentUser.role === 'supervisor';
-                const isCheckpoint = item.is_supervisor_checkpoint;
+                // Which role owns this row — strict assignment, no crossover
+                const isOpItem = item.assigned_role === 'operator' || (!item.assigned_role && item.editable_by_operator !== false);
+                const isSupItem = item.assigned_role === 'supervisor';
 
-                // PRD Section 2 Role-Based Visual Hierarchy
+                // Does this row belong to the current user's role?
                 const isAssigned =
                   currentUser.role === 'admin' ||
-                  (isOpRole && (item.assigned_role === 'operator' || !item.assigned_role) && item.editable_by_operator !== false) ||
-                  (isSupRole && (item.assigned_role === 'supervisor' || isCheckpoint));
+                  (isOpRole && isOpItem) ||
+                  (isSupRole && isSupItem);
 
-                const canEditCell = !isReadOnly && isOpRole && isAssigned;
+                // Can the current user actively type into this cell right now?
+                const canEditCell = !isReadOnly && (
+                  (isOpRole && isOpItem && isOperatorTurn) ||
+                  (isSupRole && isSupItem && isSupervisorTurn)
+                );
 
-                // Row styling
+                // Row styling — dim rows that belong to the other role
                 const rowClass = isAssigned
                   ? 'bg-white text-slate-900 border-l-4 border-l-black hover:bg-slate-50/80 font-medium'
-                  : 'opacity-50 bg-slate-50/50 text-slate-500 border-l-2 border-l-slate-300';
+                  : 'bg-slate-50/40 text-slate-400 border-l-2 border-l-slate-200';
 
                 // Get single representative column key or first column
                 const sampleCols = Array.isArray(item.sample_columns) ? item.sample_columns : ['val'];
@@ -701,7 +834,26 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                               Fail
                             </button>
                           </div>
-                        ) : item.html_input_type === 'number' || item.row_mode === 'NUMERIC_SAMPLE' ? (
+                        ) : item.row_mode === 'NUMERIC_SAMPLE' ? (
+                          <div className="grid grid-cols-5 gap-1" style={{ minWidth: '220px' }}>
+                            {sampleCols.map((col) => {
+                              const chkKey = `${col}c`;
+                              const isVerified = cellsMap[`${item.item_id}_${chkKey}`]?.cell_value === 'Pass';
+                              return (
+                                <label key={col} className="flex flex-col items-center gap-0.5 cursor-pointer select-none">
+                                  <span className="text-[9px] text-slate-400 font-mono leading-none">{col}</span>
+                                  <input
+                                    type="checkbox"
+                                    checked={isVerified}
+                                    onChange={(e) => handleCellChange(item, chkKey, e.target.checked ? 'Pass' : '')}
+                                    className="w-5 h-5 accent-black cursor-pointer"
+                                    title={`Mark sample ${col} as verified`}
+                                  />
+                                </label>
+                              );
+                            })}
+                          </div>
+                        ) : item.html_input_type === 'number' ? (
                           <div className="flex items-center gap-2">
                             <input
                               type="number"
@@ -727,6 +879,24 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                               </span>
                             )}
                           </div>
+                        ) : item.row_mode === 'SERIAL_TICKBOX' ? (
+                          <div className="grid grid-cols-5 gap-1" style={{ minWidth: '220px' }}>
+                            {sampleCols.map((col) => {
+                              const colVal = cellsMap[`${item.item_id}_${col}`]?.cell_value || '';
+                              const isChecked = colVal === 'Pass' || colVal === 'true';
+                              return (
+                                <label key={col} className="flex flex-col items-center gap-0.5 cursor-pointer select-none">
+                                  <span className="text-[9px] text-slate-400 font-mono leading-none">{col}</span>
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={(e) => handleCellChange(item, col, e.target.checked ? 'Pass' : '')}
+                                    className="w-5 h-5 accent-black cursor-pointer"
+                                  />
+                                </label>
+                              );
+                            })}
+                          </div>
                         ) : item.html_input_type === 'checkbox' ? (
                           <label className="flex items-center gap-2 cursor-pointer select-none">
                             <input
@@ -750,6 +920,35 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                             className="w-full border-2 border-black rounded-lg px-2.5 py-1 text-xs font-medium focus:ring-2 focus:ring-black focus:outline-none"
                           />
                         )
+                      ) : item.row_mode === 'SERIAL_TICKBOX' ? (
+                        <div className="grid grid-cols-5 gap-1" style={{ minWidth: '220px' }}>
+                          {sampleCols.map((col) => {
+                            const colVal = cellsMap[`${item.item_id}_${col}`]?.cell_value || '';
+                            const isChecked = colVal === 'Pass' || colVal === 'true';
+                            return (
+                              <div key={col} className="flex flex-col items-center">
+                                <span className="text-[9px] text-slate-400 font-mono">{col}</span>
+                                <span className={`text-base leading-none font-bold ${isChecked ? 'text-emerald-600' : 'text-slate-200'}`}>
+                                  {isChecked ? '✓' : '○'}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : item.row_mode === 'NUMERIC_SAMPLE' ? (
+                        <div className="grid grid-cols-5 gap-1" style={{ minWidth: '220px' }}>
+                          {sampleCols.map((col) => {
+                            const isVerified = cellsMap[`${item.item_id}_${col}c`]?.cell_value === 'Pass';
+                            return (
+                              <div key={col} className="flex flex-col items-center">
+                                <span className="text-[9px] text-slate-400 font-mono">{col}</span>
+                                <span className={`text-base leading-none font-bold ${isVerified ? 'text-emerald-600' : 'text-slate-200'}`}>
+                                  {isVerified ? '✓' : '○'}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
                       ) : (
                         <div className="flex items-center gap-2 font-mono">
                           <span className="font-bold text-slate-900">
@@ -768,25 +967,6 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                           )}
                         </div>
                       )}
-                    </td>
-
-                    {/* Owner / Role */}
-                    <td className="py-2.5 px-3">
-                      <div className="flex flex-col gap-0.5">
-                        <span className={`font-bold text-xs ${isAssigned ? 'text-black' : 'text-slate-400'}`}>
-                          {item.assigned_role === 'supervisor' ? 'Supervisor' : 'Operator'}
-                        </span>
-                        {isCheckpoint && (
-                          <span className="text-[9px] font-bold text-white bg-black px-1.5 py-0.5 rounded tracking-wide uppercase inline-block w-fit">
-                            Sup Checkpoint
-                          </span>
-                        )}
-                        {!isAssigned && (
-                          <span className="text-[10px] text-slate-400 italic">
-                            (Non-editable by {currentUser.role})
-                          </span>
-                        )}
-                      </div>
                     </td>
 
                     {/* Supervisor Review Column (Confirm / Overrule - FR-038) */}
@@ -835,7 +1015,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
             <h4 className="font-bold text-slate-800 text-xs mb-2">Attached Photo Evidence ({batch.attachments.length})</h4>
             <div className="flex flex-wrap gap-3">
               {batch.attachments.map((att) => (
-                <div key={att.attachment_id} className="relative group border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm">
+                <div key={att.attachment_id} className="relative group border border-slate-200 rounded overflow-hidden bg-white">
                   <img
                     src={att.file_path}
                     alt={att.file_name || 'Inspection Photo'}
@@ -853,7 +1033,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
 
         {/* Error message */}
         {errorMsg && (
-          <div className="mx-5 mb-4 p-3 bg-red-50 text-red-700 border border-red-200 rounded-xl flex items-center gap-2">
+          <div className="mx-5 mb-4 p-3 bg-red-50 text-red-700 border border-red-200 rounded flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{errorMsg}</span>
           </div>
@@ -914,9 +1094,20 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
               <>
                 <button
                   type="button"
+                  disabled={isPassingAll || isSubmitting}
+                  onClick={handlePassAll}
+                  className="px-4 py-2 font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                  title="Mark all checkboxes and Pass/Fail fields as Pass at once"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>{isPassingAll ? 'Applying...' : 'Pass All'}</span>
+                </button>
+
+                <button
+                  type="button"
                   disabled={isSubmitting}
                   onClick={handleOperatorRejectClick}
-                  className="px-4 py-2 font-semibold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                  className="px-4 py-2 font-semibold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded flex items-center gap-1.5 transition-colors disabled:opacity-50"
                 >
                   <AlertTriangle className="w-3.5 h-3.5 text-red-600" />
                   <span>Reject Batch</span>
@@ -926,7 +1117,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                   type="button"
                   disabled={isSubmitting}
                   onClick={handleOperatorApprove}
-                  className="px-5 py-2 font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg flex items-center gap-1.5 transition-all shadow-sm disabled:opacity-50"
+                  className="px-5 py-2 font-semibold text-white bg-slate-900 hover:bg-slate-700 rounded flex items-center gap-1.5 transition-colors disabled:opacity-50"
                 >
                   <CheckCircle2 className="w-4 h-4" />
                   <span>{isSubmitting ? 'Saving...' : 'Submit & Approve'}</span>
@@ -939,8 +1130,19 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
               <>
                 <button
                   type="button"
+                  disabled={isPassingAll || isSubmitting}
+                  onClick={handlePassAll}
+                  className="px-4 py-2 font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                  title="Mark all supervisor-assigned Pass/Fail and checkbox fields as Pass at once"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>{isPassingAll ? 'Applying...' : 'Pass All'}</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => setIsHoldModalOpen(true)}
-                  className="px-4 py-2 font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg flex items-center gap-1.5 transition-colors"
+                  className="px-4 py-2 font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded flex items-center gap-1.5 transition-colors"
                 >
                   <Clock className="w-3.5 h-3.5 text-amber-600" />
                   <span>Put on Hold</span>
@@ -950,7 +1152,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                   type="button"
                   disabled={isSubmitting}
                   onClick={handleSupervisorReject}
-                  className="px-4 py-2 font-semibold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                  className="px-4 py-2 font-semibold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded flex items-center gap-1.5 transition-colors disabled:opacity-50"
                 >
                   <AlertTriangle className="w-3.5 h-3.5 text-red-600" />
                   <span>Reject Batch</span>
@@ -961,7 +1163,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                   disabled={isSubmitting || hasConfirmedRejections}
                   onClick={handleSupervisorApprove}
                   title={hasConfirmedRejections ? 'Cannot approve: rejections confirmed failing' : 'Approve and sign off'}
-                  className="px-5 py-2 font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg flex items-center gap-1.5 transition-all shadow-sm disabled:opacity-50"
+                  className="px-5 py-2 font-semibold text-white bg-slate-900 hover:bg-slate-700 rounded flex items-center gap-1.5 transition-colors disabled:opacity-50"
                 >
                   <ShieldCheck className="w-4 h-4" />
                   <span>Approve & Sign-Off</span>
@@ -973,7 +1175,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
       </div>
 
       {/* Approval Record Ledger (FR-054) */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-3">
+      <div className="bg-white border border-slate-200 rounded-lg p-5 space-y-3">
         <h3 className="font-bold text-sm text-slate-900">Approval Record (Sign-Off Ledger)</h3>
         {batch.decisions && batch.decisions.length > 0 ? (
           <div className="overflow-x-auto">
@@ -1036,9 +1238,9 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
       {/* Supervisor Hold Modal (FR-055) */}
       {isHoldModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 no-print backdrop-blur-sm">
-          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md shadow-xl overflow-hidden text-xs">
+          <div className="bg-white border border-slate-200 rounded-lg w-full max-w-md shadow-lg overflow-hidden text-xs">
             <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="font-bold text-sm text-slate-900">Put Batch On Hold (Quarantine)</h3>
+              <h3 className="font-semibold text-slate-900">Put Batch On Hold (Quarantine)</h3>
               <button onClick={() => setIsHoldModalOpen(false)} className="text-slate-400 hover:text-slate-700 p-1">
                 <X className="w-4 h-4" />
               </button>
@@ -1090,14 +1292,14 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsHoldModalOpen(false)}
-                  className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg"
+                  className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="flex-1 py-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg shadow-sm disabled:opacity-50"
+                  className="flex-1 py-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded disabled:opacity-50"
                 >
                   {isSubmitting ? 'Holding...' : 'Place On Hold'}
                 </button>
@@ -1110,9 +1312,9 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
       {/* Release Hold Modal (FR-057 & FR-058) */}
       {isReleaseModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 no-print backdrop-blur-sm">
-          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md shadow-xl overflow-hidden text-xs">
+          <div className="bg-white border border-slate-200 rounded-lg w-full max-w-md shadow-lg overflow-hidden text-xs">
             <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="font-bold text-sm text-slate-900">Release Hold on {batch.lot_number}</h3>
+              <h3 className="font-semibold text-slate-900">Release Hold on {batch.lot_number}</h3>
               <button onClick={() => setIsReleaseModalOpen(false)} className="text-slate-400 hover:text-slate-700 p-1">
                 <X className="w-4 h-4" />
               </button>
@@ -1121,7 +1323,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
               <div>
                 <label className="font-semibold text-slate-700 block mb-2">Release Outcome:</label>
                 <div className="space-y-1.5">
-                  <label className="flex items-center gap-2 p-2 border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer">
+                  <label className="flex items-center gap-2 p-2 border border-slate-200 rounded hover:bg-slate-50 cursor-pointer">
                     <input
                       type="radio"
                       name="relOutcome"
@@ -1131,7 +1333,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                     />
                     <span className="font-semibold text-slate-800">Approve batch (Concession / Lab Cleared)</span>
                   </label>
-                  <label className="flex items-center gap-2 p-2 border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer">
+                  <label className="flex items-center gap-2 p-2 border border-slate-200 rounded hover:bg-slate-50 cursor-pointer">
                     <input
                       type="radio"
                       name="relOutcome"
@@ -1141,7 +1343,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                     />
                     <span className="font-semibold text-slate-800">Reject batch</span>
                   </label>
-                  <label className="flex items-center gap-2 p-2 border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer">
+                  <label className="flex items-center gap-2 p-2 border border-slate-200 rounded hover:bg-slate-50 cursor-pointer">
                     <input
                       type="radio"
                       name="relOutcome"
@@ -1152,7 +1354,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                     <div>
                       <span className="font-semibold text-slate-800 block">Send back for reinspection</span>
                       <span className="text-[10px] text-slate-500">
-                        Increments round (Round {batch.round + 1}) and allows Operator to re-inspect.
+                        Increments round (Round {(batch.round || 1) + 1}) and allows Operator to re-inspect.
                       </span>
                     </div>
                   </label>
@@ -1175,14 +1377,14 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsReleaseModalOpen(false)}
-                  className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg"
+                  className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="flex-1 py-2 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-lg shadow-sm disabled:opacity-50"
+                  className="flex-1 py-2 bg-slate-900 hover:bg-slate-700 text-white font-semibold rounded disabled:opacity-50"
                 >
                   {isSubmitting ? 'Releasing...' : 'Release Hold'}
                 </button>
@@ -1207,6 +1409,14 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
         isSubmitting={isSubmitting}
       />
 
+      <RejectionModal
+        isOpen={isSupRejectionModalOpen}
+        onClose={() => setIsSupRejectionModalOpen(false)}
+        controlItems={template.control_items}
+        onSubmit={handleConfirmSupervisorRejection}
+        isSubmitting={isSubmitting}
+      />
+
       <CameraCaptureModal
         isOpen={isCameraModalOpen}
         onClose={() => setIsCameraModalOpen(false)}
@@ -1218,6 +1428,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
         isOpen={isPrintModalOpen}
         onClose={() => setIsPrintModalOpen(false)}
         sheetId={template.sheet_id}
+        batchId={batch.batch_id}
       />
     </div>
   );

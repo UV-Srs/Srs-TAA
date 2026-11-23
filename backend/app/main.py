@@ -2,7 +2,7 @@ import os
 import asyncio
 from pathlib import Path
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -12,6 +12,9 @@ from backend.app.database import engine, Base, SessionLocal
 from backend.app import models
 from backend.app.seed_data import seed_database
 from backend.app.live_sync import live_manager
+
+from backend.app.auth import get_current_user
+from backend.app.database import SessionLocal
 
 from backend.app.routes import (
     auth_routes,
@@ -33,6 +36,8 @@ def _apply_column_migrations():
         "CREATE INDEX IF NOT EXISTS ix_sheet_templates_external_barcode ON sheet_templates (external_barcode) WHERE external_barcode IS NOT NULL",
         # is_default — active/default template for new batch creation
         "ALTER TABLE sheet_templates ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT FALSE",
+        # password_version — incremented on password change to invalidate all old JWTs
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_version INTEGER NOT NULL DEFAULT 1",
     ]
     with engine.connect() as conn:
         for stmt in migrations:
@@ -70,11 +75,12 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS configuration
+# CORS configuration — allow both http and https, localhost and LAN IPs
 _allowed_origins = [o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -82,7 +88,20 @@ app.add_middleware(
 
 # WebSocket Endpoint for Live Real-Time Collaboration
 @app.websocket("/ws/live")
-async def websocket_live_endpoint(websocket: WebSocket):
+async def websocket_live_endpoint(websocket: WebSocket, token: str = ""):
+    # Authenticate before accepting the connection
+    if not token:
+        await websocket.close(code=4001)
+        return
+    db = SessionLocal()
+    try:
+        get_current_user(token=token, db=db)
+    except Exception:
+        await websocket.close(code=4001)
+        db.close()
+        return
+    db.close()
+
     await live_manager.connect(websocket)
     try:
         while True:
@@ -126,7 +145,7 @@ if (DIST_DIR / "assets").exists():
 def serve_frontend(full_path: str):
     # If API, Uploads, or WS route was not matched, return 404 for API
     if full_path.startswith("api/") or full_path.startswith("uploads/") or full_path.startswith("ws/"):
-        return {"error": "Not Found"}
+        raise HTTPException(status_code=404, detail="Not Found")
     index_file = DIST_DIR / "index.html"
     if index_file.exists():
         return FileResponse(index_file)

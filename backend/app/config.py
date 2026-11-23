@@ -36,4 +36,9 @@ if not SECRET_KEY:
         "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
     )
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
+_ALLOWED_ALGORITHMS = {"HS256", "HS384", "HS512"}
+if ALGORITHM not in _ALLOWED_ALGORITHMS:
+    raise RuntimeError(
+        f"ALGORITHM '{ALGORITHM}' is not allowed. Use one of: {', '.join(sorted(_ALLOWED_ALGORITHMS))}"
+    )
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60 * 24))

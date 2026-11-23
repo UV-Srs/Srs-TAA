@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { InspectionBatch, User } from '../types';
-import { getCsvExportUrl } from '../api';
-import { Download, AlertCircle, Clock, Search, ScanLine } from 'lucide-react';
+import { downloadCsvExport, deleteBatch } from '../api';
+import { Download, AlertCircle, Clock, Search, ScanLine, Plus, Trash2, X } from 'lucide-react';
 
 interface BatchSidebarProps {
   batches: InspectionBatch[];
   selectedBatchId: number | null;
   currentUser: User;
   onSelectBatch: (batchId: number) => void;
+  onBatchDeleted?: (batchId: number) => void;
   onSearch?: (query: string) => void;
+  onCreateBatch?: () => void;
   progressSummary?: {
     with_operator: number;
     with_supervisor: number;
@@ -19,16 +21,31 @@ interface BatchSidebarProps {
   };
 }
 
+type StatusFilter = 'all' | 'pending' | 'active' | 'review' | 'done';
+
+const STATUS_FILTERS: { key: StatusFilter; label: string; statuses: string[] }[] = [
+  { key: 'all',     label: 'All',     statuses: [] },
+  { key: 'pending', label: 'Pending', statuses: ['CREATED_PENDING_OPERATOR', 'pending'] },
+  { key: 'active',  label: 'Active',  statuses: ['OPERATOR_IN_PROGRESS', 'op_progress'] },
+  { key: 'review',  label: 'Review',  statuses: ['OPERATOR_APPROVED', 'OPERATOR_REJECTED', 'SUPERVISOR_IN_PROGRESS', 'ON_HOLD', 'op_approved', 'op_rejected', 'sup_progress', 'hold'] },
+  { key: 'done',    label: 'Done',    statuses: ['APPROVED', 'REJECTED'] },
+];
+
 export const BatchSidebar: React.FC<BatchSidebarProps> = ({
   batches,
   selectedBatchId,
   currentUser,
   onSelectBatch,
+  onBatchDeleted,
   onSearch,
+  onCreateBatch,
   progressSummary,
 }) => {
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const debounceRef = useRef<number | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const handleSearchChange = (val: string) => {
     setSearchQuery(val);
@@ -40,143 +57,237 @@ export const BatchSidebar: React.FC<BatchSidebarProps> = ({
 
   useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current); }, []);
 
+  const handleDelete = async (batchId: number) => {
+    setDeletingId(batchId);
+    try {
+      await deleteBatch(batchId);
+      setConfirmDeleteId(null);
+      onBatchDeleted?.(batchId);
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete batch.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const title =
     currentUser.role === 'operator' ? 'My Batches' :
     currentUser.role === 'supervisor' ? 'My Reviews' : 'Batches Queue';
 
-  const getStatusBadge = (status: string) => {
+  const getStatusInfo = (status: string): { dot: string; label: string } => {
     switch (status) {
       case 'CREATED_PENDING_OPERATOR':
-      case 'pending':
-        return <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">Pending</span>;
+      case 'pending':         return { dot: 'bg-slate-400',   label: 'Pending' };
       case 'OPERATOR_IN_PROGRESS':
-      case 'op_progress':
-        return <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-800">In Progress</span>;
+      case 'op_progress':     return { dot: 'bg-blue-500',    label: 'In Progress' };
       case 'OPERATOR_APPROVED':
-      case 'op_approved':
-        return <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800">Op Approved</span>;
+      case 'op_approved':     return { dot: 'bg-emerald-500', label: 'Op Approved' };
       case 'OPERATOR_REJECTED':
-      case 'op_rejected':
-        return <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-red-50 text-red-800">Op Flagged</span>;
+      case 'op_rejected':     return { dot: 'bg-red-500',     label: 'Flagged' };
       case 'SUPERVISOR_IN_PROGRESS':
-      case 'sup_progress':
-        return <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-purple-50 text-purple-800">Reviewing</span>;
+      case 'sup_progress':    return { dot: 'bg-violet-500',  label: 'Under Review' };
       case 'ON_HOLD':
-      case 'hold':
-        return <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-900 border border-amber-200">On Hold</span>;
-      case 'APPROVED':
-        return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-900">Approved</span>;
-      case 'REJECTED':
-        return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-900">Rejected</span>;
-      default:
-        return <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{status}</span>;
+      case 'hold':            return { dot: 'bg-amber-500',   label: 'On Hold' };
+      case 'APPROVED':        return { dot: 'bg-emerald-600', label: 'Approved' };
+      case 'REJECTED':        return { dot: 'bg-red-600',     label: 'Rejected' };
+      default:                return { dot: 'bg-slate-300',   label: status };
     }
   };
 
   const isScanRole = currentUser.role === 'operator' || currentUser.role === 'supervisor';
+  const isAdmin = currentUser.role === 'admin';
+
+  const filteredBatches = statusFilter === 'all'
+    ? batches
+    : batches.filter(b => STATUS_FILTERS.find(f => f.key === statusFilter)?.statuses.includes(b.status));
 
   return (
-    <aside className="w-full lg:w-80 shrink-0 border border-slate-200 bg-white rounded-2xl shadow-sm p-4 space-y-3.5 text-xs">
-      {/* Header & Search */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <h3 className="font-bold text-sm text-slate-900">{title}</h3>
-            <span className="text-[11px] font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full">
-              {batches.length}
-            </span>
-          </div>
+    <aside className="w-full h-full bg-white overflow-hidden text-xs flex flex-col">
 
-          {currentUser.role === 'admin' && (
-            <a
-              href={getCsvExportUrl()}
-              download="taa-inspection-records.csv"
-              className="text-[11px] font-medium text-slate-600 hover:text-slate-900 flex items-center gap-1 transition-colors"
-              title="Download CSV"
-            >
-              <Download className="w-3 h-3" />
-              <span>CSV</span>
-            </a>
-          )}
+      {/* ── Header ──────────────────────────────────────────────── */}
+      <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-2">
+          <h3 className="font-semibold text-slate-900">{title}</h3>
+          <span className="text-[11px] text-slate-400 tabular-nums">{batches.length}</span>
         </div>
 
-        {/* Quick Search — debounced, calls backend via onSearch */}
+        {isAdmin && (
+          <div className="flex items-center gap-1">
+            {onCreateBatch && (
+              <button
+                type="button"
+                onClick={onCreateBatch}
+                className="text-[11px] font-semibold bg-slate-900 hover:bg-slate-700 text-white px-2.5 py-1 rounded flex items-center gap-1 transition-colors"
+                title="Create New Inspection Batch"
+              >
+                <Plus className="w-3 h-3" />
+                New Batch
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => downloadCsvExport().catch(console.error)}
+              className="text-slate-500 hover:text-slate-900 flex items-center gap-1 transition-colors px-2 py-1 rounded hover:bg-slate-100"
+              title="Export CSV"
+            >
+              <Download className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ── Search ──────────────────────────────────────────────── */}
+      <div className="px-3 py-2 border-b border-slate-100 shrink-0">
         <div className="relative">
-          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5 pointer-events-none" />
+          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => handleSearchChange(e.target.value)}
+            onChange={e => handleSearchChange(e.target.value)}
             placeholder="Search lot or part..."
-            className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-slate-900 focus:bg-white rounded-lg text-xs font-medium text-slate-800 placeholder-slate-400 outline-none transition-all"
+            className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 focus:border-slate-500 focus:bg-white rounded text-xs text-slate-800 placeholder-slate-400 outline-none transition-colors"
           />
         </div>
       </div>
 
-      {/* Batch Cards List */}
-      <div className="space-y-1.5 max-h-[calc(100vh-280px)] overflow-y-auto pr-0.5">
-        {batches.length === 0 ? (
-          isScanRole ? (
-            <div className="py-8 px-4 border border-dashed border-slate-200 rounded-xl text-center space-y-3">
-              <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center mx-auto">
-                <ScanLine className="w-5 h-5 text-slate-500" />
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-slate-700">Scan a barcode to begin</p>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Use the scan bar above or a USB / Bluetooth scanner to open your batch.
-                  Previously worked batches appear here automatically.
-                </p>
-              </div>
+      {/* ── Status filter pills ─────────────────────────────────────── */}
+      <div className="px-3 py-1.5 border-b border-slate-100 flex gap-1 overflow-x-auto shrink-0">
+        {STATUS_FILTERS.map(f => {
+          const count = f.key === 'all' ? batches.length : batches.filter(b => f.statuses.includes(b.status)).length;
+          return (
+            <button
+              key={f.key}
+              type="button"
+              onClick={() => setStatusFilter(f.key)}
+              className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors whitespace-nowrap ${
+                statusFilter === f.key
+                  ? 'bg-slate-900 text-white'
+                  : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+              }`}
+            >
+              {f.label} <span className={statusFilter === f.key ? 'text-slate-300' : 'text-slate-400'}>{count}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── Batch list ──────────────────────────────────────────── */}
+      <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
+        {filteredBatches.length === 0 ? (
+          currentUser.role === 'supervisor' && statusFilter === 'all' ? (
+            <div className="py-10 px-5 text-center space-y-2">
+              <Clock className="w-6 h-6 text-slate-300 mx-auto" />
+              <p className="font-medium text-slate-600">No batches pending review</p>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                Batches will appear here once operators complete their inspection.
+              </p>
+            </div>
+          ) : isScanRole ? (
+            <div className="py-10 px-5 text-center space-y-2">
+              <ScanLine className="w-6 h-6 text-slate-300 mx-auto" />
+              <p className="font-medium text-slate-600">Scan a barcode to begin</p>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                Use the scan bar above or a USB / Bluetooth scanner to open your batch.
+              </p>
             </div>
           ) : (
-            <div className="py-8 px-4 border border-dashed border-slate-200 rounded-xl text-center text-slate-400">
-              <Clock className="w-5 h-5 mx-auto mb-1.5 opacity-40" />
-              <p className="text-xs font-medium text-slate-500">No batches found</p>
-              <p className="text-[11px] text-slate-400 mt-0.5">Scan a barcode to load a sheet</p>
+            <div className="py-10 px-5 text-center space-y-1">
+              <Clock className="w-5 h-5 text-slate-300 mx-auto" />
+              <p className="font-medium text-slate-500">
+                {statusFilter !== 'all' ? 'No batches in this status' : 'No batches found'}
+              </p>
+              {statusFilter !== 'all' && (
+                <button onClick={() => setStatusFilter('all')} className="text-[11px] text-slate-500 underline">Clear filter</button>
+              )}
             </div>
           )
         ) : (
-          batches.map((b) => {
+          filteredBatches.map((b) => {
             const isSelected = b.batch_id === selectedBatchId;
+            const { dot, label } = getStatusInfo(b.status);
+            const isConfirming = confirmDeleteId === b.batch_id;
+            const isDeleting = deletingId === b.batch_id;
+
             return (
-              <button
-                key={b.batch_id}
-                type="button"
-                onClick={() => onSelectBatch(b.batch_id)}
-                className={`w-full text-left p-3 rounded-xl border transition-all ${
-                  isSelected
-                    ? 'border-slate-900 bg-slate-50 ring-1 ring-slate-900 shadow-2xs'
-                    : 'border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50/60'
-                }`}
-              >
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <span className="font-bold text-xs text-slate-900 font-mono tracking-tight">
-                    {b.lot_number}
-                  </span>
-                  {getStatusBadge(b.status)}
-                </div>
+              <div key={b.batch_id} className={`relative group border-l-2 transition-colors ${
+                isSelected ? 'border-l-slate-900 bg-slate-50' : 'border-l-transparent hover:bg-slate-50/70'
+              }`}>
+                {/* Main row button */}
+                <button
+                  type="button"
+                  onClick={() => { setConfirmDeleteId(null); onSelectBatch(b.batch_id); }}
+                  className="w-full text-left px-3 py-2.5 flex items-start gap-2.5"
+                >
+                  <span className={`mt-[5px] w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} />
+                  <div className="flex-1 min-w-0 pr-5">
+                    <div className="flex items-baseline justify-between gap-1">
+                      <span className="font-mono font-bold text-[11px] text-slate-900 truncate">
+                        {b.lot_number}
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-medium shrink-0">{label}</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 truncate">
+                      {b.product_name || b.template?.part_name || b.sheet_id}
+                    </p>
+                    <div className="flex items-center gap-2 mt-0.5 text-[10px] text-slate-400">
+                      <span>{b.line_name || 'Line 1'}</span>
+                      {b.round > 1 && (
+                        <span className="text-violet-600 font-semibold">Round {b.round}</span>
+                      )}
+                    </div>
+                    {b.is_overdue && (
+                      <div className="flex items-center gap-1 mt-1 text-[10px] text-red-600 font-semibold">
+                        <AlertCircle className="w-3 h-3 shrink-0" />
+                        Hold overdue
+                      </div>
+                    )}
+                  </div>
+                </button>
 
-                <p className="text-xs text-slate-700 font-medium truncate">
-                  {b.product_name || b.template?.part_name || b.sheet_id}
-                </p>
+                {/* Admin delete icon — appears on hover */}
+                {isAdmin && !isConfirming && (
+                  <button
+                    type="button"
+                    onClick={e => { e.stopPropagation(); setConfirmDeleteId(b.batch_id); }}
+                    title="Delete this batch"
+                    className="absolute top-2.5 right-2 p-1 rounded text-slate-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
 
-                <div className="flex items-center justify-between text-[11px] text-slate-400 mt-1 font-medium">
-                  <span>{b.line_name || 'Line 1'}</span>
-                  {b.round > 1 && (
-                    <span className="text-purple-700 font-semibold bg-purple-50 px-1.5 py-0.5 rounded text-[10px]">
-                      Round {b.round}
-                    </span>
-                  )}
-                </div>
-
-                {b.is_overdue && (
-                  <div className="text-[10px] text-red-600 font-bold flex items-center gap-1 mt-1.5 bg-red-50 p-1 rounded border border-red-200">
-                    <AlertCircle className="w-3 h-3 shrink-0" />
-                    <span>Hold overdue for review</span>
+                {/* Inline delete confirmation */}
+                {isConfirming && (
+                  <div className="px-3 pb-3 -mt-1">
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-2.5 space-y-2">
+                      <p className="text-[11px] text-red-800 font-semibold leading-snug">
+                        Delete <span className="font-mono">{b.lot_number}</span>?
+                      </p>
+                      <p className="text-[10px] text-red-600 leading-snug">
+                        All measurements, decisions and attachments will be permanently removed.
+                      </p>
+                      <div className="flex gap-1.5 pt-0.5">
+                        <button
+                          type="button"
+                          onClick={e => { e.stopPropagation(); setConfirmDeleteId(null); }}
+                          className="flex-1 py-1 bg-white border border-slate-200 text-slate-600 rounded text-[11px] font-medium hover:bg-slate-50 transition-colors flex items-center justify-center gap-1"
+                        >
+                          <X className="w-3 h-3" /> Cancel
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isDeleting}
+                          onClick={e => { e.stopPropagation(); handleDelete(b.batch_id); }}
+                          className="flex-1 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-[11px] font-semibold transition-colors flex items-center justify-center gap-1 disabled:opacity-50"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          {isDeleting ? 'Deleting…' : 'Delete'}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
-              </button>
+              </div>
             );
           })
         )}

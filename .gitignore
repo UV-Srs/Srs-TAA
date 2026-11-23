@@ -20,6 +20,7 @@ backend/uploads/*.png
 backend/uploads/*.webp
 backend/taa_inspection.db
 *.db
+backend/app/pending_scans.json
 
 # OS / IDE
 .DS_Store

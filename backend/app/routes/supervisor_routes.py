@@ -1,10 +1,11 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from backend.app.database import get_db
 from backend.app.models import (
-    User, InspectionBatch, InspectionDecision, SheetTemplate
+    User, InspectionBatch, InspectionDecision, SheetTemplate,
+    BatchCellResponse, TemplateControlItem
 )
 from backend.app.schemas import SupervisorReviewRequest, SupervisorFieldReviewRequest
 from backend.app.auth import require_supervisor
@@ -28,6 +29,11 @@ def review_single_field(
     batch = db.query(InspectionBatch).filter(InspectionBatch.batch_id == batch_id).first()
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
+    if batch.checked_by and batch.checked_by != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Forbidden: This batch is already claimed by another supervisor.")
+    _SUPERVISOR_REVIEW_STATUSES = {"OPERATOR_APPROVED", "OPERATOR_REJECTED", "SUPERVISOR_IN_PROGRESS", "ON_HOLD"}
+    if batch.status not in _SUPERVISOR_REVIEW_STATUSES:
+        raise HTTPException(status_code=400, detail=f"Batch is not in supervisor review stage (current status: {batch.status}).")
 
     rev_dict = dict(batch.supervisor_reviews or {})
     rev_dict[payload.field_key] = payload.review
@@ -72,12 +78,48 @@ def review_batch(
     batch = db.query(InspectionBatch).filter(InspectionBatch.batch_id == batch_id).first()
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
+    if batch.checked_by and batch.checked_by != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Forbidden: This batch is already claimed by another supervisor.")
+    _SUPERVISOR_REVIEW_STATUSES = {"OPERATOR_APPROVED", "OPERATOR_REJECTED", "SUPERVISOR_IN_PROGRESS", "ON_HOLD"}
+    if batch.status not in _SUPERVISOR_REVIEW_STATUSES:
+        raise HTTPException(status_code=400, detail=f"Batch is not in supervisor review stage (current status: {batch.status}).")
 
     template = db.query(SheetTemplate).filter(SheetTemplate.sheet_id == batch.sheet_id).first()
     decision_val = payload.decision.upper()
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     sup_revs = batch.supervisor_reviews or {}
+
+    # Validate supervisor-assigned NUMERIC_SAMPLE fields are all filled before APPROVE
+    if decision_val in ["APPROVE", "ACCEPT_REJECTION"]:
+        all_responses = db.query(BatchCellResponse).filter(BatchCellResponse.batch_id == batch_id).all()
+        resp_map = {(r.item_id, str(r.column_key)): r for r in all_responses}
+
+        sup_items = [
+            it for it in (template.control_items if template else [])
+            if it.is_required and it.assigned_role == "supervisor"
+        ]
+        missing_meas = []
+        oosfields = []
+        for item in sup_items:
+            cols = item.sample_columns if isinstance(item.sample_columns, list) else ["val"]
+            for col in cols:
+                cell = resp_map.get((item.item_id, str(col)))
+                if not cell or cell.cell_value is None or str(cell.cell_value).strip() == "":
+                    missing_meas.append(f"{item.control_item_name} (sample {col})")
+                elif not cell.is_within_spec:
+                    oosfields.append(f"{item.control_item_name} (sample {col})")
+
+        if missing_meas:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"All dimensional measurements must be completed before approval. Missing: {', '.join(missing_meas[:5])}"
+            )
+        if oosfields:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Some measurements are out of specification. Reject the batch or correct values: {', '.join(oosfields[:5])}"
+            )
 
     # FR-038 Check: Any confirmed rejection blocks approval
     if decision_val in ["APPROVE", "ACCEPT_REJECTION"]:
@@ -179,11 +221,12 @@ def review_batch(
         db=db,
         user_id=current_user.user_id,
         role=current_user.role,
-        action_type=f"SUPERVISOR_DECISION_{decision_val}",
+        action_type="SUPERVISOR_REVIEWED",
         sheet_id=batch.sheet_id,
         batch_id=batch_id,
         details={
             "decision": decision_label,
+            "decision_type": decision_val,
             "round": batch.round,
             "hold_reason": payload.hold_reason,
             "rejected_item_ids": payload.rejected_item_ids,

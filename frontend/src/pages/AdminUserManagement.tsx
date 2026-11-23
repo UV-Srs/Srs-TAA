@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, UserRole } from '../types';
-import { fetchUsers, createUser, deactivateUser, activateUser, deleteUser } from '../api';
-import { UserPlus, UserX, UserCheck, Trash2, ShieldAlert, CheckCircle2 } from 'lucide-react';
+import { fetchUsers, createUser, deactivateUser, activateUser, deleteUser, adminResetPassword } from '../api';
+import { UserPlus, UserX, UserCheck, Trash2, ShieldAlert, CheckCircle2, KeyRound } from 'lucide-react';
 
 export const AdminUserManagement: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
@@ -73,6 +73,18 @@ export const AdminUserManagement: React.FC = () => {
     }
   };
 
+  const handleResetPassword = async (u: User) => {
+    const newPwd = window.prompt(`Set a new password for '${u.username}' (min 6 characters):`);
+    if (!newPwd) return;
+    if (newPwd.length < 6) { setStatusMsg({ type: 'error', text: 'Password must be at least 6 characters.' }); return; }
+    try {
+      await adminResetPassword(u.user_id, newPwd);
+      setStatusMsg({ type: 'success', text: `Password reset for '${u.username}'. All existing sessions invalidated.` });
+    } catch (err: any) {
+      setStatusMsg({ type: 'error', text: err.message || 'Failed to reset password' });
+    }
+  };
+
   const handleDelete = async (u: User) => {
     if (!window.confirm(`Are you sure you want to permanently delete user '${u.username}'?`)) return;
     try {
@@ -116,7 +128,7 @@ export const AdminUserManagement: React.FC = () => {
       {/* Grid: Create User & User Table */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 text-xs">
         {/* Create User Form */}
-        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
+        <div className="bg-white border border-slate-200 rounded-lg p-5 space-y-4">
           <h3 className="font-semibold text-slate-900 pb-2 border-b border-slate-100 flex items-center gap-2">
             <UserPlus className="w-4 h-4 text-slate-500" />
             Add New User
@@ -183,7 +195,7 @@ export const AdminUserManagement: React.FC = () => {
         </div>
 
         {/* User Accounts List */}
-        <div className="lg:col-span-2 bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+        <div className="lg:col-span-2 bg-white border border-slate-200 rounded-lg overflow-hidden">
           <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-800">User Accounts</span>
             <span className="text-xs text-slate-400">{users.length} total</span>
@@ -234,6 +246,14 @@ export const AdminUserManagement: React.FC = () => {
                             Activate
                           </button>
                         )}
+
+                        <button
+                          onClick={() => handleResetPassword(u)}
+                          className="p-1 text-slate-400 hover:text-amber-600 rounded transition-colors"
+                          title="Reset Password (invalidates all sessions)"
+                        >
+                          <KeyRound className="w-3.5 h-3.5" />
+                        </button>
 
                         <button
                           onClick={() => handleDelete(u)}

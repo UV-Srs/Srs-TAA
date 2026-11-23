@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
@@ -24,7 +24,7 @@ def send_notification(
             batch_code=batch_code,
             text=text,
             is_read=False,
-            created_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc).replace(tzinfo=None)
         )
         db.add(notif)
 
@@ -36,7 +36,7 @@ def send_notification(
                 batch_code=batch_code,
                 text=text,
                 is_read=False,
-                created_at=datetime.utcnow()
+                created_at=datetime.now(timezone.utc).replace(tzinfo=None)
             )
             db.add(notif)
     db.flush()
@@ -53,7 +53,7 @@ def check_overdue_holds(db: Session):
     FR-056: Checks if any ON_HOLD batches have exceeded their hold_due_at deadline.
     Alerts Admin and the supervisor who placed the hold, and flags hold_alerted.
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     overdue_batches = db.query(InspectionBatch).filter(
         InspectionBatch.status == "ON_HOLD",
         InspectionBatch.hold_due_at != None,
@@ -94,11 +94,18 @@ def check_overdue_holds(db: Session):
     if overdue_batches:
         db.commit()
 
+def _cleanup_old_notifications(db: Session):
+    """Delete notifications older than 30 days to prevent unbounded table growth."""
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=30)
+    db.query(InAppNotification).filter(InAppNotification.created_at < cutoff).delete(synchronize_session=False)
+    db.flush()
+
 def get_user_notifications(db: Session, user: User, limit: int = 50) -> List[InAppNotification]:
     """
     Returns unread and recent notifications for the logged in user based on role or user_id.
     """
     check_overdue_holds(db)
+    _cleanup_old_notifications(db)
     return db.query(InAppNotification).filter(
         or_(
             InAppNotification.recipient_role == user.role,

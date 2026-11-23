@@ -1,14 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { SheetTemplate, ControlItem, PartBarcodeInfo } from '../types';
-import { fetchSheets, createSheet, updateSheet, setDefaultSheet } from '../api';
+import { fetchSheets, createSheet, updateSheet, setDefaultSheet, deleteSheet } from '../api';
 import {
   Plus, Trash2, Save, Printer, QrCode, CheckCircle2, AlertCircle,
-  Barcode, X, Star, StarOff, ScanLine
+  Barcode, X, Star, StarOff, ScanLine, ChevronUp, ChevronDown, AlertTriangle
 } from 'lucide-react';
 import { PrintLabelModal } from '../components/PrintLabelModal';
 import { TFTScannerModal } from '../components/TFTScannerModal';
 
-export const AdminSheetBuilder: React.FC = () => {
+interface AdminSheetBuilderProps {
+  initialPrefill?: {
+    sheetId?: string; partNo?: string; partName?: string;
+    vendor?: string; customer?: string; model?: string; externalBarcode?: string;
+  } | null;
+  jumpToSheetId?: string | null;
+}
+
+export const AdminSheetBuilder: React.FC<AdminSheetBuilderProps> = ({ initialPrefill, jumpToSheetId }) => {
   const [sheetsList, setSheetsList] = useState<SheetTemplate[]>([]);
   const [selectedSheetId, setSelectedSheetId] = useState<string>('');
   const [isNewSheet, setIsNewSheet] = useState<boolean>(false);
@@ -30,6 +38,8 @@ export const AdminSheetBuilder: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [isSettingDefault, setIsSettingDefault] = useState<boolean>(false);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<boolean>(false);
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
   // Modals
@@ -39,14 +49,30 @@ export const AdminSheetBuilder: React.FC = () => {
 
   useEffect(() => { loadSheets(); }, []);
 
+  // When a prefill arrives (e.g. from a "not found" scan on the phone), jump straight
+  // to the new-sheet form with those fields pre-populated.
+  useEffect(() => {
+    if (initialPrefill) {
+      startBlankSheet(initialPrefill);
+    }
+  }, [initialPrefill]);
+
+  // When admin clicks "Edit Template" from ChecksheetView, jump to that sheet.
+  useEffect(() => {
+    if (jumpToSheetId && sheetsList.length > 0) {
+      const found = sheetsList.find(s => s.sheet_id === jumpToSheetId);
+      if (found) populateForm(found);
+    }
+  }, [jumpToSheetId, sheetsList]);
+
   const loadSheets = async () => {
     try {
       setIsLoading(true);
       const list = await fetchSheets();
       setSheetsList(list);
-      if (list.length > 0) {
+      if (list.length > 0 && !initialPrefill) {
         populateForm(list[0]);
-      } else {
+      } else if (!initialPrefill) {
         startBlankSheet();
       }
     } catch (err: any) {
@@ -67,7 +93,7 @@ export const AdminSheetBuilder: React.FC = () => {
     setVendorName(s.vendor_name || '');
     setCustomerName(s.customer_name || '');
     setPartCategory(s.part_category || 'MAIN PART');
-    setExternalBarcode(s.external_barcode || '');
+    setExternalBarcode(s.external_barcode || externalBarcode); // keep scanned barcode if template has none
     setControlItems(s.control_items || []);
     setStatusMsg(null);
   };
@@ -92,7 +118,7 @@ export const AdminSheetBuilder: React.FC = () => {
         serial_no: 1, stage_name: 'Appearance', control_item_name: 'Visual Flaw Check',
         specification_content: 'Be free from scratch, rust, damage', application_method: 'Visual',
         normal_frequency: '100%', ifm_frequency: '200%', row_mode: 'SERIAL_TICKBOX',
-        html_input_type: 'checkbox', sample_columns: ['1','2','3','4','5'],
+        html_input_type: 'checkbox', sample_columns: ['1','2','3','4','5','6','7','8','9','10'],
         assigned_role: 'operator', visible_to_operator: true, editable_by_operator: true,
         visible_to_supervisor: true, is_required: true, display_order: 1,
       },
@@ -100,10 +126,10 @@ export const AdminSheetBuilder: React.FC = () => {
         serial_no: 2, stage_name: 'Measurement', control_item_name: 'Key Dimension',
         specification_content: 'Within tolerance', application_method: 'Vernier Caliper',
         normal_frequency: 'n=5/lot', ifm_frequency: 'n=10/lot', row_mode: 'NUMERIC_SAMPLE',
-        html_input_type: 'number', sample_columns: ['S1','S2','S3','S4','S5'],
+        html_input_type: 'number', sample_columns: ['1','2','3','4','5','6','7','8','9','10'],
         min_val: null, max_val: null,
-        assigned_role: 'operator', visible_to_operator: true, editable_by_operator: true,
-        visible_to_supervisor: true, is_required: true, display_order: 2,
+        assigned_role: 'supervisor', visible_to_operator: false, editable_by_operator: false,
+        visible_to_supervisor: true, is_required: true, is_supervisor_checkpoint: true, display_order: 2,
       }
     ]);
   };
@@ -164,6 +190,26 @@ export const AdminSheetBuilder: React.FC = () => {
     }
   };
 
+  /* ── Delete Sheet ───────────────────────────────────────────────────── */
+  const handleDelete = async () => {
+    if (!sheetId || isNewSheet) return;
+    try {
+      setIsDeleting(true);
+      const result = await deleteSheet(sheetId);
+      setShowDeleteConfirm(false);
+      setStatusMsg({
+        type: 'success',
+        text: `Template '${sheetId}' deleted (${result.batches_deleted} associated batch${result.batches_deleted !== 1 ? 'es' : ''} also removed).`,
+      });
+      await loadSheets();
+    } catch (err: any) {
+      setShowDeleteConfirm(false);
+      setStatusMsg({ type: 'error', text: err.message || 'Failed to delete template.' });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   /* ── Control Items ───────────────────────────────────────────────────── */
   const handleAddRow = () => {
     const nextSerial = controlItems.length + 1;
@@ -172,7 +218,7 @@ export const AdminSheetBuilder: React.FC = () => {
       control_item_name: `Control Item #${nextSerial}`, specification_content: 'Technical criteria',
       application_method: 'Visual', normal_frequency: '100%', ifm_frequency: '200%',
       row_mode: 'SERIAL_TICKBOX', html_input_type: 'checkbox',
-      sample_columns: ['1','2','3','4','5'], min_val: null, max_val: null,
+      sample_columns: ['1','2','3','4','5','6','7','8','9','10'], min_val: null, max_val: null,
       assigned_role: 'operator', visible_to_operator: true, editable_by_operator: true,
       visible_to_supervisor: true, is_required: true, display_order: nextSerial,
     }]);
@@ -182,6 +228,15 @@ export const AdminSheetBuilder: React.FC = () => {
     const updated = controlItems.filter((_, i) => i !== index)
       .map((it, idx) => ({ ...it, serial_no: idx + 1, display_order: idx + 1 }));
     setControlItems(updated);
+  };
+
+  const handleMoveRow = (index: number, dir: 'up' | 'down') => {
+    if (dir === 'up' && index === 0) return;
+    if (dir === 'down' && index === controlItems.length - 1) return;
+    const updated = [...controlItems];
+    const swap = dir === 'up' ? index - 1 : index + 1;
+    [updated[index], updated[swap]] = [updated[swap], updated[index]];
+    setControlItems(updated.map((it, i) => ({ ...it, serial_no: i + 1, display_order: i + 1 })));
   };
 
   const handleUpdateItem = (index: number, field: keyof ControlItem, val: any) => {
@@ -194,6 +249,23 @@ export const AdminSheetBuilder: React.FC = () => {
   const handleSave = async () => {
     if (!sheetId.trim() || !documentTitle.trim()) {
       setStatusMsg({ type: 'error', text: 'Sheet ID and Document Title are required.' });
+      return;
+    }
+    if (controlItems.length === 0) {
+      setStatusMsg({ type: 'error', text: 'Template must have at least one control item row.' });
+      return;
+    }
+    const names = controlItems.map(it => it.control_item_name?.trim()).filter(Boolean);
+    const duplicates = names.filter((n, i) => names.indexOf(n) !== i);
+    if (duplicates.length > 0) {
+      setStatusMsg({ type: 'error', text: `Duplicate control item names: ${[...new Set(duplicates)].join(', ')}` });
+      return;
+    }
+    const rangeErrors = controlItems.filter(it =>
+      it.min_val != null && it.max_val != null && Number(it.min_val) > Number(it.max_val)
+    ).map(it => it.control_item_name);
+    if (rangeErrors.length > 0) {
+      setStatusMsg({ type: 'error', text: `Min > Max for: ${rangeErrors.join(', ')}` });
       return;
     }
     try {
@@ -235,7 +307,7 @@ export const AdminSheetBuilder: React.FC = () => {
 
       {/* ── Active Template Banner ───────────────────────────────────────── */}
       {defaultSheet && (
-        <div className="flex items-center gap-3 bg-slate-900 text-white rounded-xl px-4 py-3 text-xs">
+        <div className="flex items-center gap-3 bg-slate-900 text-white rounded px-4 py-3 text-xs">
           <Star className="w-4 h-4 text-yellow-400 shrink-0 fill-yellow-400" />
           <div className="flex-1 min-w-0">
             <span className="font-semibold">Active Template: </span>
@@ -256,29 +328,46 @@ export const AdminSheetBuilder: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Primary: scan to create */}
+          {/* Scan to create */}
           <button
             onClick={() => { setScannerMode('part-scan'); setIsScanOpen(true); }}
             className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 shadow-sm"
           >
             <ScanLine className="w-3.5 h-3.5" />
-            <span>Scan Part Barcode</span>
+            <span>Scan Part</span>
           </button>
 
-          <select
-            value={selectedSheetId}
-            onChange={(e) => {
-              const found = sheetsList.find(s => s.sheet_id === e.target.value);
-              if (found) populateForm(found);
-            }}
-            className="border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-medium bg-white focus:outline-none max-w-xs"
-          >
-            {sheetsList.map(s => (
-              <option key={s.sheet_id} value={s.sheet_id}>
-                {s.is_default ? '⭐ ' : ''}{s.sheet_id} ({s.part_no || 'Template'})
-              </option>
-            ))}
-          </select>
+          {/* Sheet picker + Delete grouped together */}
+          <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg overflow-hidden">
+            <select
+              value={selectedSheetId}
+              onChange={(e) => {
+                const found = sheetsList.find(s => s.sheet_id === e.target.value);
+                if (found) populateForm(found);
+              }}
+              className="border-0 pl-3 pr-2 py-1.5 text-xs font-medium bg-transparent focus:outline-none max-w-[200px]"
+            >
+              {sheetsList.map(s => (
+                <option key={s.sheet_id} value={s.sheet_id}>
+                  {s.is_default ? '⭐ ' : ''}{s.sheet_id} ({s.part_no || 'Template'})
+                </option>
+              ))}
+            </select>
+
+            {!isNewSheet && (
+              <>
+                <div className="w-px h-5 bg-slate-200 shrink-0" />
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  disabled={isDeleting || isCurrentDefault}
+                  title={isCurrentDefault ? 'Cannot delete the active template — set another as active first' : `Delete template "${sheetId}" and all its batches`}
+                  className="px-2.5 py-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-30 transition-colors"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </>
+            )}
+          </div>
 
           <button
             onClick={() => startBlankSheet()}
@@ -300,8 +389,8 @@ export const AdminSheetBuilder: React.FC = () => {
               } disabled:opacity-60`}
             >
               {isCurrentDefault
-                ? <><Star className="w-3.5 h-3.5 fill-yellow-500 text-yellow-500" /><span>Active Template</span></>
-                : <><StarOff className="w-3.5 h-3.5" /><span>{isSettingDefault ? 'Setting...' : 'Set as Active'}</span></>
+                ? <><Star className="w-3.5 h-3.5 fill-yellow-500 text-yellow-500" /><span>Active</span></>
+                : <><StarOff className="w-3.5 h-3.5" /><span>{isSettingDefault ? 'Setting...' : 'Set Active'}</span></>
               }
             </button>
           )}
@@ -341,7 +430,7 @@ export const AdminSheetBuilder: React.FC = () => {
       )}
 
       {/* ── Metadata Card ────────────────────────────────────────────────── */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4 text-xs">
+      <div className="bg-white border border-slate-200 rounded-lg p-5 space-y-4 text-xs">
         <div className="flex items-center justify-between pb-3 border-b border-slate-100">
           <div className="flex items-center gap-2">
             <span className="font-semibold text-slate-900">Sheet Metadata & Part Identification</span>
@@ -432,7 +521,7 @@ export const AdminSheetBuilder: React.FC = () => {
       </div>
 
       {/* ── Control Items Matrix ──────────────────────────────────────────── */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
+      <div className="bg-white border border-slate-200 rounded-lg p-5 space-y-4">
         <div className="flex items-center justify-between pb-3 border-b border-slate-100">
           <div>
             <h3 className="text-xs font-semibold text-slate-900">Control Items & Specification Matrix</h3>
@@ -448,41 +537,53 @@ export const AdminSheetBuilder: React.FC = () => {
           <table className="clean-table min-w-full text-xs">
             <thead>
               <tr>
-                <th className="w-10 text-center">#</th>
-                <th className="w-32">Stage</th>
-                <th className="w-44">Control Item</th>
-                <th className="w-48">Spec Criteria</th>
-                <th className="w-28">Method</th>
-                <th className="w-32">Type</th>
-                <th className="w-28">Columns</th>
-                <th className="w-28 text-center">Tolerance (Min / Max)</th>
-                <th className="w-24">Role</th>
-                <th className="w-10 text-center"></th>
+                <th className="w-8 text-center">#</th>
+                <th className="w-28">Stage</th>
+                <th className="w-40">Control Item</th>
+                <th className="w-44">Spec Criteria</th>
+                <th className="w-24">Method</th>
+                <th className="w-28 text-center">Freq (Norm / IFM)</th>
+                <th className="w-30">Type</th>
+                <th className="w-24 text-center">Min / Max / Unit</th>
+                <th className="w-20">Role</th>
+                <th className="w-8 text-center" title="Required">Req</th>
+                <th className="w-8 text-center" title="Supervisor Checkpoint">Sup</th>
+                <th className="w-14 text-center"></th>
               </tr>
             </thead>
             <tbody>
               {controlItems.map((item, idx) => (
                 <tr key={idx}>
-                  <td className="text-center font-semibold text-slate-500">{item.serial_no}</td>
+                  <td className="text-center font-semibold text-slate-400 text-[11px]">{item.serial_no}</td>
                   <td>
                     <input type="text" value={item.stage_name}
                       onChange={e => handleUpdateItem(idx, 'stage_name', e.target.value)}
-                      className="w-full border border-slate-200 rounded px-2 py-1 text-xs" placeholder="Stage" />
+                      className="w-full border border-slate-200 rounded px-1.5 py-1 text-xs" placeholder="Stage" />
                   </td>
                   <td>
                     <input type="text" value={item.control_item_name}
                       onChange={e => handleUpdateItem(idx, 'control_item_name', e.target.value)}
-                      className="w-full border border-slate-200 rounded px-2 py-1 text-xs font-medium" placeholder="Item name" />
+                      className="w-full border border-slate-200 rounded px-1.5 py-1 text-xs font-medium" placeholder="Item name" />
                   </td>
                   <td>
                     <input type="text" value={item.specification_content}
                       onChange={e => handleUpdateItem(idx, 'specification_content', e.target.value)}
-                      className="w-full border border-slate-200 rounded px-2 py-1 text-xs text-slate-700" placeholder="Spec" />
+                      className="w-full border border-slate-200 rounded px-1.5 py-1 text-xs text-slate-700" placeholder="Spec" />
                   </td>
                   <td>
                     <input type="text" value={item.application_method || ''}
                       onChange={e => handleUpdateItem(idx, 'application_method', e.target.value)}
-                      className="w-full border border-slate-200 rounded px-2 py-1 text-xs" placeholder="Method" />
+                      className="w-full border border-slate-200 rounded px-1.5 py-1 text-xs" placeholder="Method" />
+                  </td>
+                  <td>
+                    <div className="flex flex-col gap-0.5">
+                      <input type="text" value={item.normal_frequency || ''}
+                        onChange={e => handleUpdateItem(idx, 'normal_frequency', e.target.value)}
+                        placeholder="Normal" className="w-full border border-slate-200 rounded px-1.5 py-0.5 text-[10px]" />
+                      <input type="text" value={item.ifm_frequency || ''}
+                        onChange={e => handleUpdateItem(idx, 'ifm_frequency', e.target.value)}
+                        placeholder="IFM" className="w-full border border-slate-200 rounded px-1.5 py-0.5 text-[10px]" />
+                    </div>
                   </td>
                   <td>
                     <select value={item.row_mode}
@@ -491,34 +592,43 @@ export const AdminSheetBuilder: React.FC = () => {
                         handleUpdateItem(idx, 'row_mode', m);
                         if (m === 'NUMERIC_SAMPLE') {
                           handleUpdateItem(idx, 'html_input_type', 'number');
-                          handleUpdateItem(idx, 'sample_columns', ['S1','S2','S3','S4','S5']);
+                          handleUpdateItem(idx, 'sample_columns', ['1','2','3','4','5','6','7','8','9','10']);
+                          handleUpdateItem(idx, 'assigned_role', 'supervisor');
+                          handleUpdateItem(idx, 'is_supervisor_checkpoint', true);
+                          handleUpdateItem(idx, 'editable_by_operator', false);
+                          handleUpdateItem(idx, 'visible_to_operator', false);
                         } else {
                           handleUpdateItem(idx, 'html_input_type', 'checkbox');
                           handleUpdateItem(idx, 'sample_columns', ['1','2','3','4','5','6','7','8','9','10']);
+                          handleUpdateItem(idx, 'assigned_role', 'operator');
+                          handleUpdateItem(idx, 'is_supervisor_checkpoint', false);
+                          handleUpdateItem(idx, 'editable_by_operator', true);
+                          handleUpdateItem(idx, 'visible_to_operator', true);
                         }
                       }}
                       className="w-full border border-slate-200 rounded px-1.5 py-1 text-xs bg-white font-medium">
-                      <option value="SERIAL_TICKBOX">Tickbox (100%/200%)</option>
-                      <option value="NUMERIC_SAMPLE">Numeric (n=5/10)</option>
+                      <option value="SERIAL_TICKBOX">Tickbox</option>
+                      <option value="NUMERIC_SAMPLE">Numeric</option>
+                      <option value="STANDARD_INPUT">Text</option>
                     </select>
-                  </td>
-                  <td>
-                    <input type="text" value={item.sample_columns.join(',')}
-                      onChange={e => handleUpdateItem(idx, 'sample_columns', e.target.value.split(',').map(s => s.trim()))}
-                      className="w-full border border-slate-200 rounded px-2 py-1 text-[11px] font-mono" />
                   </td>
                   <td className="text-center">
                     {item.row_mode === 'NUMERIC_SAMPLE' ? (
-                      <div className="flex gap-1 justify-center">
-                        <input type="number" step="0.01" value={item.min_val ?? ''}
-                          onChange={e => handleUpdateItem(idx, 'min_val', e.target.value ? parseFloat(e.target.value) : null)}
-                          placeholder="Min" className="w-12 border border-slate-200 rounded p-1 text-[10px] text-center" />
-                        <input type="number" step="0.01" value={item.max_val ?? ''}
-                          onChange={e => handleUpdateItem(idx, 'max_val', e.target.value ? parseFloat(e.target.value) : null)}
-                          placeholder="Max" className="w-12 border border-slate-200 rounded p-1 text-[10px] text-center" />
+                      <div className="space-y-0.5">
+                        <div className="flex gap-1 justify-center">
+                          <input type="number" step="0.01" value={item.min_val ?? ''}
+                            onChange={e => handleUpdateItem(idx, 'min_val', e.target.value ? parseFloat(e.target.value) : null)}
+                            placeholder="Min" className="w-11 border border-slate-200 rounded p-1 text-[10px] text-center" />
+                          <input type="number" step="0.01" value={item.max_val ?? ''}
+                            onChange={e => handleUpdateItem(idx, 'max_val', e.target.value ? parseFloat(e.target.value) : null)}
+                            placeholder="Max" className="w-11 border border-slate-200 rounded p-1 text-[10px] text-center" />
+                        </div>
+                        <input type="text" value={item.unit || ''}
+                          onChange={e => handleUpdateItem(idx, 'unit', e.target.value || null)}
+                          placeholder="unit" className="w-full border border-slate-200 rounded px-1.5 py-0.5 text-[10px] text-center font-mono" />
                       </div>
                     ) : (
-                      <span className="text-[10px] text-slate-400">Pass / Fail</span>
+                      <span className="text-[10px] text-slate-400">Pass/Fail</span>
                     )}
                   </td>
                   <td>
@@ -531,10 +641,30 @@ export const AdminSheetBuilder: React.FC = () => {
                     </select>
                   </td>
                   <td className="text-center">
-                    <button type="button" onClick={() => handleRemoveRow(idx)}
-                      className="p-1 text-slate-400 hover:text-red-600 rounded transition-colors" title="Delete">
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <input type="checkbox" checked={item.is_required}
+                      onChange={e => handleUpdateItem(idx, 'is_required', e.target.checked)}
+                      className="w-3.5 h-3.5 cursor-pointer accent-black" title="Required field" />
+                  </td>
+                  <td className="text-center">
+                    <input type="checkbox" checked={item.is_supervisor_checkpoint || false}
+                      onChange={e => handleUpdateItem(idx, 'is_supervisor_checkpoint', e.target.checked)}
+                      className="w-3.5 h-3.5 cursor-pointer accent-violet-600" title="Supervisor checkpoint" />
+                  </td>
+                  <td className="text-center">
+                    <div className="flex flex-col items-center gap-0.5">
+                      <button type="button" onClick={() => handleMoveRow(idx, 'up')} disabled={idx === 0}
+                        className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-20 transition-colors" title="Move up">
+                        <ChevronUp className="w-3 h-3" />
+                      </button>
+                      <button type="button" onClick={() => handleMoveRow(idx, 'down')} disabled={idx === controlItems.length - 1}
+                        className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-20 transition-colors" title="Move down">
+                        <ChevronDown className="w-3 h-3" />
+                      </button>
+                      <button type="button" onClick={() => handleRemoveRow(idx)}
+                        className="p-0.5 text-slate-400 hover:text-red-600 rounded transition-colors" title="Delete row">
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -546,6 +676,46 @@ export const AdminSheetBuilder: React.FC = () => {
       {/* ── Modals ───────────────────────────────────────────────────────── */}
       {isPrintModalOpen && (
         <PrintLabelModal isOpen onClose={() => setIsPrintModalOpen(false)} sheetId={sheetId} />
+      )}
+
+      {/* ── Delete Confirmation ──────────────────────────────────────────── */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+          <div className="bg-white border border-slate-200 rounded-lg w-full max-w-sm p-6 shadow-xl text-xs space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-red-600" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-900 text-sm">Delete Template</h3>
+                <p className="text-slate-500 mt-1 leading-relaxed">
+                  This will permanently delete <span className="font-mono font-semibold text-slate-800">{sheetId}</span> and
+                  <strong> all inspection batches</strong> linked to it, including all recorded measurements, decisions, and attachments.
+                </p>
+                <p className="text-red-600 font-semibold mt-2">This cannot be undone.</p>
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(false)}
+                className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>{isDeleting ? 'Deleting...' : 'Yes, Delete'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {isScanOpen && (

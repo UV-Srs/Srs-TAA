@@ -17,7 +17,7 @@ interface ScanEntry {
   id: number;
   lotNumber: string;
   batchId: number | null;
-  status: 'ok' | 'error' | 'readonly';
+  status: 'ok' | 'error' | 'readonly' | 'not_found';
   message: string;
   time: string;
 }
@@ -108,13 +108,15 @@ export const MobileScannerPage: React.FC<MobileScannerPageProps> = ({ currentUse
         {/* Last result card */}
         {!isOpening && lastResult && (
           <div className={`w-full max-w-sm rounded-2xl p-4 flex items-start gap-3 border ${
-            lastResult.status === 'ok'       ? 'bg-emerald-900/50 border-emerald-700' :
-            lastResult.status === 'readonly' ? 'bg-amber-900/40  border-amber-700'   :
-                                              'bg-red-900/40     border-red-700'
+            lastResult.status === 'ok'        ? 'bg-emerald-900/50 border-emerald-700' :
+            lastResult.status === 'readonly'  ? 'bg-amber-900/40  border-amber-700'   :
+            lastResult.status === 'not_found' ? 'bg-violet-900/40  border-violet-700' :
+                                               'bg-red-900/40     border-red-700'
           }`}>
-            {lastResult.status === 'ok'       && <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />}
-            {lastResult.status === 'readonly' && <AlertCircle  className="w-5 h-5 text-amber-400  shrink-0 mt-0.5" />}
-            {lastResult.status === 'error'    && <AlertCircle  className="w-5 h-5 text-red-400    shrink-0 mt-0.5" />}
+            {lastResult.status === 'ok'        && <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />}
+            {lastResult.status === 'readonly'  && <AlertCircle  className="w-5 h-5 text-amber-400  shrink-0 mt-0.5" />}
+            {lastResult.status === 'not_found' && <AlertCircle  className="w-5 h-5 text-violet-400 shrink-0 mt-0.5" />}
+            {lastResult.status === 'error'     && <AlertCircle  className="w-5 h-5 text-red-400    shrink-0 mt-0.5" />}
             <div>
               <p className="text-sm font-bold text-white">{lastResult.lotNumber}</p>
               <p className="text-xs text-slate-300 mt-0.5">{lastResult.message}</p>
@@ -136,7 +138,7 @@ export const MobileScannerPage: React.FC<MobileScannerPageProps> = ({ currentUse
         </button>
 
         <p className="text-xs text-slate-500 text-center max-w-xs leading-relaxed">
-          Scan a lot barcode or QR code — the batch sheet opens automatically on the desktop
+          Scan the <span className="text-slate-300 font-semibold">TAA QR code</span> or <span className="text-slate-300 font-semibold">lot barcode</span> from the printed inspection label — not the vendor barcode on the box
         </p>
       </div>
 
@@ -151,9 +153,10 @@ export const MobileScannerPage: React.FC<MobileScannerPageProps> = ({ currentUse
             {history.map(entry => (
               <div key={entry.id} className="flex items-center justify-between bg-slate-800 rounded-xl px-4 py-3">
                 <div className="flex items-center gap-3 min-w-0">
-                  {entry.status === 'ok'       && <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />}
-                  {entry.status === 'readonly' && <Layers       className="w-4 h-4 text-amber-400  shrink-0" />}
-                  {entry.status === 'error'    && <AlertCircle  className="w-4 h-4 text-red-400    shrink-0" />}
+                  {entry.status === 'ok'        && <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />}
+                  {entry.status === 'readonly'  && <Layers       className="w-4 h-4 text-amber-400  shrink-0" />}
+                  {entry.status === 'not_found' && <AlertCircle  className="w-4 h-4 text-violet-400 shrink-0" />}
+                  {entry.status === 'error'     && <AlertCircle  className="w-4 h-4 text-red-400    shrink-0" />}
                   <div className="min-w-0">
                     <p className="text-xs font-semibold text-white truncate">{entry.lotNumber}</p>
                     <p className="text-[10px] text-slate-500 truncate">{entry.message}</p>
@@ -177,18 +180,23 @@ export const MobileScannerPage: React.FC<MobileScannerPageProps> = ({ currentUse
           onClose={() => setIsScanOpen(false)}
           onResolved={(res) => { setIsScanOpen(false); handleResolved(res); }}
           onPartScanned={() => setIsScanOpen(false)}
-          onNotFound={(code) => {
-            setIsScanOpen(false);
-            const entry: ScanEntry = {
-              id: ++nextId.current,
-              lotNumber: code,
-              batchId: null,
-              status: 'error',
-              message: 'Not registered — admin popup opened on desktop',
-              time: new Date().toLocaleTimeString(),
-            };
-            setLastResult(entry);
-            setHistory(prev => [entry, ...prev.slice(0, 9)]);
+          onScanError={(code, _err) => {
+            const isNotFound = typeof _err?.message === 'string' && (_err.message.includes("isn't registered") || _err.message.includes('NOT_REGISTERED'));
+            if (isNotFound) {
+              const entry: ScanEntry = {
+                id: ++nextId.current,
+                lotNumber: code,
+                batchId: null,
+                status: 'not_found',
+                message: currentUser.role === 'admin'
+                  ? 'Not registered — laptop will prompt to create a new sheet'
+                  : 'Not registered. Scan the TAA QR code or lot barcode from the printed inspection label.',
+                time: new Date().toLocaleTimeString(),
+              };
+              setLastResult(entry);
+              setHistory(prev => [entry, ...prev.slice(0, 9)]);
+              setIsScanOpen(false);
+            }
           }}
         />
       )}

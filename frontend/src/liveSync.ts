@@ -131,6 +131,18 @@ class LiveSyncClient {
   public getStatus(): boolean {
     return this.isConnected;
   }
+
+  public reconnect() {
+    if (this.ws) {
+      this.ws.onclose = null;
+      this.ws.close();
+      this.ws = null;
+    }
+    this.isConnected = false;
+    this.isConnecting = false;
+    this.stopHeartbeat();
+    this.connect();
+  }
 }
 
 export const liveSync = new LiveSyncClient();
@@ -176,9 +188,16 @@ export function onScanResolved(handler: (data: {
 }
 
 export function onScanNotFound(handler: (data: {
-  scanned_code: string;
   raw_code: string;
-  format: string;
+  format_detected: string;
+  suggested_sheet_id: string | null;
+  part_no: string | null;
+  part_name: string | null;
+  vendor: string | null;
+  customer: string | null;
+  model: string | null;
+  lot_number: string | null;
+  gtin: string | null;
   user_id: number;
   role: string;
 }) => void) {

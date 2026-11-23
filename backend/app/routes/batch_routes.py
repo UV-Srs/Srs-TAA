@@ -1,9 +1,10 @@
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 
 from backend.app.database import get_db
 from backend.app.models import (
@@ -14,7 +15,7 @@ from backend.app.schemas import (
     InspectionBatchResponse, InspectionBatchDetail, CellResponseItem, AttachmentResponse,
     HoldReleaseRequest
 )
-from backend.app.auth import get_current_user, require_any_authenticated
+from backend.app.auth import get_current_user, require_any_authenticated, require_supervisor
 from backend.app.config import UPLOAD_DIR
 from backend.app.notifications import check_overdue_holds, send_notification
 from backend.app.audit import log_audit
@@ -23,7 +24,7 @@ from backend.app.live_sync import notify_live
 router = APIRouter(prefix="/api/batches", tags=["Batches & Cells"])
 
 def format_batch_response(b: InspectionBatch) -> dict:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     is_overdue = bool(b.status == "ON_HOLD" and b.hold_due_at and b.hold_due_at <= now)
 
     decisions_list = []
@@ -81,17 +82,32 @@ def format_batch_response(b: InspectionBatch) -> dict:
 @router.get("", response_model=List[InspectionBatchResponse])
 def list_batches(
     search: Optional[str] = None,
+    limit: int = 150,
+    offset: int = 0,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_any_authenticated)
 ):
     check_overdue_holds(db)
     q = db.query(InspectionBatch)
 
-    # Role-scoped visibility: each role only sees their own work
+    # Role-scoped visibility
     if current_user.role == "operator":
-        q = q.filter(InspectionBatch.prepared_by == current_user.user_id)
+        # Operators see: their own batches OR unclaimed batches ready to be claimed
+        q = q.filter(
+            or_(
+                InspectionBatch.prepared_by == current_user.user_id,
+                (InspectionBatch.prepared_by == None) & (InspectionBatch.status == "CREATED_PENDING_OPERATOR")
+            )
+        )
     elif current_user.role == "supervisor":
-        q = q.filter(InspectionBatch.checked_by == current_user.user_id)
+        # Supervisors see: batches they already claimed (checked_by) OR
+        # any batch awaiting supervisor review (operator submitted, not yet claimed)
+        q = q.filter(
+            or_(
+                InspectionBatch.checked_by == current_user.user_id,
+                InspectionBatch.status.in_(["OPERATOR_APPROVED", "OPERATOR_REJECTED"])
+            )
+        )
     # admin: unrestricted
 
     # Optional lot-number / part-name / sheet-id search (case-insensitive contains)
@@ -103,7 +119,7 @@ def list_batches(
             (InspectionBatch.sheet_id.ilike(s))
         )
 
-    batches = q.order_by(InspectionBatch.created_at.desc()).all()
+    batches = q.order_by(InspectionBatch.created_at.desc()).offset(offset).limit(limit).all()
     return [format_batch_response(b) for b in batches]
 
 @router.get("/{batch_id}", response_model=InspectionBatchDetail)
@@ -116,6 +132,16 @@ def get_batch_detail(
     batch = db.query(InspectionBatch).filter(InspectionBatch.batch_id == batch_id).first()
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
+
+    # Enforce ownership — allow own batches AND unclaimed pending batches (so operator can view before claiming)
+    if current_user.role == "operator":
+        is_unclaimed = batch.prepared_by is None and batch.status == "CREATED_PENDING_OPERATOR"
+        if not is_unclaimed and batch.prepared_by != current_user.user_id:
+            raise HTTPException(status_code=403, detail="Forbidden: This batch belongs to another operator.")
+    elif current_user.role == "supervisor":
+        allowed_statuses = {"OPERATOR_APPROVED", "OPERATOR_REJECTED", "SUPERVISOR_IN_PROGRESS", "ON_HOLD", "APPROVED", "REJECTED"}
+        if batch.checked_by != current_user.user_id and batch.status not in allowed_statuses:
+            raise HTTPException(status_code=403, detail="Forbidden: This batch is not yet in supervisor review.")
 
     cells = db.query(BatchCellResponse).filter(BatchCellResponse.batch_id == batch_id).all()
     resp = format_batch_response(batch)
@@ -140,24 +166,31 @@ def open_batch_workflow(
     changed = False
     if current_user.role == "operator" and batch.status in ["CREATED_PENDING_OPERATOR", "pending"]:
         batch.status = "OPERATOR_IN_PROGRESS"
-        if not batch.prepared_by:
-            batch.prepared_by = current_user.user_id
+        batch.prepared_by = current_user.user_id  # claim the batch for this operator
         changed = True
         log_audit(
             db=db, user_id=current_user.user_id, role=current_user.role,
             action_type="OPERATOR_STARTED_INSPECTION", sheet_id=batch.sheet_id, batch_id=batch.batch_id,
             details={"round": batch.round}
         )
-    elif current_user.role in ["supervisor", "admin"] and batch.status in ["OPERATOR_APPROVED", "OPERATOR_REJECTED", "op_approved", "op_rejected"]:
+    elif current_user.role == "operator" and batch.status == "OPERATOR_IN_PROGRESS" and batch.prepared_by == current_user.user_id:
+        # Re-scan: batch already in progress for this operator — just return it (no status change)
+        pass
+    elif current_user.role == "supervisor" and batch.status in ["OPERATOR_APPROVED", "OPERATOR_REJECTED", "op_approved", "op_rejected"]:
+        # Race guard: prevent two supervisors from claiming the same batch simultaneously
+        if batch.checked_by is not None and batch.checked_by != current_user.user_id:
+            raise HTTPException(status_code=409, detail="Conflict: This batch has already been claimed by another supervisor.")
         batch.status = "SUPERVISOR_IN_PROGRESS"
-        if not batch.checked_by:
-            batch.checked_by = current_user.user_id
+        batch.checked_by = current_user.user_id  # claim the batch for this supervisor
         changed = True
         log_audit(
             db=db, user_id=current_user.user_id, role=current_user.role,
             action_type="SUPERVISOR_OPENED_REVIEW", sheet_id=batch.sheet_id, batch_id=batch.batch_id,
             details={"round": batch.round}
         )
+    elif current_user.role == "supervisor" and batch.status == "SUPERVISOR_IN_PROGRESS" and batch.checked_by == current_user.user_id:
+        # Re-scan: batch already in review for this supervisor — just return it
+        pass
 
     if changed:
         db.commit()
@@ -181,27 +214,41 @@ def update_cell_response(
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
 
-    if current_user.role == "supervisor":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden: Supervisors cannot modify Operator checksheet measurements."
-        )
-
-    if current_user.role == "operator" and batch.operator_submitted_at is not None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden: This sheet has already been submitted and is locked for edits."
-        )
-
     item = db.query(TemplateControlItem).filter(TemplateControlItem.item_id == payload.item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Control item not found")
 
-    if current_user.role == "operator" and (item.editable_by_operator is False or item.assigned_role == "supervisor"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden: Operators cannot edit fields assigned to Supervisors."
-        )
+    if current_user.role == "operator":
+        # Ownership check: operator can only edit their own batch
+        if batch.prepared_by is not None and batch.prepared_by != current_user.user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: This batch belongs to another operator."
+            )
+        # Status check: operator fields are locked once submitted or in supervisor's hands
+        if batch.status not in ["CREATED_PENDING_OPERATOR", "OPERATOR_IN_PROGRESS"] or batch.operator_submitted_at is not None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: This sheet has already been submitted and is locked for edits."
+            )
+        if item.editable_by_operator is False or item.assigned_role == "supervisor":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: Operators cannot edit fields assigned to Supervisors."
+            )
+
+    elif current_user.role == "supervisor":
+        supervisor_turn_statuses = ["OPERATOR_APPROVED", "SUPERVISOR_IN_PROGRESS", "ON_HOLD"]
+        if batch.status not in supervisor_turn_statuses:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: Sheet is not yet in supervisor review stage."
+            )
+        if item.assigned_role != "supervisor":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: Supervisors can only edit fields assigned to the Supervisor role."
+            )
 
     is_spec = True
     if payload.cell_value is not None and str(payload.cell_value).strip() != "":
@@ -231,7 +278,7 @@ def update_cell_response(
         if payload.checker_initials:
             resp.checker_initials = payload.checker_initials
         resp.entered_by = current_user.user_id
-        resp.updated_at = datetime.utcnow()
+        resp.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     else:
         resp = BatchCellResponse(
             batch_id=batch_id,
@@ -245,9 +292,11 @@ def update_cell_response(
         )
         db.add(resp)
 
-    # Auto-progress to IN_PROGRESS if pending
-    if batch.status in ["CREATED_PENDING_OPERATOR", "pending"]:
+    # Auto-progress to IN_PROGRESS if pending (operator only, claim the batch)
+    if current_user.role == "operator" and batch.status in ["CREATED_PENDING_OPERATOR", "pending"]:
         batch.status = "OPERATOR_IN_PROGRESS"
+        if not batch.prepared_by:
+            batch.prepared_by = current_user.user_id
 
     db.commit()
     db.refresh(resp)
@@ -278,7 +327,7 @@ def release_batch_hold(
     batch_id: int,
     payload: HoldReleaseRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_any_authenticated)
+    current_user: User = Depends(require_supervisor)
 ):
     """
     FR-057 & FR-058: Release a hold.
@@ -287,10 +336,6 @@ def release_batch_hold(
     - 'reject': Batch becomes REJECTED.
     - 'reinspect': Increments round, returns to CREATED_PENDING_OPERATOR, preserves sign-off history.
     """
-    if current_user.role not in ["supervisor", "admin"]:
-        raise HTTPException(status_code=403, detail="Only Supervisors and Admins can release a hold.")
-    # Note: role check kept inline here because release-hold is under require_any_authenticated;
-    # a future refactor should split this into a dedicated require_supervisor route.
 
     batch = db.query(InspectionBatch).filter(InspectionBatch.batch_id == batch_id).first()
     if not batch:
@@ -306,7 +351,7 @@ def release_batch_hold(
     if not payload.release_note.strip():
         raise HTTPException(status_code=422, detail="Release note is required.")
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     decision_label = {
         "approve": "Approved",
         "reject": "Rejected",
@@ -348,6 +393,8 @@ def release_batch_hold(
         batch.supervisor_reviews = {}
         batch.operator_submitted_at = None
         batch.supervisor_submitted_at = None
+        # Clear prior-round cell data so operator starts with a clean sheet
+        db.query(BatchCellResponse).filter(BatchCellResponse.batch_id == batch.batch_id).delete()
 
     batch.updated_at = now
 
@@ -396,11 +443,31 @@ async def upload_attachment(
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
 
-    ext = os.path.splitext(file.filename)[1] or ".jpg"
+    # Operators can only attach to their own batch while it is still in progress
+    if current_user.role == "operator":
+        if batch.prepared_by is not None and batch.prepared_by != current_user.user_id:
+            raise HTTPException(status_code=403, detail="Forbidden: This batch belongs to another operator.")
+        if batch.status not in ["CREATED_PENDING_OPERATOR", "OPERATOR_IN_PROGRESS"] or batch.operator_submitted_at is not None:
+            raise HTTPException(status_code=403, detail="Forbidden: Batch is locked — attachments cannot be added after submission.")
+
+    _ALLOWED_CAPTURE_SOURCES = {"TFT_CAMERA", "MOBILE_CAMERA", "FILE_UPLOAD", "WEBCAM"}
+    if capture_source not in _ALLOWED_CAPTURE_SOURCES:
+        capture_source = "FILE_UPLOAD"
+
+    _ALLOWED_EXTS = {".jpg", ".jpeg", ".png", ".pdf", ".webp", ".gif"}
+    _MAX_FILE_BYTES = 10 * 1024 * 1024  # 10 MB
+
+    ext = os.path.splitext(file.filename or "")[1].lower() or ".jpg"
+    if ext not in _ALLOWED_EXTS:
+        raise HTTPException(status_code=400, detail=f"File type '{ext}' is not allowed. Allowed: jpg, jpeg, png, pdf, webp, gif")
+
+    contents = await file.read()
+    if len(contents) > _MAX_FILE_BYTES:
+        raise HTTPException(status_code=413, detail="File exceeds the 10 MB size limit.")
+
     unique_filename = f"batch_{batch_id}_{uuid.uuid4().hex[:10]}{ext}"
     target_path = os.path.join(UPLOAD_DIR, unique_filename)
 
-    contents = await file.read()
     with open(target_path, "wb") as f:
         f.write(contents)
 

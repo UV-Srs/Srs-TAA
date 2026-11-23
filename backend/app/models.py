@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import (
     Column, Integer, BigInteger, String, Text, Boolean, DateTime,
     ForeignKey, Float, JSON
@@ -15,7 +15,8 @@ class User(Base):
     password_hash = Column(Text, nullable=False)
     role = Column(String(20), nullable=False)  # 'admin', 'supervisor', 'operator'
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    password_version = Column(Integer, nullable=True, default=1)  # incremented on password change to invalidate old JWTs
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     # Relationships
     audit_logs = relationship("AuditLog", back_populates="user", cascade="all, delete-orphan", passive_deletes=True)
@@ -41,7 +42,7 @@ class SheetTemplate(Base):
     # Only one template can be is_default=True at a time — this becomes the active inspection form
     is_default = Column(Boolean, default=False, nullable=False)
     created_by = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     # Relationships
     control_items = relationship("TemplateControlItem", back_populates="template", cascade="all, delete-orphan", order_by="TemplateControlItem.display_order")
@@ -83,7 +84,7 @@ class InspectionBatch(Base):
 
     batch_id = Column(Integer, primary_key=True, autoincrement=True)
     sheet_id = Column(String(64), ForeignKey("sheet_templates.sheet_id", ondelete="CASCADE"), nullable=False, index=True)
-    lot_number = Column(String(100), nullable=False, index=True)  # e.g., B-24117, LOT-2026-495A
+    lot_number = Column(String(100), nullable=False, unique=True, index=True)
     product_name = Column(String(150), nullable=True)
     line_name = Column(String(100), default="Line 1")
     lot_quantity = Column(Integer, nullable=True)
@@ -114,8 +115,8 @@ class InspectionBatch(Base):
     hold_due_at = Column(DateTime, nullable=True)
     hold_alerted = Column(Boolean, default=False)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     # Relationships
     template = relationship("SheetTemplate", back_populates="batches")
@@ -139,7 +140,7 @@ class BatchCellResponse(Base):
     checker_initials = Column(String(20), nullable=True)
     entered_by = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
     client_mutation_id = Column(String(64), unique=True, nullable=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     # Relationships
     batch = relationship("InspectionBatch", back_populates="cell_responses")
@@ -164,7 +165,7 @@ class InspectionDecision(Base):
     rejected_fields = Column(JSON, nullable=True)  # list of string field names / item names
     rejected_item_ids = Column(JSON, nullable=True)
     remarks = Column(Text, nullable=True)
-    decided_at = Column(DateTime, default=datetime.utcnow)
+    decided_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     # Relationships
     batch = relationship("InspectionBatch", back_populates="decisions")
@@ -180,7 +181,7 @@ class InspectionAttachment(Base):
     capture_source = Column(String(30), nullable=False)  # 'TFT_CAMERA' | 'FILE_UPLOAD'
     file_path = Column(Text, nullable=False)
     file_name = Column(String(255), nullable=True)
-    uploaded_at = Column(DateTime, default=datetime.utcnow)
+    uploaded_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     # Relationships
     batch = relationship("InspectionBatch", back_populates="attachments")
@@ -201,7 +202,7 @@ class InAppNotification(Base):
     batch_code = Column(String(100), nullable=True)
     text = Column(Text, nullable=False)
     is_read = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     # Relationships
     user = relationship("User", back_populates="notifications")
@@ -217,7 +218,7 @@ class AuditLog(Base):
     sheet_id = Column(String(64), nullable=True)
     batch_id = Column(Integer, nullable=True)
     details = Column(JSON, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     # Relationships
     user = relationship("User", back_populates="audit_logs")

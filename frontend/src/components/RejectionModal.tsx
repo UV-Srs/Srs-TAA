@@ -34,16 +34,12 @@ export const RejectionModal: React.FC<RejectionModalProps> = ({
   };
 
   const handleConfirm = () => {
-    if (selectedIds.length === 0) {
-      setErrorMsg('Please select at least one failed control item to submit a rejection (FR-027).');
-      return;
-    }
     onSubmit(selectedIds, remarks);
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm no-print">
-      <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-lg shadow-xl overflow-hidden text-xs">
+      <div className="bg-white border border-slate-200 rounded-lg w-full max-w-lg shadow-lg overflow-hidden text-xs">
         {/* Header */}
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-2 text-red-600">
@@ -60,17 +56,17 @@ export const RejectionModal: React.FC<RejectionModalProps> = ({
         {/* Body */}
         <div className="p-5 space-y-4">
           <p className="text-slate-600">
-            Select the specific control items that failed tolerance or quality criteria:
+            Optionally select the specific control items that failed. You can reject without selecting any fields.
           </p>
 
-          <div className="space-y-1.5 max-h-56 overflow-y-auto border border-slate-200 rounded-xl p-2 bg-slate-50/50">
+          <div className="space-y-1 max-h-56 overflow-y-auto border border-slate-200 rounded p-2 bg-slate-50/50">
             {controlItems.map((item) => {
               const isSelected = item.item_id ? selectedIds.includes(item.item_id) : false;
               return (
                 <div
                   key={item.item_id || item.serial_no}
                   onClick={() => toggleSelect(item.item_id)}
-                  className={`p-2.5 rounded-lg border cursor-pointer flex items-start gap-2.5 transition-colors ${
+                  className={`p-2 rounded border cursor-pointer flex items-start gap-2.5 transition-colors ${
                     isSelected
                       ? 'border-red-300 bg-red-50 text-red-900'
                       : 'border-slate-200 bg-white hover:border-slate-300'
@@ -108,7 +104,7 @@ export const RejectionModal: React.FC<RejectionModalProps> = ({
               onChange={(e) => setRemarks(e.target.value)}
               placeholder="Enter details on the defect or observation..."
               rows={2}
-              className="w-full border border-slate-300 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-slate-900 text-xs"
+              className="w-full border border-slate-300 rounded p-2 focus:outline-none focus:border-slate-700 text-xs"
             />
           </div>
 
@@ -128,11 +124,15 @@ export const RejectionModal: React.FC<RejectionModalProps> = ({
             Cancel
           </button>
           <button
-            disabled={isSubmitting || selectedIds.length === 0}
+            disabled={isSubmitting}
             onClick={handleConfirm}
-            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-all disabled:opacity-50"
+            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded transition-colors disabled:opacity-50"
           >
-            {isSubmitting ? 'Submitting...' : `Confirm Rejection (${selectedIds.length})`}
+            {isSubmitting
+              ? 'Submitting...'
+              : selectedIds.length > 0
+              ? `Confirm Rejection (${selectedIds.length} fields)`
+              : 'Confirm Rejection'}
           </button>
         </div>
       </div>
