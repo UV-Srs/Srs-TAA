@@ -177,6 +177,19 @@ export const MobileScannerPage: React.FC<MobileScannerPageProps> = ({ currentUse
           onClose={() => setIsScanOpen(false)}
           onResolved={(res) => { setIsScanOpen(false); handleResolved(res); }}
           onPartScanned={() => setIsScanOpen(false)}
+          onNotFound={(code) => {
+            setIsScanOpen(false);
+            const entry: ScanEntry = {
+              id: ++nextId.current,
+              lotNumber: code,
+              batchId: null,
+              status: 'error',
+              message: 'Not registered — admin popup opened on desktop',
+              time: new Date().toLocaleTimeString(),
+            };
+            setLastResult(entry);
+            setHistory(prev => [entry, ...prev.slice(0, 9)]);
+          }}
         />
       )}
     </div>

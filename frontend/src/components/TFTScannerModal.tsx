@@ -9,6 +9,7 @@ interface TFTScannerModalProps {
   mode?: 'resolve' | 'part-scan';
   onResolved?: (result: QRResolveResult) => void;
   onPartScanned?: (info: PartBarcodeInfo) => void;
+  onNotFound?: (scannedCode: string) => void;
 }
 
 type DetectionEngine = 'native' | 'zxing' | 'none';
@@ -38,6 +39,7 @@ export const TFTScannerModal: React.FC<TFTScannerModalProps> = ({
   mode = 'resolve',
   onResolved,
   onPartScanned,
+  onNotFound,
 }) => {
   const [manualCode, setManualCode] = useState<string>('');
   const [cameraActive, setCameraActive] = useState<boolean>(false);
@@ -227,7 +229,19 @@ export const TFTScannerModal: React.FC<TFTScannerModalProps> = ({
         onClose();
       }
     } catch (err: any) {
-      setErrorMsg(err.message || 'Code not recognised. Try again or enter manually.');
+      const msg = err.message || '';
+      const isNotRegistered =
+        msg.includes("isn't registered yet") ||
+        msg.includes('NOT_REGISTERED');
+
+      if (isNotRegistered && onNotFound) {
+        // Close modal and hand the unregistered code to the parent to handle
+        stopCamera();
+        onNotFound(code);
+        onClose();
+        return;
+      }
+      setErrorMsg(msg || 'Code not recognised. Try again or enter manually.');
       setScanPreview(null);
     } finally {
       setIsLoading(false);
