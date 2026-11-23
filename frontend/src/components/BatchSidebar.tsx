@@ -74,23 +74,23 @@ export const BatchSidebar: React.FC<BatchSidebarProps> = ({
     currentUser.role === 'operator' ? 'My Batches' :
     currentUser.role === 'supervisor' ? 'My Reviews' : 'Batches Queue';
 
-  const getStatusInfo = (status: string): { dot: string; label: string } => {
+  const getStatusInfo = (status: string): { dotColor: string; label: string } => {
     switch (status) {
       case 'CREATED_PENDING_OPERATOR':
-      case 'pending':         return { dot: 'bg-slate-400',   label: 'Pending' };
+      case 'pending':         return { dotColor: 'var(--muted)',   label: 'Pending' };
       case 'OPERATOR_IN_PROGRESS':
-      case 'op_progress':     return { dot: 'bg-blue-500',    label: 'In Progress' };
+      case 'op_progress':     return { dotColor: 'var(--accent)',  label: 'In Progress' };
       case 'OPERATOR_APPROVED':
-      case 'op_approved':     return { dot: 'bg-emerald-500', label: 'Op Approved' };
+      case 'op_approved':     return { dotColor: 'var(--ok)',      label: 'Op Approved' };
       case 'OPERATOR_REJECTED':
-      case 'op_rejected':     return { dot: 'bg-red-500',     label: 'Flagged' };
+      case 'op_rejected':     return { dotColor: 'var(--ng)',      label: 'Flagged' };
       case 'SUPERVISOR_IN_PROGRESS':
-      case 'sup_progress':    return { dot: 'bg-violet-500',  label: 'Under Review' };
+      case 'sup_progress':    return { dotColor: 'var(--accent)',  label: 'Under Review' };
       case 'ON_HOLD':
-      case 'hold':            return { dot: 'bg-amber-500',   label: 'On Hold' };
-      case 'APPROVED':        return { dot: 'bg-emerald-600', label: 'Approved' };
-      case 'REJECTED':        return { dot: 'bg-red-600',     label: 'Rejected' };
-      default:                return { dot: 'bg-slate-300',   label: status };
+      case 'hold':            return { dotColor: 'var(--warn)',    label: 'On Hold' };
+      case 'APPROVED':        return { dotColor: 'var(--ok)',      label: 'Approved' };
+      case 'REJECTED':        return { dotColor: 'var(--ng)',      label: 'Rejected' };
+      default:                return { dotColor: 'var(--line2)',   label: status };
     }
   };
 
@@ -208,7 +208,7 @@ export const BatchSidebar: React.FC<BatchSidebarProps> = ({
         ) : (
           filteredBatches.map((b) => {
             const isSelected = b.batch_id === selectedBatchId;
-            const { dot, label } = getStatusInfo(b.status);
+            const { dotColor, label } = getStatusInfo(b.status);
             const isConfirming = confirmDeleteId === b.batch_id;
             const isDeleting = deletingId === b.batch_id;
 
@@ -227,7 +227,7 @@ export const BatchSidebar: React.FC<BatchSidebarProps> = ({
                   onClick={() => { setConfirmDeleteId(null); onSelectBatch(b.batch_id); }}
                   className="w-full text-left px-3 py-2.5 flex items-start gap-2.5"
                 >
-                  <span className={`mt-[5px] w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} />
+                  <span className="mt-[5px] w-1.5 h-1.5 rounded-full shrink-0" style={{ background: dotColor }} />
                   <div className="flex-1 min-w-0 pr-5">
                     <div className="flex items-baseline justify-between gap-1">
                       <span className="font-mono font-bold text-[11px] truncate" style={{ color: 'var(--ink)' }}>

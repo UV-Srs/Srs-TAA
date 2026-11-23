@@ -591,8 +591,8 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
 
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center p-16 text-slate-500 gap-3">
-        <RefreshCw className="w-6 h-6 animate-spin text-slate-600" />
+      <div className="flex flex-col items-center justify-center p-16 gap-3" style={{ color: 'var(--muted)' }}>
+        <RefreshCw className="w-6 h-6 animate-spin" style={{ color: 'var(--muted)' }} />
         <span className="text-xs font-medium">Loading checksheet...</span>
       </div>
     );
@@ -600,10 +600,10 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
 
   if (!batch || !batch.template) {
     return (
-      <div className="p-8 text-center text-slate-500 border border-slate-200 rounded bg-white">
-        <AlertTriangle className="w-8 h-8 text-amber-500 mx-auto mb-2" />
-        <h3 className="font-bold text-slate-800 text-sm">No batch selected</h3>
-        <p className="text-xs text-slate-500 mt-1">Scan a batch label or select a batch from the sidebar.</p>
+      <div className="p-8 text-center rounded" style={{ color: 'var(--muted)', border: '1px solid var(--line)', background: 'var(--surface)' }}>
+        <AlertTriangle className="w-8 h-8 mx-auto mb-2" style={{ color: 'var(--warn)' }} />
+        <h3 className="font-bold text-sm" style={{ color: 'var(--ink)' }}>No batch selected</h3>
+        <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>Scan a batch label or select a batch from the sidebar.</p>
       </div>
     );
   }
@@ -615,15 +615,16 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
   const pendingRejectionsCount = opRejectedList.filter((f) => !supRevs[String(f)]).length;
 
   return (
-    <div className="space-y-4 text-xs font-sans pb-12">
+    <div className="space-y-4 text-xs pb-12">
       {/* Globally locked — APPROVED or REJECTED */}
       {isReadOnly && (
-        <div className="bg-slate-900 text-white px-5 py-3 rounded-lg flex items-center justify-between text-xs font-bold tracking-widest uppercase mb-2">
+        <div className="px-5 py-3 rounded-lg flex items-center justify-between text-xs font-bold tracking-widest uppercase mb-2"
+          style={{ background: 'var(--ink)', color: '#fff' }}>
           <div className="flex items-center gap-2.5">
-            <Lock className="w-4 h-4 text-white" />
+            <Lock className="w-4 h-4" />
             <span>LOCKED RECORD — READ-ONLY SUMMARY MODE</span>
           </div>
-          <span className="text-[11px] text-zinc-300 font-mono font-semibold">
+          <span className="text-[11px] font-mono font-semibold" style={{ color: 'var(--line2)' }}>
             Status: {batch.status} (Round {batch.round || 1})
           </span>
         </div>
@@ -631,16 +632,18 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
 
       {/* Operator has submitted — waiting for supervisor */}
       {!isReadOnly && currentUser.role === 'operator' && batch.operator_submitted_at && (
-        <div className="bg-blue-50 border border-blue-200 text-blue-900 px-4 py-3 rounded-lg flex items-center gap-2.5 text-xs font-semibold">
-          <Check className="w-4 h-4 text-blue-600 shrink-0" />
+        <div className="px-4 py-3 rounded-lg flex items-center gap-2.5 text-xs font-semibold"
+          style={{ background: 'var(--accent-soft)', border: '1px solid var(--accent)', color: 'var(--accent)' }}>
+          <Check className="w-4 h-4 shrink-0" style={{ color: 'var(--accent)' }} />
           <span>Your entries are submitted and locked. Awaiting supervisor review.</span>
         </div>
       )}
 
       {/* Supervisor turn — operator's fields are locked */}
       {!isReadOnly && currentUser.role === 'supervisor' && isSupervisorTurn && (
-        <div className="bg-violet-50 border border-violet-200 text-violet-900 px-4 py-3 rounded-lg flex items-center gap-2.5 text-xs font-semibold">
-          <ShieldCheck className="w-4 h-4 text-violet-600 shrink-0" />
+        <div className="px-4 py-3 rounded-lg flex items-center gap-2.5 text-xs font-semibold"
+          style={{ background: 'var(--accent-soft)', border: '1px solid var(--accent)', color: 'var(--accent)' }}>
+          <ShieldCheck className="w-4 h-4 shrink-0" style={{ color: 'var(--accent)' }} />
           <span>Operator data is locked. Fill in supervisor checkpoint fields below, then approve, reject, or hold.</span>
         </div>
       )}
@@ -648,11 +651,11 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
       {/* Overdue Hold Banner (FR-056) */}
       {batch.status === 'ON_HOLD' && (
         <div
-          className={`px-4 py-3 rounded-lg border flex flex-wrap items-center justify-between gap-3 ${
-            batch.is_overdue
-              ? 'bg-red-50 text-red-900 border-red-300'
-              : 'bg-amber-50 text-amber-900 border-amber-300'
-          }`}
+          className="px-4 py-3 rounded-lg flex flex-wrap items-center justify-between gap-3"
+          style={batch.is_overdue
+            ? { background: 'var(--ng-bg)', border: '1px solid #f1b8b5', color: 'var(--ng)' }
+            : { background: 'var(--warn-bg)', border: '1px solid #e0b65a', color: 'var(--warn)' }
+          }
         >
           <div>
             <div className="flex items-center gap-2 font-bold text-xs">
@@ -676,7 +679,8 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
             <button
               type="button"
               onClick={() => setIsReleaseModalOpen(true)}
-              className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-lg shadow-sm transition-all text-xs"
+              className="px-3.5 py-1.5 font-semibold rounded-lg shadow-sm transition-all text-xs"
+              style={{ background: 'var(--ink)', color: '#fff' }}
             >
               Release Hold
             </button>
@@ -685,26 +689,26 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
       )}
 
       {/* Main Checksheet Card */}
-      <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+      <div className="overflow-hidden" style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 12 }}>
         {/* Zone A: Header Block */}
-        <div className="px-5 py-4 border-b border-slate-200 bg-white">
+        <div className="px-5 py-4" style={{ borderBottom: '1px solid var(--line)', background: 'var(--surface)' }}>
           <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
             <div className="min-w-0">
-              <h2 className="text-base font-bold text-slate-900 tracking-tight truncate">
+              <h2 className="text-base font-bold tracking-tight truncate" style={{ color: 'var(--ink)' }}>
                 {batch.product_name || template.part_name || template.document_title}
               </h2>
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-xs text-slate-500">
-                <span className="font-mono font-semibold text-slate-700">Lot {batch.lot_number}</span>
-                <span className="text-slate-300">|</span>
-                <span>Part <span className="font-mono text-slate-600">#{template.part_no || 'N/A'}</span></span>
-                <span className="text-slate-300">|</span>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-xs" style={{ color: 'var(--muted)' }}>
+                <span className="font-mono font-semibold" style={{ color: 'var(--ink)' }}>Lot {batch.lot_number}</span>
+                <span style={{ color: 'var(--line2)' }}>|</span>
+                <span>Part <span className="font-mono" style={{ color: 'var(--muted)' }}>#{template.part_no || 'N/A'}</span></span>
+                <span style={{ color: 'var(--line2)' }}>|</span>
                 <span>{batch.line_name || 'Line 1'}</span>
-                <span className="text-slate-300">|</span>
+                <span style={{ color: 'var(--line2)' }}>|</span>
                 <span>Qty {batch.lot_quantity || 100} pcs</span>
                 {batch.round > 1 && (
                   <>
-                    <span className="text-slate-300">|</span>
-                    <span className="text-violet-600 font-semibold">Round {batch.round}</span>
+                    <span style={{ color: 'var(--line2)' }}>|</span>
+                    <span className="font-semibold" style={{ color: 'var(--accent)' }}>Round {batch.round}</span>
                   </>
                 )}
               </div>
@@ -716,7 +720,8 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                 <button
                   type="button"
                   onClick={() => onEditTemplate(batch.sheet_id)}
-                  className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-700 text-white font-medium rounded flex items-center gap-1.5 transition-colors text-xs"
+                  className="px-2.5 py-1.5 font-medium rounded flex items-center gap-1.5 transition-colors text-xs"
+                  style={{ background: 'var(--primary)', color: 'var(--on-primary)' }}
                   title="Open this checksheet template in the builder"
                 >
                   <Settings className="w-3.5 h-3.5" />
@@ -727,7 +732,8 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
               <button
                 type="button"
                 onClick={() => setIsCameraModalOpen(true)}
-                className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded flex items-center gap-1.5 transition-colors text-xs"
+                className="px-2.5 py-1.5 font-medium rounded flex items-center gap-1.5 transition-colors text-xs"
+                style={{ background: 'var(--surface2)', color: 'var(--muted)' }}
               >
                 <Camera className="w-3.5 h-3.5" />
                 <span>Photo</span>
@@ -736,7 +742,8 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
               <button
                 type="button"
                 onClick={() => setIsPrintModalOpen(true)}
-                className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded flex items-center gap-1.5 transition-colors text-xs"
+                className="px-2.5 py-1.5 font-medium rounded flex items-center gap-1.5 transition-colors text-xs"
+                style={{ background: 'var(--surface2)', color: 'var(--muted)' }}
               >
                 <Printer className="w-3.5 h-3.5" />
                 <span>Labels</span>
@@ -747,7 +754,8 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                   <button
                     type="button"
                     onClick={() => downloadBatchExport(batch.batch_id, 'pdf', batch.lot_number).catch((e) => setErrorMsg(e.message))}
-                    className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded flex items-center gap-1.5 transition-colors text-xs"
+                    className="px-2.5 py-1.5 font-medium rounded flex items-center gap-1.5 transition-colors text-xs"
+                    style={{ background: 'var(--surface2)', color: 'var(--muted)' }}
                   >
                     <Download className="w-3.5 h-3.5" />
                     <span>PDF</span>
@@ -756,7 +764,8 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                   <button
                     type="button"
                     onClick={() => downloadBatchExport(batch.batch_id, 'xlsx', batch.lot_number).catch((e) => setErrorMsg(e.message))}
-                    className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded flex items-center gap-1.5 transition-colors text-xs"
+                    className="px-2.5 py-1.5 font-medium rounded flex items-center gap-1.5 transition-colors text-xs"
+                    style={{ background: 'var(--surface2)', color: 'var(--muted)' }}
                   >
                     <Download className="w-3.5 h-3.5" />
                     <span>Excel</span>
@@ -795,19 +804,19 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
           const passedCols = colStats.filter((c) => c.hasPass && !c.hasFail);
 
           return (
-            <div className="border-t border-slate-200 bg-amber-50/40 px-5 py-4">
+            <div className="px-5 py-4" style={{ borderTop: '1px solid var(--line)', background: '#fef9ed' }}>
               <div className="flex items-center justify-between mb-3">
-                <h4 className="font-bold text-slate-800 text-xs tracking-wide uppercase">
+                <h4 className="font-bold text-xs tracking-wide uppercase" style={{ color: 'var(--ink)' }}>
                   Item Inspection Summary — Supervisor View
                 </h4>
                 <div className="flex gap-3 text-[11px] font-semibold">
-                  <span className="text-emerald-700">✓ {passedCols.length} Passed</span>
-                  <span className="text-red-600">✗ {failedCols.length} Failed</span>
-                  {overriddenCols.length > 0 && <span className="text-blue-700">↩ {overriddenCols.length} Overridden</span>}
-                  {confirmedFailCols.length > 0 && <span className="text-red-800 font-bold">⚑ {confirmedFailCols.length} Confirmed Fail</span>}
+                  <span style={{ color: 'var(--ok)' }}>✓ {passedCols.length} Passed</span>
+                  <span style={{ color: 'var(--ng)' }}>✗ {failedCols.length} Failed</span>
+                  {overriddenCols.length > 0 && <span style={{ color: 'var(--accent)' }}>↩ {overriddenCols.length} Overridden</span>}
+                  {confirmedFailCols.length > 0 && <span className="font-bold" style={{ color: 'var(--ng)' }}>⚑ {confirmedFailCols.length} Confirmed Fail</span>}
                 </div>
               </div>
-              <p className="text-[11px] text-slate-500 mb-3">
+              <p className="text-[11px] mb-3" style={{ color: 'var(--muted)' }}>
                 Review any items below. For failed items you disagree with, click <strong>Override</strong> to accept them.
                 You may approve the batch as long as no failures are confirmed.
               </p>
@@ -817,32 +826,32 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                 {colStats.map(({ col, hasPass, hasFail, isEmpty, overrideKey, supChoice }) => {
                   const isOverridden = supChoice === 'overrule';
                   const isConfirmedFail = supChoice === 'confirm';
+                  const tileStyle = isOverridden
+                    ? { border: '1px solid var(--accent)', background: 'var(--accent-soft)' }
+                    : isConfirmedFail
+                    ? { border: '1px solid var(--ng)', background: 'var(--ng-bg)' }
+                    : hasFail
+                    ? { border: '1px solid #f1b8b5', background: 'var(--ng-bg)' }
+                    : hasPass
+                    ? { border: '1px solid #b2dcc5', background: 'var(--ok-bg)' }
+                    : { border: '1px solid var(--line)', background: 'var(--surface)' };
+                  const iconColor = isOverridden ? 'var(--accent)'
+                    : isConfirmedFail ? 'var(--ng)'
+                    : hasFail ? 'var(--ng)'
+                    : hasPass ? 'var(--ok)'
+                    : 'var(--line2)';
                   return (
-                    <div
-                      key={col}
-                      className={`flex flex-col items-center rounded border px-1 py-0.5 min-w-[32px] ${
-                        isOverridden ? 'border-blue-400 bg-blue-50' :
-                        isConfirmedFail ? 'border-red-700 bg-red-100' :
-                        hasFail ? 'border-red-400 bg-red-50' :
-                        hasPass ? 'border-emerald-300 bg-emerald-50' :
-                        'border-slate-200 bg-white'
-                      }`}
-                    >
-                      <span className="text-[9px] text-slate-500 font-mono leading-tight">{col}</span>
-                      <span className={`text-sm font-bold leading-none ${
-                        isOverridden ? 'text-blue-600' :
-                        isConfirmedFail ? 'text-red-800' :
-                        hasFail ? 'text-red-500' :
-                        hasPass ? 'text-emerald-600' :
-                        'text-slate-200'
-                      }`}>
+                    <div key={col} className="flex flex-col items-center rounded px-1 py-0.5 min-w-[32px]" style={tileStyle}>
+                      <span className="text-[9px] font-mono leading-tight" style={{ color: 'var(--muted)' }}>{col}</span>
+                      <span className="text-sm font-bold leading-none" style={{ color: iconColor }}>
                         {isOverridden ? '↩' : isConfirmedFail ? '⚑' : hasFail ? '✗' : hasPass ? '✓' : '○'}
                       </span>
                       {hasFail && !isOverridden && !isConfirmedFail && (
                         <button
                           type="button"
                           onClick={() => handleToggleFieldReview(overrideKey, 'overrule')}
-                          className="text-[8px] font-bold px-0.5 mt-0.5 rounded bg-white border border-blue-300 text-blue-600 hover:bg-blue-50 transition-colors"
+                          className="text-[8px] font-bold px-0.5 mt-0.5 rounded transition-colors"
+                          style={{ background: 'var(--surface)', border: '1px solid var(--accent)', color: 'var(--accent)' }}
                           title="Override — accept this failed item"
                         >OVR</button>
                       )}
@@ -858,7 +867,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
-              <tr className="bg-slate-50 text-slate-600 border-b border-slate-200 font-semibold text-[11px] uppercase tracking-wider">
+              <tr className="font-semibold text-[11px] uppercase tracking-wider" style={{ background: 'var(--surface2)', color: 'var(--muted)', borderBottom: '1px solid var(--line)' }}>
                 <th className="py-3 px-4 w-12 text-center">#</th>
                 <th className="py-3 px-4 min-w-[100px]">Stage</th>
                 <th className="py-3 px-4 min-w-[200px]">Inspection Item</th>
@@ -870,7 +879,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                 )}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody>
               {template.control_items.map((item, idx) => {
                 const isOpRole = currentUser.role === 'operator';
                 const isSupRole = currentUser.role === 'supervisor';
@@ -891,9 +900,9 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                 );
 
                 // Row styling — dim rows that belong to the other role
-                const rowClass = isAssigned
-                  ? 'bg-white text-slate-900 border-l-4 border-l-black hover:bg-slate-50/80 font-medium'
-                  : 'bg-slate-50/40 text-slate-400 border-l-2 border-l-slate-200';
+                const rowStyle = isAssigned
+                  ? { background: 'var(--surface)', color: 'var(--ink)', borderLeft: '3px solid var(--primary)' }
+                  : { background: 'var(--surface2)', color: 'var(--muted)', borderLeft: '2px solid var(--line)', opacity: 0.65 };
 
                 // Get single representative column key or first column
                 const sampleCols = Array.isArray(item.sample_columns) ? item.sample_columns : ['val'];
@@ -908,26 +917,26 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                 const isItemRejectedByOp = opRejectedList.includes(item.control_item_name) || opRejectedList.includes(item.item_id);
 
                 return (
-                  <tr key={item.item_id || idx} className={`transition-colors border-b border-slate-100 ${rowClass}`}>
-                    <td className="py-2.5 px-3 text-center font-mono text-slate-700 font-bold">
+                  <tr key={item.item_id || idx} className="transition-colors" style={{ ...rowStyle, borderBottom: '1px solid var(--line)' }}>
+                    <td className="py-2.5 px-3 text-center font-mono font-bold" style={{ color: 'var(--muted)' }}>
                       {item.serial_no}
                     </td>
-                    <td className="py-2.5 px-3 font-semibold text-slate-800">
+                    <td className="py-2.5 px-3 font-semibold" style={{ color: 'var(--ink)' }}>
                       {item.stage_name}
                     </td>
-                    <td className="py-2.5 px-3 font-bold text-slate-950">
+                    <td className="py-2.5 px-3 font-bold" style={{ color: 'var(--ink)' }}>
                       {item.control_item_name}
-                      {item.is_required && <span className="text-red-600 ml-0.5">*</span>}
+                      {item.is_required && <span className="ml-0.5" style={{ color: 'var(--ng)' }}>*</span>}
                     </td>
-                    <td className="py-2.5 px-3 font-mono text-[11px] text-slate-700">
+                    <td className="py-2.5 px-3 font-mono text-[11px]" style={{ color: 'var(--ink)' }}>
                       {item.specification_content}
                       {item.min_val !== null && item.max_val !== null && (
-                        <span className="text-slate-500 block text-[10px] font-semibold">
+                        <span className="block text-[10px] font-semibold" style={{ color: 'var(--muted)' }}>
                           [{item.min_val} ~ {item.max_val} {item.unit || ''}]
                         </span>
                       )}
                     </td>
-                    <td className="py-2.5 px-3 text-slate-600">
+                    <td className="py-2.5 px-3" style={{ color: 'var(--muted)' }}>
                       {item.application_method || '-'}
                     </td>
 
@@ -935,26 +944,24 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                     <td className="py-2.5 px-3">
                       {canEditCell ? (
                         item.html_input_type === 'pf' ? (
-                          <div className="inline-flex rounded-lg border-2 border-black p-0.5 bg-white shadow-2xs">
+                          <div className="inline-flex rounded-lg p-0.5" style={{ border: '2px solid var(--line2)', background: 'var(--surface)' }}>
                             <button
                               type="button"
                               onClick={() => handleCellChange(item, firstColKey, 'Pass')}
-                              className={`px-3 py-1 rounded font-bold text-xs transition-all ${
-                                currentVal === 'Pass'
-                                  ? 'bg-black text-white shadow-sm'
-                                  : 'text-black hover:bg-slate-100'
-                              }`}
+                              className="px-3 py-1 rounded font-bold text-xs transition-all"
+                              style={currentVal === 'Pass'
+                                ? { background: 'var(--ok)', color: '#fff' }
+                                : { color: 'var(--ink)' }}
                             >
                               Pass
                             </button>
                             <button
                               type="button"
                               onClick={() => handleCellChange(item, firstColKey, 'Fail')}
-                              className={`px-3 py-1 rounded font-bold text-xs transition-all ${
-                                currentVal === 'Fail'
-                                  ? 'bg-black text-white shadow-sm underline'
-                                  : 'text-black hover:bg-slate-100'
-                              }`}
+                              className="px-3 py-1 rounded font-bold text-xs transition-all"
+                              style={currentVal === 'Fail'
+                                ? { background: 'var(--ng)', color: '#fff' }
+                                : { color: 'var(--ink)' }}
                             >
                               Fail
                             </button>
@@ -966,12 +973,13 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                               const isVerified = cellsMap[`${item.item_id}_${chkKey}`]?.cell_value === 'Pass';
                               return (
                                 <label key={col} className="flex flex-col items-center gap-0.5 cursor-pointer select-none">
-                                  <span className="text-[9px] text-slate-400 font-mono leading-none">{col}</span>
+                                  <span className="text-[9px] font-mono leading-none" style={{ color: 'var(--muted)' }}>{col}</span>
                                   <input
                                     type="checkbox"
                                     checked={isVerified}
                                     onChange={(e) => handleCellChange(item, chkKey, e.target.checked ? 'Pass' : '')}
-                                    className="w-5 h-5 accent-black cursor-pointer"
+                                    className="w-5 h-5 cursor-pointer"
+                                    style={{ accentColor: 'var(--primary)' }}
                                     title={`Mark sample ${col} as verified`}
                                   />
                                 </label>
@@ -985,20 +993,18 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                               step="0.01"
                               value={currentVal}
                               onChange={(e) => handleCellChange(item, firstColKey, e.target.value)}
-                              className={`w-28 rounded-lg px-2.5 py-1 text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-black ${
-                                isOutOfSpec
-                                  ? 'border-2 border-dashed border-black bg-neutral-100 text-black'
-                                  : 'border-2 border-black bg-white text-black'
-                              }`}
+                              className="w-28 rounded-lg px-2.5 py-1 text-xs font-mono font-bold focus:outline-none"
+                              style={isOutOfSpec
+                                ? { border: '2px dashed var(--ng)', background: 'var(--ng-bg)', color: 'var(--ng)' }
+                                : { border: '2px solid var(--line2)', background: 'var(--surface)', color: 'var(--ink)' }}
                               placeholder="0.00"
                             />
                             {currentVal && (
                               <span
-                                className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider ${
-                                  isOutOfSpec
-                                    ? 'bg-black text-white'
-                                    : 'bg-slate-200 text-slate-800'
-                                }`}
+                                className="text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider"
+                                style={isOutOfSpec
+                                  ? { background: 'var(--ng)', color: '#fff' }
+                                  : { background: 'var(--surface2)', color: 'var(--muted)' }}
                               >
                                 {isOutOfSpec ? 'OUT OF SPEC' : 'OK'}
                               </span>
@@ -1012,24 +1018,22 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                               const isFailed = colVal === 'Fail';
                               return (
                                 <div key={col} className="flex flex-col items-center gap-0.5">
-                                  <span className="text-[9px] text-slate-400 font-mono leading-none">{col}</span>
-                                  <div className={`inline-flex rounded border overflow-hidden ${
-                                    isPassed ? 'border-emerald-500' : isFailed ? 'border-red-500' : 'border-slate-300'
-                                  }`}>
+                                  <span className="text-[9px] font-mono leading-none" style={{ color: 'var(--muted)' }}>{col}</span>
+                                  <div className="inline-flex rounded overflow-hidden" style={{
+                                    border: `1px solid ${isPassed ? 'var(--ok)' : isFailed ? 'var(--ng)' : 'var(--line2)'}`
+                                  }}>
                                     <button
                                       type="button"
                                       onClick={() => handleCellChange(item, col, isPassed ? '' : 'Pass')}
-                                      className={`w-5 h-5 flex items-center justify-center text-[9px] font-bold transition-colors ${
-                                        isPassed ? 'bg-emerald-500 text-white' : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50'
-                                      }`}
+                                      className="w-5 h-5 flex items-center justify-center text-[9px] font-bold transition-colors"
+                                      style={isPassed ? { background: 'var(--ok)', color: '#fff' } : { color: 'var(--muted)' }}
                                       title={`Item ${col}: Pass`}
                                     >P</button>
                                     <button
                                       type="button"
                                       onClick={() => handleCellChange(item, col, isFailed ? '' : 'Fail')}
-                                      className={`w-5 h-5 flex items-center justify-center text-[9px] font-bold transition-colors ${
-                                        isFailed ? 'bg-red-500 text-white' : 'text-slate-400 hover:text-red-600 hover:bg-red-50'
-                                      }`}
+                                      className="w-5 h-5 flex items-center justify-center text-[9px] font-bold transition-colors"
+                                      style={isFailed ? { background: 'var(--ng)', color: '#fff' } : { color: 'var(--muted)' }}
                                       title={`Item ${col}: Fail`}
                                     >F</button>
                                   </div>
@@ -1045,9 +1049,10 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                               onChange={(e) =>
                                 handleCellChange(item, firstColKey, e.target.checked ? 'Pass' : 'Fail')
                               }
-                              className="w-5 h-5 accent-black border-2 border-black rounded cursor-pointer transition-transform active:scale-95"
+                              className="w-5 h-5 cursor-pointer transition-transform active:scale-95"
+                              style={{ accentColor: 'var(--primary)' }}
                             />
-                            <span className="font-bold text-xs text-black">
+                            <span className="font-bold text-xs" style={{ color: 'var(--ink)' }}>
                               {currentVal === 'Pass' || currentVal === 'true' ? 'Passed' : 'Unticked'}
                             </span>
                           </label>
@@ -1057,7 +1062,8 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                             value={currentVal}
                             onChange={(e) => handleCellChange(item, firstColKey, e.target.value)}
                             placeholder="Optional remark"
-                            className="w-full border-2 border-black rounded-lg px-2.5 py-1 text-xs font-medium focus:ring-2 focus:ring-black focus:outline-none"
+                            className="w-full rounded-lg px-2.5 py-1 text-xs font-medium focus:outline-none"
+                            style={{ border: '2px solid var(--line2)', color: 'var(--ink)' }}
                           />
                         )
                       ) : item.row_mode === 'SERIAL_TICKBOX' ? (
@@ -1068,10 +1074,10 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                             const isFailed = colVal === 'Fail';
                             return (
                               <div key={col} className="flex flex-col items-center gap-0.5">
-                                <span className="text-[9px] text-slate-400 font-mono leading-none">{col}</span>
-                                <span className={`text-sm font-bold leading-none ${
-                                  isPassed ? 'text-emerald-600' : isFailed ? 'text-red-600' : 'text-slate-200'
-                                }`}>
+                                <span className="text-[9px] font-mono leading-none" style={{ color: 'var(--muted)' }}>{col}</span>
+                                <span className="text-sm font-bold leading-none" style={{
+                                  color: isPassed ? 'var(--ok)' : isFailed ? 'var(--ng)' : 'var(--line2)'
+                                }}>
                                   {isPassed ? '✓' : isFailed ? '✗' : '○'}
                                 </span>
                               </div>
@@ -1084,8 +1090,8 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                             const isVerified = cellsMap[`${item.item_id}_${col}c`]?.cell_value === 'Pass';
                             return (
                               <div key={col} className="flex flex-col items-center">
-                                <span className="text-[9px] text-slate-400 font-mono">{col}</span>
-                                <span className={`text-base leading-none font-bold ${isVerified ? 'text-emerald-600' : 'text-slate-200'}`}>
+                                <span className="text-[9px] font-mono" style={{ color: 'var(--muted)' }}>{col}</span>
+                                <span className="text-base leading-none font-bold" style={{ color: isVerified ? 'var(--ok)' : 'var(--line2)' }}>
                                   {isVerified ? '✓' : '○'}
                                 </span>
                               </div>
@@ -1094,16 +1100,15 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                         </div>
                       ) : (
                         <div className="flex items-center gap-2 font-mono">
-                          <span className="font-bold text-slate-900">
-                            {currentVal || <span className="text-slate-400 font-normal italic">Empty</span>}
+                          <span className="font-bold" style={{ color: 'var(--ink)' }}>
+                            {currentVal || <span className="font-normal italic" style={{ color: 'var(--muted)' }}>Empty</span>}
                           </span>
                           {currentVal && (
                             <span
-                              className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider ${
-                                isOutOfSpec
-                                  ? 'bg-black text-white'
-                                  : 'bg-slate-200 text-slate-800'
-                              }`}
+                              className="text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider"
+                              style={isOutOfSpec
+                                ? { background: 'var(--ng)', color: '#fff' }
+                                : { background: 'var(--surface2)', color: 'var(--muted)' }}
                             >
                               {isOutOfSpec ? 'OUT OF SPEC' : 'OK'}
                             </span>
@@ -1116,32 +1121,30 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                     {currentUser.role === 'supervisor' && opRejectedList.length > 0 && (
                       <td className="py-2.5 px-3 text-center">
                         {isItemRejectedByOp ? (
-                          <div className="inline-flex rounded-lg border border-slate-300 p-0.5 bg-slate-50 gap-1">
+                          <div className="inline-flex rounded-lg p-0.5 gap-1" style={{ border: '1px solid var(--line2)', background: 'var(--surface2)' }}>
                             <button
                               type="button"
                               onClick={() => handleToggleFieldReview(String(item.item_id), 'confirm')}
-                              className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-all ${
-                                supRevChoice === 'confirm'
-                                  ? 'bg-red-600 text-white shadow-sm'
-                                  : 'text-slate-600 hover:text-slate-900'
-                              }`}
+                              className="px-2 py-0.5 rounded text-[11px] font-semibold transition-all"
+                              style={supRevChoice === 'confirm'
+                                ? { background: 'var(--ng)', color: '#fff' }
+                                : { color: 'var(--muted)' }}
                             >
                               Confirm Fail
                             </button>
                             <button
                               type="button"
                               onClick={() => handleToggleFieldReview(String(item.item_id), 'overrule')}
-                              className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-all ${
-                                supRevChoice === 'overrule'
-                                  ? 'bg-emerald-600 text-white shadow-sm'
-                                  : 'text-slate-600 hover:text-slate-900'
-                              }`}
+                              className="px-2 py-0.5 rounded text-[11px] font-semibold transition-all"
+                              style={supRevChoice === 'overrule'
+                                ? { background: 'var(--ok)', color: '#fff' }
+                                : { color: 'var(--muted)' }}
                             >
                               Overrule
                             </button>
                           </div>
                         ) : (
-                          <span className="text-slate-400 text-[11px]">-</span>
+                          <span className="text-[11px]" style={{ color: 'var(--muted)' }}>-</span>
                         )}
                       </td>
                     )}
@@ -1154,19 +1157,20 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
 
         {/* Photo Evidence Section */}
         {batch.attachments && batch.attachments.length > 0 && (
-          <div className="p-5 border-t border-slate-200 bg-slate-50/30">
-            <h4 className="font-bold text-slate-800 text-xs mb-2">Attached Photo Evidence ({batch.attachments.length})</h4>
+          <div className="p-5" style={{ borderTop: '1px solid var(--line)', background: 'var(--surface2)' }}>
+            <h4 className="font-bold text-xs mb-2" style={{ color: 'var(--ink)' }}>Attached Photo Evidence ({batch.attachments.length})</h4>
             <div className="flex flex-wrap gap-3">
               {batch.attachments.map((att) => (
-                <div key={att.attachment_id} className="relative group border border-slate-200 rounded overflow-hidden bg-white">
+                <div key={att.attachment_id} className="relative group rounded overflow-hidden" style={{ border: '1px solid var(--line)', background: 'var(--surface)' }}>
                   <img
                     src={att.file_path}
                     alt={att.file_name || 'Inspection Photo'}
                     className="w-24 h-24 object-cover"
                   />
-                  <div className="absolute inset-0 bg-slate-900/60 text-white opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-1.5 text-[10px]">
+                  <div className="absolute inset-0 text-white opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-1.5 text-[10px]"
+                    style={{ background: 'rgba(27,37,51,0.6)' }}>
                     <span className="truncate">{att.file_name}</span>
-                    <span className="text-[9px] text-slate-300">{att.capture_source}</span>
+                    <span className="text-[9px]" style={{ color: 'var(--line2)' }}>{att.capture_source}</span>
                   </div>
                 </div>
               ))}
@@ -1176,7 +1180,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
 
         {/* Error message */}
         {errorMsg && (
-          <div className="mx-5 mb-4 p-3 bg-red-50 text-red-700 border border-red-200 rounded flex items-center gap-2">
+          <div className="mx-5 mb-4 p-3 rounded flex items-center gap-2" style={{ background: 'var(--ng-bg)', color: 'var(--ng)', border: '1px solid #f1b8b5' }}>
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{errorMsg}</span>
           </div>
@@ -1184,33 +1188,33 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
 
         {/* Operator Completion Progress Bar */}
         {currentUser.role === 'operator' && !batch.operator_submitted_at && (
-          <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="px-5 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3" style={{ background: 'var(--surface2)', borderTop: '1px solid var(--line)' }}>
             <div className="flex-1 max-w-sm">
               <div className="flex justify-between text-xs font-semibold mb-1">
-                <span className="text-slate-700">
+                <span style={{ color: 'var(--muted)' }}>
                   {hasSerialRows ? 'Items Inspected' : 'Checksheet Progress'}
                 </span>
-                <span className="text-slate-900 font-bold">
+                <span className="font-bold" style={{ color: 'var(--ink)' }}>
                   {hasSerialRows
                     ? `${serialCompletedItems} / ${serialTotalItems} items (${percentComplete}%)`
                     : `${completedRequired} of ${totalRequired} (${percentComplete}%)`}
                 </span>
               </div>
-              <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+              <div className="w-full rounded-full h-2 overflow-hidden" style={{ background: 'var(--line)' }}>
                 <div
-                  className={`h-full transition-all duration-300 ${percentComplete === 100 ? 'bg-emerald-600' : 'bg-slate-900'}`}
-                  style={{ width: `${percentComplete}%` }}
+                  className="h-full transition-all duration-300"
+                  style={{ width: `${percentComplete}%`, background: percentComplete === 100 ? 'var(--ok)' : 'var(--primary)' }}
                 ></div>
               </div>
             </div>
             <div className="text-xs">
               {percentComplete === 100 ? (
-                <span className="text-emerald-700 font-bold flex items-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <span className="font-bold flex items-center gap-1.5" style={{ color: 'var(--ok)' }}>
+                  <CheckCircle2 className="w-4 h-4" />
                   <span>All required parameters recorded. Ready to submit.</span>
                 </span>
               ) : (
-                <span className="text-slate-500 font-medium">
+                <span className="font-medium" style={{ color: 'var(--muted)' }}>
                   {hasSerialRows
                     ? `Check all ${serialTotalItems} items (P or F) to submit.`
                     : `Complete all ${totalRequired} mandatory parameters to sign off.`}
@@ -1221,15 +1225,15 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
         )}
 
         {/* Actions Bar */}
-        <div className="p-5 border-t border-slate-200 bg-slate-50/60 flex flex-wrap items-center justify-between gap-4">
-          <div className="text-slate-500 text-xs">
+        <div className="p-5 flex flex-wrap items-center justify-between gap-4" style={{ borderTop: '1px solid var(--line)', background: 'var(--surface2)' }}>
+          <div className="text-xs" style={{ color: 'var(--muted)' }}>
             {currentUser.role === 'operator' && !batch.operator_submitted_at && (
               <span>Complete all fields. Submitting notifies Supervisor and Admin.</span>
             )}
             {currentUser.role === 'supervisor' && (
               <span>
                 {hasConfirmedRejections ? (
-                  <span className="text-red-600 font-semibold">
+                  <span className="font-semibold" style={{ color: 'var(--ng)' }}>
                     1 or more failing items confirmed. Approval is blocked.
                   </span>
                 ) : (
@@ -1247,10 +1251,11 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                   type="button"
                   disabled={isPassingAll || isSubmitting}
                   onClick={handlePassAll}
-                  className="px-4 py-2 font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                  className="px-4 py-2 font-semibold rounded flex items-center gap-1.5 transition-colors disabled:opacity-50 text-xs"
+                  style={{ background: 'var(--ok-bg)', color: 'var(--ok)', border: '1px solid #b2dcc5' }}
                   title="Mark all checkboxes and Pass/Fail fields as Pass at once"
                 >
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  <CheckCircle2 className="w-3.5 h-3.5" />
                   <span>{isPassingAll ? 'Applying...' : 'Pass All'}</span>
                 </button>
 
@@ -1258,9 +1263,10 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                   type="button"
                   disabled={isSubmitting}
                   onClick={handleOperatorRejectClick}
-                  className="px-4 py-2 font-semibold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                  className="px-4 py-2 font-semibold rounded flex items-center gap-1.5 transition-colors disabled:opacity-50 text-xs"
+                  style={{ background: 'var(--ng-bg)', color: 'var(--ng)', border: '1px solid #f1b8b5' }}
                 >
-                  <AlertTriangle className="w-3.5 h-3.5 text-red-600" />
+                  <AlertTriangle className="w-3.5 h-3.5" />
                   <span>Reject Batch</span>
                 </button>
 
@@ -1268,7 +1274,8 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                   type="button"
                   disabled={isSubmitting}
                   onClick={handleOperatorApprove}
-                  className="px-5 py-2 font-semibold text-white bg-slate-900 hover:bg-slate-700 rounded flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                  className="px-5 py-2 font-semibold rounded flex items-center gap-1.5 transition-colors disabled:opacity-50 text-xs"
+                  style={{ background: 'var(--primary)', color: 'var(--on-primary)' }}
                 >
                   <CheckCircle2 className="w-4 h-4" />
                   <span>{isSubmitting ? 'Saving...' : 'Submit & Approve'}</span>
@@ -1283,19 +1290,21 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                   type="button"
                   disabled={isPassingAll || isSubmitting}
                   onClick={handlePassAll}
-                  className="px-4 py-2 font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                  className="px-4 py-2 font-semibold rounded flex items-center gap-1.5 transition-colors disabled:opacity-50 text-xs"
+                  style={{ background: 'var(--ok-bg)', color: 'var(--ok)', border: '1px solid #b2dcc5' }}
                   title="Mark all supervisor-assigned Pass/Fail and checkbox fields as Pass at once"
                 >
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  <CheckCircle2 className="w-3.5 h-3.5" />
                   <span>{isPassingAll ? 'Applying...' : 'Pass All'}</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setIsHoldModalOpen(true)}
-                  className="px-4 py-2 font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded flex items-center gap-1.5 transition-colors"
+                  className="px-4 py-2 font-semibold rounded flex items-center gap-1.5 transition-colors text-xs"
+                  style={{ background: 'var(--warn-bg)', color: 'var(--warn)', border: '1px solid #e0b65a' }}
                 >
-                  <Clock className="w-3.5 h-3.5 text-amber-600" />
+                  <Clock className="w-3.5 h-3.5" />
                   <span>Put on Hold</span>
                 </button>
 
@@ -1303,9 +1312,10 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                   type="button"
                   disabled={isSubmitting}
                   onClick={handleSupervisorReject}
-                  className="px-4 py-2 font-semibold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                  className="px-4 py-2 font-semibold rounded flex items-center gap-1.5 transition-colors disabled:opacity-50 text-xs"
+                  style={{ background: 'var(--ng-bg)', color: 'var(--ng)', border: '1px solid #f1b8b5' }}
                 >
-                  <AlertTriangle className="w-3.5 h-3.5 text-red-600" />
+                  <AlertTriangle className="w-3.5 h-3.5" />
                   <span>Reject Batch</span>
                 </button>
 
@@ -1314,7 +1324,8 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                   disabled={isSubmitting || hasConfirmedRejections}
                   onClick={handleSupervisorApprove}
                   title={hasConfirmedRejections ? 'Cannot approve: rejections confirmed failing' : 'Approve and sign off'}
-                  className="px-5 py-2 font-semibold text-white bg-slate-900 hover:bg-slate-700 rounded flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                  className="px-5 py-2 font-semibold rounded flex items-center gap-1.5 transition-colors disabled:opacity-50 text-xs"
+                  style={{ background: 'var(--primary)', color: 'var(--on-primary)' }}
                 >
                   <ShieldCheck className="w-4 h-4" />
                   <span>Approve & Sign-Off</span>
@@ -1326,13 +1337,13 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
       </div>
 
       {/* Approval Record Ledger (FR-054) */}
-      <div className="bg-white border border-slate-200 rounded-lg p-5 space-y-3">
-        <h3 className="font-bold text-sm text-slate-900">Approval Record (Sign-Off Ledger)</h3>
+      <div className="p-5 space-y-3" style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 12 }}>
+        <h3 className="font-bold text-sm" style={{ color: 'var(--ink)' }}>Approval Record (Sign-Off Ledger)</h3>
         {batch.decisions && batch.decisions.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="bg-slate-100 text-slate-600 font-semibold text-[11px] border-b border-slate-200">
+                <tr className="font-semibold text-[11px]" style={{ background: 'var(--surface2)', color: 'var(--muted)', borderBottom: '1px solid var(--line)' }}>
                   <th className="py-2 px-3">Round</th>
                   <th className="py-2 px-3">Stage</th>
                   <th className="py-2 px-3">By</th>
@@ -1341,35 +1352,33 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                   <th className="py-2 px-3">Remarks / Failed Items</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody>
                 {batch.decisions.map((dec) => (
-                  <tr key={dec.decision_id} className="hover:bg-slate-50">
-                    <td className="py-2 px-3 font-mono font-bold text-slate-700">{dec.round}</td>
-                    <td className="py-2 px-3 font-medium text-slate-800">{dec.stage}</td>
-                    <td className="py-2 px-3 text-slate-700">
+                  <tr key={dec.decision_id} style={{ borderBottom: '1px solid var(--line)' }}>
+                    <td className="py-2 px-3 font-mono font-bold" style={{ color: 'var(--muted)' }}>{dec.round}</td>
+                    <td className="py-2 px-3 font-medium" style={{ color: 'var(--ink)' }}>{dec.stage}</td>
+                    <td className="py-2 px-3" style={{ color: 'var(--ink)' }}>
                       {dec.decided_by_name || `User #${dec.decided_by}`}
-                      <span className="text-slate-400 text-[10px] ml-1">({dec.role})</span>
+                      <span className="text-[10px] ml-1" style={{ color: 'var(--muted)' }}>({dec.role})</span>
                     </td>
                     <td className="py-2 px-3 font-bold">
-                      <span
-                        className={
-                          dec.decision.toLowerCase().includes('approv')
-                            ? 'text-emerald-700'
-                            : dec.decision.toLowerCase().includes('reject')
-                            ? 'text-red-700'
-                            : 'text-amber-700'
-                        }
-                      >
+                      <span style={{
+                        color: dec.decision.toLowerCase().includes('approv')
+                          ? 'var(--ok)'
+                          : dec.decision.toLowerCase().includes('reject')
+                          ? 'var(--ng)'
+                          : 'var(--warn)'
+                      }}>
                         {dec.decision}
                       </span>
                     </td>
-                    <td className="py-2 px-3 text-slate-500 font-mono text-[11px]">
+                    <td className="py-2 px-3 font-mono text-[11px]" style={{ color: 'var(--muted)' }}>
                       {dec.decided_at ? new Date(dec.decided_at).toLocaleString() : '-'}
                     </td>
-                    <td className="py-2 px-3 text-slate-600">
+                    <td className="py-2 px-3" style={{ color: 'var(--muted)' }}>
                       {dec.remarks || '-'}
                       {dec.rejected_fields && dec.rejected_fields.length > 0 && (
-                        <span className="text-red-600 block text-[10px]">
+                        <span className="block text-[10px]" style={{ color: 'var(--ng)' }}>
                           Failed: {dec.rejected_fields.join(', ')}
                         </span>
                       )}
@@ -1380,7 +1389,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
             </table>
           </div>
         ) : (
-          <p className="text-slate-400 text-xs italic">
+          <p className="text-xs italic" style={{ color: 'var(--muted)' }}>
             No sign-offs recorded yet. All approvals, rejections, holds, and releases are permanently logged here.
           </p>
         )}
@@ -1388,21 +1397,22 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
 
       {/* Supervisor Hold Modal (FR-055) */}
       {isHoldModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 no-print backdrop-blur-sm">
-          <div className="bg-white border border-slate-200 rounded-lg w-full max-w-md shadow-lg overflow-hidden text-xs">
-            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="font-semibold text-slate-900">Put Batch On Hold (Quarantine)</h3>
-              <button onClick={() => setIsHoldModalOpen(false)} className="text-slate-400 hover:text-slate-700 p-1">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 no-print backdrop-blur-sm" style={{ background: 'rgba(27,37,51,0.4)' }}>
+          <div className="w-full max-w-md shadow-lg overflow-hidden text-xs" style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 12 }}>
+            <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--line)' }}>
+              <h3 className="font-semibold" style={{ color: 'var(--ink)' }}>Put Batch On Hold (Quarantine)</h3>
+              <button onClick={() => setIsHoldModalOpen(false)} className="p-1" style={{ color: 'var(--muted)' }}>
                 <X className="w-4 h-4" />
               </button>
             </div>
             <form onSubmit={handleSupervisorHoldSubmit} className="p-5 space-y-3.5">
               <div>
-                <label className="font-semibold text-slate-700 block mb-1">Reason Category:</label>
+                <label className="font-semibold block mb-1" style={{ color: 'var(--ink)' }}>Reason Category:</label>
                 <select
                   value={holdReason}
                   onChange={(e) => setHoldReason(e.target.value)}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-slate-900 focus:outline-none"
+                  className="w-full rounded-lg px-3 py-2 text-xs focus:outline-none"
+                  style={{ border: '1px solid var(--line2)', background: 'var(--surface)', color: 'var(--ink)' }}
                 >
                   {HOLD_REASONS.map((r) => (
                     <option key={r} value={r}>
@@ -1413,23 +1423,25 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
               </div>
 
               <div>
-                <label className="font-semibold text-slate-700 block mb-1">Note (What are you waiting for?):</label>
+                <label className="font-semibold block mb-1" style={{ color: 'var(--ink)' }}>Note (What are you waiting for?):</label>
                 <textarea
                   rows={2}
                   value={holdNote}
                   onChange={(e) => setHoldNote(e.target.value)}
                   placeholder="e.g. X-ray sample sent to lab for void check"
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-xs focus:ring-2 focus:ring-slate-900 focus:outline-none"
+                  className="w-full rounded-lg p-2.5 text-xs focus:outline-none"
+                  style={{ border: '1px solid var(--line2)', color: 'var(--ink)' }}
                   required
                 />
               </div>
 
               <div>
-                <label className="font-semibold text-slate-700 block mb-1">Review by:</label>
+                <label className="font-semibold block mb-1" style={{ color: 'var(--ink)' }}>Review by:</label>
                 <select
                   value={holdHours}
                   onChange={(e) => setHoldHours(Number(e.target.value))}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-slate-900 focus:outline-none"
+                  className="w-full rounded-lg px-3 py-2 text-xs focus:outline-none"
+                  style={{ border: '1px solid var(--line2)', background: 'var(--surface)', color: 'var(--ink)' }}
                 >
                   {REVIEW_BY_OPTIONS.map((opt) => (
                     <option key={opt.hours} value={opt.hours}>
@@ -1439,18 +1451,20 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                 </select>
               </div>
 
-              <div className="flex gap-2 pt-2 border-t border-slate-100">
+              <div className="flex gap-2 pt-2" style={{ borderTop: '1px solid var(--line)' }}>
                 <button
                   type="button"
                   onClick={() => setIsHoldModalOpen(false)}
-                  className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded"
+                  className="flex-1 py-2 font-medium rounded"
+                  style={{ background: 'var(--surface2)', color: 'var(--ink)' }}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="flex-1 py-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded disabled:opacity-50"
+                  className="flex-1 py-2 font-semibold rounded disabled:opacity-50"
+                  style={{ background: 'var(--warn)', color: '#fff' }}
                 >
                   {isSubmitting ? 'Holding...' : 'Place On Hold'}
                 </button>
@@ -1462,19 +1476,19 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
 
       {/* Release Hold Modal (FR-057 & FR-058) */}
       {isReleaseModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 no-print backdrop-blur-sm">
-          <div className="bg-white border border-slate-200 rounded-lg w-full max-w-md shadow-lg overflow-hidden text-xs">
-            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="font-semibold text-slate-900">Release Hold on {batch.lot_number}</h3>
-              <button onClick={() => setIsReleaseModalOpen(false)} className="text-slate-400 hover:text-slate-700 p-1">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 no-print backdrop-blur-sm" style={{ background: 'rgba(27,37,51,0.4)' }}>
+          <div className="w-full max-w-md shadow-lg overflow-hidden text-xs" style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 12 }}>
+            <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--line)' }}>
+              <h3 className="font-semibold" style={{ color: 'var(--ink)' }}>Release Hold on {batch.lot_number}</h3>
+              <button onClick={() => setIsReleaseModalOpen(false)} className="p-1" style={{ color: 'var(--muted)' }}>
                 <X className="w-4 h-4" />
               </button>
             </div>
             <form onSubmit={handleReleaseHoldSubmit} className="p-5 space-y-4">
               <div>
-                <label className="font-semibold text-slate-700 block mb-2">Release Outcome:</label>
+                <label className="font-semibold block mb-2" style={{ color: 'var(--ink)' }}>Release Outcome:</label>
                 <div className="space-y-1.5">
-                  <label className="flex items-center gap-2 p-2 border border-slate-200 rounded hover:bg-slate-50 cursor-pointer">
+                  <label className="flex items-center gap-2 p-2 rounded cursor-pointer" style={{ border: '1px solid var(--line)' }}>
                     <input
                       type="radio"
                       name="relOutcome"
@@ -1482,9 +1496,9 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                       checked={releaseOutcome === 'approve'}
                       onChange={() => setReleaseOutcome('approve')}
                     />
-                    <span className="font-semibold text-slate-800">Approve batch (Concession / Lab Cleared)</span>
+                    <span className="font-semibold" style={{ color: 'var(--ink)' }}>Approve batch (Concession / Lab Cleared)</span>
                   </label>
-                  <label className="flex items-center gap-2 p-2 border border-slate-200 rounded hover:bg-slate-50 cursor-pointer">
+                  <label className="flex items-center gap-2 p-2 rounded cursor-pointer" style={{ border: '1px solid var(--line)' }}>
                     <input
                       type="radio"
                       name="relOutcome"
@@ -1492,9 +1506,9 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                       checked={releaseOutcome === 'reject'}
                       onChange={() => setReleaseOutcome('reject')}
                     />
-                    <span className="font-semibold text-slate-800">Reject batch</span>
+                    <span className="font-semibold" style={{ color: 'var(--ink)' }}>Reject batch</span>
                   </label>
-                  <label className="flex items-center gap-2 p-2 border border-slate-200 rounded hover:bg-slate-50 cursor-pointer">
+                  <label className="flex items-center gap-2 p-2 rounded cursor-pointer" style={{ border: '1px solid var(--line)' }}>
                     <input
                       type="radio"
                       name="relOutcome"
@@ -1503,8 +1517,8 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                       onChange={() => setReleaseOutcome('reinspect')}
                     />
                     <div>
-                      <span className="font-semibold text-slate-800 block">Send back for reinspection</span>
-                      <span className="text-[10px] text-slate-500">
+                      <span className="font-semibold block" style={{ color: 'var(--ink)' }}>Send back for reinspection</span>
+                      <span className="text-[10px]" style={{ color: 'var(--muted)' }}>
                         Increments round (Round {(batch.round || 1) + 1}) and allows Operator to re-inspect.
                       </span>
                     </div>
@@ -1513,29 +1527,32 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
               </div>
 
               <div>
-                <label className="font-semibold text-slate-700 block mb-1">Release Note:</label>
+                <label className="font-semibold block mb-1" style={{ color: 'var(--ink)' }}>Release Note:</label>
                 <textarea
                   rows={2}
                   value={releaseNote}
                   onChange={(e) => setReleaseNote(e.target.value)}
                   placeholder="e.g. Lab result received, voids within allowable limit"
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-xs focus:ring-2 focus:ring-slate-900 focus:outline-none"
+                  className="w-full rounded-lg p-2.5 text-xs focus:outline-none"
+                  style={{ border: '1px solid var(--line2)', color: 'var(--ink)' }}
                   required
                 />
               </div>
 
-              <div className="flex gap-2 pt-2 border-t border-slate-100">
+              <div className="flex gap-2 pt-2" style={{ borderTop: '1px solid var(--line)' }}>
                 <button
                   type="button"
                   onClick={() => setIsReleaseModalOpen(false)}
-                  className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded"
+                  className="flex-1 py-2 font-medium rounded"
+                  style={{ background: 'var(--surface2)', color: 'var(--ink)' }}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="flex-1 py-2 bg-slate-900 hover:bg-slate-700 text-white font-semibold rounded disabled:opacity-50"
+                  className="flex-1 py-2 font-semibold rounded disabled:opacity-50"
+                  style={{ background: 'var(--primary)', color: 'var(--on-primary)' }}
                 >
                   {isSubmitting ? 'Releasing...' : 'Release Hold'}
                 </button>
