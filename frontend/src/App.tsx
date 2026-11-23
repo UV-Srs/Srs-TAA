@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { User, InspectionBatch, QRResolveResult } from './types';
-import { getCurrentStoredUser, logoutUser, fetchBatches, fetchProgressDashboard } from './api';
+import { getCurrentStoredUser, logoutUser, fetchBatches, fetchProgressDashboard, startInspectionFromTemplate } from './api';
 import { onBatchCreated, onBatchUpdated, onSheetUpdated } from './liveSync';
 import { Header } from './components/Header';
 import { UniversalScanBar } from './components/UniversalScanBar';
@@ -95,8 +95,19 @@ export const App: React.FC = () => {
           setActiveTab('sheet');
           loadBatches();
         }}
-        onTemplateResolved={() => {
-          setActiveTab('builder');
+        onTemplateResolved={async (sheetId) => {
+          if (currentUser.role === 'admin') {
+            setActiveTab('builder');
+            return;
+          }
+          try {
+            const { batch_id } = await startInspectionFromTemplate(sheetId);
+            await loadBatches();
+            setCurrentBatchId(batch_id);
+            setActiveTab('sheet');
+          } catch (err) {
+            console.error('Failed to open checksheet for scanned part:', err);
+          }
         }}
       />
 

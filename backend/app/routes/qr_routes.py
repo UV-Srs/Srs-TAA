@@ -3,6 +3,7 @@ import re
 from urllib.parse import urlparse, parse_qs
 from typing import Optional, Dict, Any, Tuple
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from backend.app.database import get_db
@@ -10,6 +11,7 @@ from backend.app.models import User, SheetTemplate, InspectionBatch
 from backend.app.schemas import QRResolveResponse
 from backend.app.auth import get_current_user
 from backend.app.qr_engine import generate_qr_base64, generate_barcode_base64
+from backend.app.live_sync import notify_live
 
 router = APIRouter(prefix="/api/qr", tags=["QR & Barcode Engine"])
 
@@ -127,6 +129,13 @@ def resolve_code(
     if not batch and not template:
         template = db.query(SheetTemplate).filter(SheetTemplate.sheet_id == clean_code).first()
 
+    # Part labels commonly contain the part number rather than the internal sheet ID.
+    # Match the scanned value to the admin-created template's part_no.
+    if not batch and not template:
+        template = db.query(SheetTemplate).filter(
+            func.lower(func.trim(SheetTemplate.part_no)) == clean_code.lower()
+        ).first()
+
     # If template found without batch, find the most recent open batch
     if template and not batch:
         batch = db.query(InspectionBatch).filter(
@@ -185,6 +194,40 @@ def resolve_code(
                 "part_name": template.part_name
             }
         }
+
+@router.post("/templates/{sheet_id}/start")
+def start_inspection_from_template(
+    sheet_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Create the first inspection batch when an operator scans a known part label."""
+    if current_user.role not in {"operator", "supervisor", "admin"}:
+        raise HTTPException(status_code=403, detail="Not allowed to start an inspection")
+
+    template = db.query(SheetTemplate).filter(SheetTemplate.sheet_id == sheet_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="Sheet template not found")
+
+    batch = db.query(InspectionBatch).filter(
+        InspectionBatch.sheet_id == template.sheet_id
+    ).order_by(InspectionBatch.created_at.desc()).first()
+    if batch:
+        return {"batch_id": batch.batch_id}
+
+    lot_number = f"PART-{template.part_no or template.sheet_id}"
+    batch = InspectionBatch(
+        sheet_id=template.sheet_id,
+        lot_number=lot_number,
+        product_name=template.part_name or template.document_title,
+        status="CREATED_PENDING_OPERATOR",
+        round=1,
+    )
+    db.add(batch)
+    db.commit()
+    db.refresh(batch)
+    notify_live("BATCH_CREATED", {"batch_id": batch.batch_id, "sheet_id": batch.sheet_id, "lot_number": batch.lot_number})
+    return {"batch_id": batch.batch_id}
 
 @router.get("/codes/{sheet_id}")
 def get_template_codes(

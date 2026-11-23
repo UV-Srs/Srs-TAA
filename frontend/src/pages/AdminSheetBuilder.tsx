@@ -194,9 +194,36 @@ export const AdminSheetBuilder: React.FC = () => {
 
   const handleQRScannedForSheetID = (res: any) => {
     if (res.sheet_id) {
+      const existing = sheetsList.find((sheet) => sheet.sheet_id === res.sheet_id);
+      if (existing) {
+        populateForm(existing);
+        setStatusMsg({ type: 'success', text: `Loaded sheet for part number ${existing.part_no || res.sheet_id}.` });
+        return;
+      }
       setSheetId(res.sheet_id);
       setStatusMsg({ type: 'success', text: `Scanned Sheet ID populated: ${res.sheet_id}` });
     }
+  };
+
+  const handlePartNumberScanned = (scannedCode: string) => {
+    const scannedPartNo = scannedCode.trim();
+    handleStartBlank();
+    setDocumentTitle('');
+    setPartName('');
+    setModelName('');
+    setVendorName('');
+    setCustomerName('');
+    setControlItems([]);
+    const normalizedId = scannedPartNo
+      .toUpperCase()
+      .replace(/[^A-Z0-9-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 55);
+    setIsNewSheet(true);
+    setSelectedSheetId('');
+    setSheetId(`IFM-${normalizedId || Date.now().toString()}`);
+    setPartNo(scannedPartNo);
+    setStatusMsg({ type: 'success', text: `Part number ${scannedPartNo} added to the new sheet. Complete the form and save it.` });
   };
 
   if (isLoading) {
@@ -281,7 +308,7 @@ export const AdminSheetBuilder: React.FC = () => {
             className="text-[11px] font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-md flex items-center gap-1 transition-colors"
           >
             <QrCode className="w-3.5 h-3.5" />
-            <span>Scan QR for Sheet ID</span>
+            <span>Scan Part Number</span>
           </button>
         </div>
 
@@ -551,6 +578,8 @@ export const AdminSheetBuilder: React.FC = () => {
           isOpen={true}
           onClose={() => setIsTFTScanOpen(false)}
           onResolved={handleQRScannedForSheetID}
+          scanAsPartNumber
+          onUnregisteredCode={handlePartNumberScanned}
         />
       )}
     </div>

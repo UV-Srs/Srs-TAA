@@ -129,6 +129,11 @@ def create_sheet(payload: SheetTemplateCreate, db: Session = Depends(get_db), cu
     if existing:
         raise HTTPException(status_code=400, detail=f"Sheet ID '{payload.sheet_id}' already exists")
 
+    if payload.part_no and db.query(SheetTemplate).filter(
+        func.lower(func.trim(SheetTemplate.part_no)) == payload.part_no.strip().lower()
+    ).first():
+        raise HTTPException(status_code=400, detail=f"Part number '{payload.part_no}' is already linked to a sheet")
+
     qr_val = f"TAA:SHEET:{payload.sheet_id}"
     barcode_val = f"TAA-{payload.sheet_id}"
 
@@ -200,6 +205,12 @@ def update_sheet(sheet_id: str, payload: SheetTemplateCreate, db: Session = Depe
     template = db.query(SheetTemplate).filter(SheetTemplate.sheet_id == sheet_id).first()
     if not template:
         raise HTTPException(status_code=404, detail="Sheet template not found")
+
+    if payload.part_no and db.query(SheetTemplate).filter(
+        SheetTemplate.sheet_id != sheet_id,
+        func.lower(func.trim(SheetTemplate.part_no)) == payload.part_no.strip().lower()
+    ).first():
+        raise HTTPException(status_code=400, detail=f"Part number '{payload.part_no}' is already linked to another sheet")
 
     template.document_title = payload.document_title
     template.part_no = payload.part_no
