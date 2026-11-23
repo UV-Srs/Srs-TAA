@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { InspectionBatch, User } from '../types';
 import { getCsvExportUrl, downloadCsvReport, handleReportDownloadClick } from '../api';
-import { Download, AlertCircle, Clock, Search } from 'lucide-react';
+import { Download, AlertCircle, Clock, Search, ChevronDown } from 'lucide-react';
 
 interface BatchSidebarProps {
   batches: InspectionBatch[];
@@ -26,6 +26,14 @@ export const BatchSidebar: React.FC<BatchSidebarProps> = ({
   progressSummary,
 }) => {
   const [searchQuery, setSearchQuery] = useState<string>('');
+  // Below lg the queue stacks above the checksheet; let it collapse so the sheet is reachable.
+  const [isCollapsed, setIsCollapsed] = useState<boolean>(false);
+  const selectedBatch = batches.find((b) => b.batch_id === selectedBatchId);
+
+  const handleSelect = (batchId: number) => {
+    onSelectBatch(batchId);
+    if (window.matchMedia('(max-width: 1023px)').matches) setIsCollapsed(true);
+  };
 
   // Role-based filtering
   let roleList = batches;
@@ -86,13 +94,26 @@ export const BatchSidebar: React.FC<BatchSidebarProps> = ({
     <aside className="w-full lg:w-80 shrink-0 border border-slate-200 bg-white rounded-2xl shadow-sm p-4 space-y-3.5 text-xs">
       {/* Header & Search */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            className="flex items-center gap-2 min-w-0 lg:pointer-events-none"
+            aria-expanded={!isCollapsed}
+          >
             <h3 className="font-bold text-sm text-slate-900">{title}</h3>
             <span className="text-[11px] font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full">
               {filteredList.length}
             </span>
-          </div>
+            {isCollapsed && selectedBatch && (
+              <span className="lg:hidden font-mono text-[11px] text-slate-500 truncate">
+                · {selectedBatch.lot_number}
+              </span>
+            )}
+            <ChevronDown
+              className={`lg:hidden w-4 h-4 text-slate-500 shrink-0 transition-transform ${isCollapsed ? '' : 'rotate-180'}`}
+            />
+          </button>
 
           {currentUser.role === 'admin' && (
             <a
@@ -109,20 +130,20 @@ export const BatchSidebar: React.FC<BatchSidebarProps> = ({
         </div>
 
         {/* Quick Search */}
-        <div className="relative">
+        <div className={`relative ${isCollapsed ? 'hidden lg:block' : ''}`}>
           <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5 pointer-events-none" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search lot or part..."
-            className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-slate-900 focus:bg-white rounded-lg text-xs font-medium text-slate-800 placeholder-slate-400 outline-none transition-all"
+            className="w-full pl-8 pr-3 py-2 lg:py-1.5 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-slate-900 focus:bg-white rounded-lg text-xs font-medium text-slate-800 placeholder-slate-400 outline-none transition-all"
           />
         </div>
       </div>
 
       {/* Batch Cards List */}
-      <div className="space-y-1.5 max-h-[calc(100vh-280px)] overflow-y-auto pr-0.5">
+      <div className={`space-y-1.5 max-h-[50vh] lg:max-h-[calc(100vh-280px)] overflow-y-auto pr-0.5 ${isCollapsed ? 'hidden lg:block' : ''}`}>
         {filteredList.length === 0 ? (
           <div className="py-8 px-4 border border-dashed border-slate-200 rounded-xl text-center text-slate-400">
             <Clock className="w-5 h-5 mx-auto mb-1.5 opacity-40" />
@@ -136,7 +157,7 @@ export const BatchSidebar: React.FC<BatchSidebarProps> = ({
               <button
                 key={b.batch_id}
                 type="button"
-                onClick={() => onSelectBatch(b.batch_id)}
+                onClick={() => handleSelect(b.batch_id)}
                 className={`w-full text-left p-3 rounded-xl border transition-all ${
                   isSelected
                     ? 'border-slate-900 bg-slate-50 ring-1 ring-slate-900 shadow-2xs'

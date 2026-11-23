@@ -143,96 +143,68 @@ export const Header: React.FC<HeaderProps> = ({
 
   if (!user) return null;
 
+  const navTabs = [
+    { id: 'sheet', label: 'Inspection', icon: FileText },
+    ...(user.role === 'admin'
+      ? [
+          { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+          { id: 'builder', label: 'Templates', icon: PlusCircle },
+          { id: 'users', label: 'Users', icon: Users },
+          { id: 'audit', label: 'Audit', icon: ShieldCheck },
+        ]
+      : []),
+  ];
+
+  const renderTab = (tab: (typeof navTabs)[number]) => {
+    const Icon = tab.icon;
+    return (
+      <button
+        key={tab.id}
+        type="button"
+        onClick={() => setActiveTab(tab.id)}
+        className={`px-3 py-2 lg:py-1.5 rounded-lg transition-all flex items-center gap-1.5 font-medium whitespace-nowrap shrink-0 ${
+          activeTab === tab.id
+            ? 'bg-white text-slate-900 shadow-2xs font-semibold'
+            : 'text-slate-600 hover:text-slate-900'
+        }`}
+      >
+        <Icon className="w-3.5 h-3.5" />
+        <span>{tab.label}</span>
+      </button>
+    );
+  };
+
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-40 no-print select-none">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
         {/* Left: Brand & Main Navigation */}
-        <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-6 min-w-0">
+          <div className="flex items-center gap-2.5 shrink-0">
             <div className="w-8 h-8 rounded-lg bg-black text-white flex items-center justify-center font-black text-sm tracking-tight shadow-sm">
               TAA
             </div>
             <div>
               <h1 className="text-sm font-bold text-slate-900 leading-none">Inspection System</h1>
-              <span className="text-[10px] text-slate-400 font-medium">Shop Floor Quality</span>
+              <span className="text-[10px] text-slate-400 font-medium hidden sm:block">Shop Floor Quality</span>
             </div>
           </div>
 
-          {/* Clean Navigation Tabs */}
-          <nav className="hidden sm:flex items-center gap-1 bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-xs">
-            <button
-              onClick={() => setActiveTab('sheet')}
-              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 font-medium ${
-                activeTab === 'sheet'
-                  ? 'bg-white text-slate-900 shadow-2xs font-semibold'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <FileText className="w-3.5 h-3.5" />
-              <span>Inspection</span>
-            </button>
-
-            {user.role === 'admin' && (
-              <>
-                <button
-                  onClick={() => setActiveTab('dashboard')}
-                  className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 font-medium ${
-                    activeTab === 'dashboard'
-                      ? 'bg-white text-slate-900 shadow-2xs font-semibold'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <LayoutDashboard className="w-3.5 h-3.5" />
-                  <span>Dashboard</span>
-                </button>
-
-                <button
-                  onClick={() => setActiveTab('builder')}
-                  className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 font-medium ${
-                    activeTab === 'builder'
-                      ? 'bg-white text-slate-900 shadow-2xs font-semibold'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <PlusCircle className="w-3.5 h-3.5" />
-                  <span>Templates</span>
-                </button>
-
-                <button
-                  onClick={() => setActiveTab('users')}
-                  className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 font-medium ${
-                    activeTab === 'users'
-                      ? 'bg-white text-slate-900 shadow-2xs font-semibold'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <Users className="w-3.5 h-3.5" />
-                  <span>Users</span>
-                </button>
-
-                <button
-                  onClick={() => setActiveTab('audit')}
-                  className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 font-medium ${
-                    activeTab === 'audit'
-                      ? 'bg-white text-slate-900 shadow-2xs font-semibold'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>Audit</span>
-                </button>
-              </>
-            )}
+          {/* Desktop Navigation Tabs (lg+). Below lg the tabs move to a second row. */}
+          <nav className="hidden lg:flex items-center gap-1 bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-xs">
+            {navTabs.map(renderTab)}
           </nav>
         </div>
 
         {/* Right: Actions, Notifications, & User Profile */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
           {/* Offline Sync Status */}
           {(!isOnline || pendingSyncCount > 0) && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg text-xs font-medium">
+            <div
+              className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg text-xs font-medium"
+              title={pendingSyncCount > 0 ? `${pendingSyncCount} pending sync` : 'Offline'}
+            >
               <WifiOff className="w-3.5 h-3.5 text-amber-600" />
-              <span>{pendingSyncCount > 0 ? `${pendingSyncCount} pending sync` : 'Offline'}</span>
+              <span className="hidden sm:inline">{pendingSyncCount > 0 ? `${pendingSyncCount} pending sync` : 'Offline'}</span>
             </div>
           )}
 
@@ -241,7 +213,7 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               type="button"
               onClick={() => setIsNotifOpen(!isNotifOpen)}
-              className="relative p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-colors"
+              className="relative p-2.5 sm:p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-colors"
               title="Notifications"
             >
               <Bell className="w-4 h-4" />
@@ -251,7 +223,7 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
 
             {isNotifOpen && (
-              <div className="absolute right-0 top-full mt-2 w-80 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 overflow-hidden text-xs">
+              <div className="fixed left-4 right-4 top-16 sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-80 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 overflow-hidden text-xs">
                 <div className="p-3 border-b border-slate-100 flex items-center justify-between bg-slate-50">
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-slate-900">Notifications</span>
@@ -312,7 +284,7 @@ export const Header: React.FC<HeaderProps> = ({
               <div className="w-6 h-6 rounded-lg bg-black text-white flex items-center justify-center font-bold text-xs uppercase">
                 {user.full_name.charAt(0)}
               </div>
-              <div className="text-left hidden md:block">
+              <div className="text-left hidden xl:block">
                 <span className="font-bold text-slate-900 block leading-tight truncate max-w-[120px]">
                   {user.full_name}
                 </span>
@@ -356,6 +328,15 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Compact Navigation Row (below lg): horizontally scrollable so every tab stays reachable */}
+      {navTabs.length > 1 && (
+        <nav className="lg:hidden border-t border-slate-100 px-4 sm:px-6 py-1.5 overflow-x-auto">
+          <div className="max-w-7xl mx-auto flex items-center gap-1 text-xs w-max">
+            {navTabs.map(renderTab)}
+          </div>
+        </nav>
+      )}
     </header>
   );
 };

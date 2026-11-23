@@ -269,7 +269,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch })
       {/* Simple Create Batch Dialog */}
       {isNewBatchOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
-          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-xl text-xs">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto p-6 space-y-4 shadow-xl text-xs">
             <h3 className="text-sm font-bold text-slate-900 pb-2 border-b border-slate-100">
               Create New Inspection Batch
             </h3>
