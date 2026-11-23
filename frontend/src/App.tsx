@@ -1,16 +1,22 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { User, InspectionBatch, QRResolveResult } from './types';
-import { getCurrentStoredUser, logoutUser, fetchBatches, fetchProgressDashboard, startInspectionFromTemplate } from './api';
-import { onBatchCreated, onBatchUpdated, onSheetUpdated } from './liveSync';
+import { getCurrentStoredUser, logoutUser, fetchBatches, fetchProgressDashboard, startInspectionFromTemplate, fetchPendingScan } from './api';
+import { onBatchCreated, onBatchUpdated, onSheetUpdated, onScanNotFound, liveSync } from './liveSync';
 import { Header } from './components/Header';
 import { UniversalScanBar } from './components/UniversalScanBar';
 import { BatchSidebar } from './components/BatchSidebar';
+import { CreateBatchModal } from './components/CreateBatchModal';
 import { LoginPage } from './pages/LoginPage';
 import { ChecksheetView } from './pages/ChecksheetView';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { AdminSheetBuilder } from './pages/AdminSheetBuilder';
 import { AdminUserManagement } from './pages/AdminUserManagement';
 import { AuditLogsView } from './pages/AuditLogsView';
+import { MobileScannerPage } from './pages/MobileScannerPage';
+
+function isMobileDevice() {
+  return /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+}
 
 export const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(getCurrentStoredUser());
@@ -18,28 +24,66 @@ export const App: React.FC = () => {
   const [currentBatchId, setCurrentBatchId] = useState<number | null>(null);
   const [batches, setBatches] = useState<InspectionBatch[]>([]);
   const [progressSummary, setProgressSummary] = useState<any>(null);
+  const [isCreateBatchOpen, setIsCreateBatchOpen] = useState<boolean>(false);
+  const [createBatchCode, setCreateBatchCode] = useState<string>('');
+  const [createBatchSheetId, setCreateBatchSheetId] = useState<string>('');
+  const [createBatchLinkBarcode, setCreateBatchLinkBarcode] = useState<string>('');
+  const currentBatchIdRef = useRef<number | null>(currentBatchId);
+
+  useEffect(() => { currentBatchIdRef.current = currentBatchId; }, [currentBatchId]);
+
+  const handleOpenCreateBatch = (code = '', sheetId = '', linkBarcode = '') => {
+    setCreateBatchCode(code);
+    setCreateBatchSheetId(sheetId);
+    setCreateBatchLinkBarcode(linkBarcode);
+    setIsCreateBatchOpen(true);
+  };
+
+  const handleBatchCreatedFromModal = (newBatchId: number) => {
+    setIsCreateBatchOpen(false);
+    setCurrentBatchId(newBatchId);
+    setActiveTab('sheet');
+    loadBatches();
+  };
 
   useEffect(() => {
-    if (currentUser) {
-      loadBatches();
-    }
+    if (!currentUser) return;
+
+    loadBatches();
 
     // Real-Time Live Sync: Automatically refresh batches and progress when any change occurs
-    const unsub1 = onBatchCreated(() => {
-      loadBatches();
-    });
-    const unsub2 = onBatchUpdated(() => {
-      loadBatches();
-    });
-    const unsub3 = onSheetUpdated(() => {
-      loadBatches();
+    const unsub1 = onBatchCreated(() => loadBatches());
+    const unsub2 = onBatchUpdated(() => loadBatches());
+    const unsub3 = onSheetUpdated(() => loadBatches());
+
+    // SCAN_NOT_FOUND: phone scanned an unregistered barcode — open CreateBatchModal on desktop
+    const unsub4 = onScanNotFound((data) => {
+      if (currentUser.role === 'admin' && !isMobileDevice()) {
+        handleOpenCreateBatch(data.raw_code, '', data.raw_code);
+      }
     });
 
     return () => {
       unsub1();
       unsub2();
       unsub3();
+      unsub4();
     };
+  }, [currentUser]);
+
+  // Polling fallback: catches SCAN_NOT_FOUND events if WebSocket missed them
+  useEffect(() => {
+    if (!currentUser || isMobileDevice()) return;
+    const interval = setInterval(async () => {
+      try {
+        const scan = await fetchPendingScan();
+        if (!scan) return;
+        if (scan.type === 'SCAN_NOT_FOUND' && currentUser.role === 'admin') {
+          handleOpenCreateBatch(scan.raw_code, '', scan.raw_code);
+        }
+      } catch {}
+    }, 2000);
+    return () => clearInterval(interval);
   }, [currentUser]);
 
   const loadBatches = async () => {
@@ -73,7 +117,24 @@ export const App: React.FC = () => {
   };
 
   if (!currentUser) {
-    return <LoginPage onLoginSuccess={(u) => setCurrentUser(u)} />;
+    return (
+      <LoginPage
+        onLoginSuccess={(u) => {
+          setCurrentUser(u);
+          liveSync.reconnect();
+        }}
+      />
+    );
+  }
+
+  // Mobile phones get a simplified scanning interface
+  if (isMobileDevice()) {
+    return (
+      <MobileScannerPage
+        currentUser={currentUser}
+        onLogout={() => { logoutUser(); setCurrentUser(null); }}
+      />
+    );
   }
 
   return (
@@ -109,6 +170,7 @@ export const App: React.FC = () => {
             console.error('Failed to open checksheet for scanned part:', err);
           }
         }}
+        onRequestCreateBatch={(code) => handleOpenCreateBatch(code, '', code)}
       />
 
       {/* Main Workspace Canvas */}
@@ -162,6 +224,18 @@ export const App: React.FC = () => {
           <AuditLogsView />
         )}
       </main>
+
+      {/* CreateBatchModal — opens when an unregistered barcode is scanned */}
+      {isCreateBatchOpen && (
+        <CreateBatchModal
+          isOpen={isCreateBatchOpen}
+          onClose={() => setIsCreateBatchOpen(false)}
+          onBatchCreated={handleBatchCreatedFromModal}
+          initialCode={createBatchCode}
+          initialSheetId={createBatchSheetId}
+          linkBarcode={createBatchLinkBarcode}
+        />
+      )}
     </div>
   );
 };
