@@ -18,77 +18,74 @@ export const RejectionModal: React.FC<RejectionModalProps> = ({
   isSubmitting,
 }) => {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
-  const [remarks, setRemarks] = useState<string>('');
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [remarks, setRemarks]         = useState<string>('');
+  const [errorMsg, setErrorMsg]       = useState<string | null>(null);
 
   if (!isOpen) return null;
 
   const toggleSelect = (itemId?: number) => {
     if (!itemId) return;
     setErrorMsg(null);
-    if (selectedIds.includes(itemId)) {
-      setSelectedIds(selectedIds.filter((id) => id !== itemId));
-    } else {
-      setSelectedIds([...selectedIds, itemId]);
-    }
-  };
-
-  const handleConfirm = () => {
-    onSubmit(selectedIds, remarks);
+    setSelectedIds(prev =>
+      prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, itemId]
+    );
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm no-print">
-      <div className="bg-white border border-slate-200 rounded-lg w-full max-w-lg shadow-lg overflow-hidden text-xs">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 no-print"
+      style={{ background: 'rgba(27,37,51,0.4)', backdropFilter: 'blur(4px)' }}>
+      <div className="w-full max-w-lg shadow-2xl overflow-hidden text-xs"
+        style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 16 }}>
+
         {/* Header */}
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-red-600">
-            <AlertTriangle className="w-5 h-5 shrink-0" />
-            <h3 className="font-bold text-sm text-slate-900">
+        <div className="px-5 py-4 flex items-center justify-between"
+          style={{ borderBottom: '1px solid var(--line)' }}>
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 shrink-0" style={{ color: 'var(--ng)' }} />
+            <h3 className="font-semibold text-sm" style={{ color: 'var(--ink)' }}>
               Select Failed Items for Rejection
             </h3>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-700">
+          <button onClick={onClose} style={{ color: 'var(--muted)' }}>
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Body */}
         <div className="p-5 space-y-4">
-          <p className="text-slate-600">
+          <p style={{ color: 'var(--muted)' }}>
             Optionally select the specific control items that failed. You can reject without selecting any fields.
           </p>
 
-          <div className="space-y-1 max-h-56 overflow-y-auto border border-slate-200 rounded p-2 bg-slate-50/50">
+          <div className="space-y-1 max-h-56 overflow-y-auto rounded-lg p-2"
+            style={{ border: '1px solid var(--line)', background: 'var(--surface2)' }}>
             {controlItems.map((item) => {
               const isSelected = item.item_id ? selectedIds.includes(item.item_id) : false;
               return (
                 <div
                   key={item.item_id || item.serial_no}
                   onClick={() => toggleSelect(item.item_id)}
-                  className={`p-2 rounded border cursor-pointer flex items-start gap-2.5 transition-colors ${
-                    isSelected
-                      ? 'border-red-300 bg-red-50 text-red-900'
-                      : 'border-slate-200 bg-white hover:border-slate-300'
-                  }`}
+                  className="p-2 rounded-lg cursor-pointer flex items-start gap-2.5 transition-colors"
+                  style={isSelected
+                    ? { border: '1px solid var(--ng)', background: 'var(--ng-bg)', color: 'var(--ng)' }
+                    : { border: '1px solid var(--line)', background: 'var(--surface)', color: 'var(--ink)' }
+                  }
                 >
                   <div className="mt-0.5">
-                    {isSelected ? (
-                      <CheckSquare className="w-4 h-4 text-red-600" />
-                    ) : (
-                      <Square className="w-4 h-4 text-slate-400" />
-                    )}
+                    {isSelected
+                      ? <CheckSquare className="w-4 h-4" style={{ color: 'var(--ng)' }} />
+                      : <Square className="w-4 h-4" style={{ color: 'var(--muted)' }} />
+                    }
                   </div>
                   <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-slate-900">
-                        #{item.serial_no} {item.control_item_name}
-                      </span>
-                      <span className="text-[10px] text-slate-500 font-medium bg-slate-100 px-1.5 py-0.5 rounded">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold">#{item.serial_no} {item.control_item_name}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0"
+                        style={{ background: 'var(--surface2)', color: 'var(--muted)' }}>
                         {item.stage_name}
                       </span>
                     </div>
-                    <div className="text-[11px] text-slate-500 mt-0.5">
+                    <div className="text-[11px] mt-0.5" style={{ color: 'var(--muted)' }}>
                       Spec: {item.specification_content}
                     </div>
                   </div>
@@ -98,38 +95,39 @@ export const RejectionModal: React.FC<RejectionModalProps> = ({
           </div>
 
           <div className="space-y-1">
-            <label className="font-medium text-slate-700">Defect Remarks (Optional)</label>
+            <label className="sv-label">Defect remarks (optional)</label>
             <textarea
               value={remarks}
               onChange={(e) => setRemarks(e.target.value)}
-              placeholder="Enter details on the defect or observation..."
+              placeholder="Enter details on the defect or observation…"
               rows={2}
-              className="w-full border border-slate-300 rounded p-2 focus:outline-none focus:border-slate-700 text-xs"
+              className="w-full rounded-lg p-2 outline-none text-xs resize-none"
+              style={{ border: '1px solid var(--line2)', background: 'var(--surface)', color: 'var(--ink)' }}
+              onFocus={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.boxShadow = '0 0 0 3px var(--accent-soft)'; }}
+              onBlur={e => { e.currentTarget.style.borderColor = 'var(--line2)'; e.currentTarget.style.boxShadow = 'none'; }}
             />
           </div>
 
           {errorMsg && (
-            <div className="border border-red-200 bg-red-50 text-red-700 p-2.5 rounded-lg text-xs">
+            <div className="p-2.5 rounded-lg" style={{ border: '1px solid #f1b8b5', background: 'var(--ng-bg)', color: 'var(--ng)' }}>
               {errorMsg}
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-between">
-          <button
-            onClick={onClose}
-            className="font-medium text-slate-600 hover:text-slate-900"
-          >
+        <div className="px-5 py-3 flex items-center justify-between"
+          style={{ borderTop: '1px solid var(--line)' }}>
+          <button onClick={onClose} className="font-medium text-sm" style={{ color: 'var(--muted)' }}>
             Cancel
           </button>
           <button
             disabled={isSubmitting}
-            onClick={handleConfirm}
-            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded transition-colors disabled:opacity-50"
+            onClick={() => onSubmit(selectedIds, remarks)}
+            className="btn danger sm"
           >
             {isSubmitting
-              ? 'Submitting...'
+              ? 'Submitting…'
               : selectedIds.length > 0
               ? `Confirm Rejection (${selectedIds.length} fields)`
               : 'Confirm Rejection'}

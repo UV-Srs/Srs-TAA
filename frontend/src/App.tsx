@@ -14,6 +14,7 @@ import { AdminUserManagement } from './pages/AdminUserManagement';
 import { AuditLogsView } from './pages/AuditLogsView';
 import { MobileScannerPage } from './pages/MobileScannerPage';
 import { ProfilePage } from './pages/ProfilePage';
+import { SupervisorDashboard } from './pages/SupervisorDashboard';
 import { CreateBatchModal } from './components/CreateBatchModal';
 
 const isMobileDevice = () =>
@@ -126,7 +127,11 @@ export const App: React.FC = () => {
     }
   };
 
-  if (!currentUser) return <LoginPage onLoginSuccess={u => { setActiveTab('sheet'); setCurrentUser(u); liveSync.reconnect(); }} />;
+  if (!currentUser) return <LoginPage onLoginSuccess={u => {
+  setActiveTab(u.role === 'supervisor' ? 'sup-dashboard' : 'sheet');
+  setCurrentUser(u);
+  liveSync.reconnect();
+}} />;
 
   if (isMobileDevice()) {
     return <MobileScannerPage currentUser={currentUser} onLogout={() => setCurrentUser(null)} />;
@@ -257,6 +262,15 @@ export const App: React.FC = () => {
           {activeTab === 'audit' && currentUser.role === 'admin' && (
             <div className="p-4 md:p-6">
               <AuditLogsView />
+            </div>
+          )}
+
+          {activeTab === 'sup-dashboard' && currentUser.role === 'supervisor' && (
+            <div className="p-4 md:p-6">
+              <SupervisorDashboard
+                currentUser={currentUser}
+                onGoToReviews={() => setActiveTab('sheet')}
+              />
             </div>
           )}
 

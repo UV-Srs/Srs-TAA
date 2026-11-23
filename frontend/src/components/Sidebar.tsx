@@ -16,14 +16,15 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'sheet',     label: 'Inspection', icon: ClipboardList,  section: 'workspace' },
-  { id: 'sheet',     label: 'My Batches', icon: ClipboardList,  section: 'workspace', operatorOnly: true },
-  { id: 'sheet',     label: 'My Reviews', icon: ClipboardCheck, section: 'workspace', supervisorOnly: true },
-  { id: 'profile',   label: 'Profile',    icon: UserCircle,      section: 'workspace' },
-  { id: 'dashboard', label: 'Dashboard',  icon: LayoutDashboard, adminOnly: true, section: 'admin' },
-  { id: 'builder',   label: 'Templates',  icon: Layers,          adminOnly: true, section: 'admin' },
-  { id: 'users',     label: 'Users',      icon: Users,           adminOnly: true, section: 'admin' },
-  { id: 'audit',     label: 'Audit Log',  icon: ShieldCheck,     adminOnly: true, section: 'admin' },
+  { id: 'sheet',         label: 'Inspection',  icon: ClipboardList,  section: 'workspace' },
+  { id: 'sheet',         label: 'My Batches',  icon: ClipboardList,  section: 'workspace', operatorOnly: true },
+  { id: 'sup-dashboard', label: 'Dashboard',   icon: LayoutDashboard, section: 'workspace', supervisorOnly: true },
+  { id: 'sheet',         label: 'My Reviews',  icon: ClipboardCheck, section: 'workspace', supervisorOnly: true },
+  { id: 'profile',       label: 'Profile',     icon: UserCircle,      section: 'workspace' },
+  { id: 'dashboard',     label: 'Dashboard',   icon: LayoutDashboard, adminOnly: true, section: 'admin' },
+  { id: 'builder',       label: 'Templates',   icon: Layers,          adminOnly: true, section: 'admin' },
+  { id: 'users',         label: 'Users',       icon: Users,           adminOnly: true, section: 'admin' },
+  { id: 'audit',         label: 'Audit Log',   icon: ShieldCheck,     adminOnly: true, section: 'admin' },
 ];
 
 export interface SidebarProps {
@@ -76,7 +77,7 @@ function SidebarContent({
     if (i.adminOnly && user.role !== 'admin') return false;
     if (i.supervisorOnly && user.role !== 'supervisor') return false;
     if (i.operatorOnly && user.role !== 'operator') return false;
-    if (i.label === 'Inspection' && (user.role === 'operator' || user.role === 'supervisor')) return false;
+    if (i.id === 'sheet' && i.label === 'Inspection' && (user.role === 'operator' || user.role === 'supervisor')) return false;
     return true;
   });
   const adminItems = NAV_ITEMS.filter(i => i.adminOnly && user.role === 'admin');
