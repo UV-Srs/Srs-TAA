@@ -3,71 +3,362 @@
 @tailwind utilities;
 
 :root {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: 'Poppins', system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-variant-numeric: tabular-nums;
   color-scheme: light;
+
+  /* LotSure Light Tokens */
+  --bg: #F3F5F8;
+  --surface: #FFFFFF;
+  --surface2: #EEF1F6;
+  --ink: #1B2533;
+  --muted: #677386;
+  --line: #E2E6EC;
+  --line2: #CDD4DE;
+  --primary: #2D5B8C;
+  --on-primary: #FFFFFF;
+  --accent: #3E78B2;
+  --accent-soft: #E7EFF8;
+  --ok: #23855A;
+  --ok-bg: #E4F3EB;
+  --warn: #A46A0E;
+  --warn-bg: #FCF1DC;
+  --ng: #C8463E;
+  --ng-bg: #FCEAE8;
+  --shadow: 0 1px 2px rgba(27, 37, 51, .04), 0 4px 16px rgba(27, 37, 51, .05);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    /* LotSure Dark Tokens */
+    --bg: #11161D;
+    --surface: #18202A;
+    --surface2: #202A36;
+    --ink: #E7ECF3;
+    --muted: #97A3B3;
+    --line: #2A3441;
+    --line2: #3A4655;
+    --primary: #8DB6E2;
+    --on-primary: #0E1B2A;
+    --accent: #8DB6E2;
+    --accent-soft: #1E2E40;
+    --ok: #6CC79A;
+    --ok-bg: #16301F;
+    --warn: #E3B566;
+    --warn-bg: #302612;
+    --ng: #F08A82;
+    --ng-bg: #38201E;
+    --shadow: none;
+  }
 }
 
 body {
-  background-color: #F8FAFC;
-  color: #0F172A;
+  background-color: var(--bg);
+  color: var(--ink);
   margin: 0;
   padding: 0;
+  font-family: 'Poppins', system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.45;
   -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
 }
 
-/* Clean Modern Table */
+*, *::before, *::after {
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+/* Typography Helpers */
+h2 {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+}
+
+h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.sub {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.mono {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* LotSure Components */
+.sv-card {
+  background-color: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 14px 16px;
+  box-shadow: var(--shadow);
+}
+
+.sv-card.flush {
+  padding: 0;
+  overflow: hidden;
+}
+
+.sv-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin: 18px 0 8px;
+}
+
+.stchip {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 9999px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--surface);
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.stchip:hover {
+  border-color: var(--line2);
+  color: var(--ink);
+}
+
+.stchip.on {
+  background-color: var(--primary);
+  color: var(--on-primary);
+  border-color: var(--primary);
+}
+
+/* Pills */
+.pill {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  line-height: 1.2;
+}
+
+.pill.sm {
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+.pill.ok {
+  background-color: var(--ok-bg);
+  color: var(--ok);
+}
+
+.pill.warn {
+  background-color: var(--warn-bg);
+  color: var(--warn);
+}
+
+.pill.ng {
+  background-color: var(--ng-bg);
+  color: var(--ng);
+}
+
+.pill.info {
+  background-color: var(--accent-soft);
+  color: var(--primary);
+}
+
+.pill.neutral {
+  background-color: var(--surface2);
+  color: var(--muted);
+}
+
+/* Buttons */
+.btn {
+  min-height: 48px;
+  padding: 0 20px;
+  font-size: 15px;
+  font-weight: 600;
+  border-radius: 12px;
+  border: 1px solid var(--line2);
+  background-color: var(--surface);
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+
+.btn:hover {
+  background-color: var(--surface2);
+}
+
+.btn.primary {
+  background-color: var(--primary);
+  color: var(--on-primary);
+  border-color: var(--primary);
+}
+
+.btn.primary:hover {
+  filter: brightness(0.95);
+}
+
+.btn.danger {
+  background-color: var(--ng);
+  color: #FFFFFF;
+  border-color: var(--ng);
+}
+
+.btn.danger:hover {
+  filter: brightness(0.95);
+}
+
+.btn.sm {
+  min-height: 38px;
+  padding: 0 14px;
+  font-size: 13px;
+  border-radius: 10px;
+}
+
+/* LotSure Table (.vt) */
+.vt {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.vt th {
+  padding: 11px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--line);
+  background-color: var(--surface2);
+  text-align: left;
+}
+
+.vt td {
+  padding: 12px 12px;
+  font-size: 14px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+}
+
+.vt tr.click {
+  cursor: pointer;
+  transition: background-color 0.1s ease;
+}
+
+.vt tr.click:hover td {
+  background-color: var(--surface2);
+}
+
+.vt td.n,
+.vt th.n {
+  text-align: right;
+}
+
+/* Person Cell */
+.person-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.person-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 9999px;
+  background-color: var(--accent-soft);
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* Attention Tile */
+.att {
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.15s ease, transform 0.1s ease;
+  cursor: pointer;
+}
+
+.att:hover {
+  border-color: var(--line2);
+  transform: translateY(-1px);
+}
+
+.att.warn {
+  border-color: var(--warn);
+}
+
+.att.bad {
+  border-color: var(--ng);
+}
+
+/* Clean Modern Table (Backward-compatibility) */
 .clean-table {
   width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
+  border-collapse: collapse;
 }
 
 .clean-table th {
-  background-color: #F8FAFC;
-  color: #475569;
+  background-color: var(--surface2);
+  color: var(--muted);
+  font-size: 11px;
   font-weight: 600;
-  font-size: 0.75rem;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 0.625rem 0.75rem;
-  border-bottom: 1px solid #E2E8F0;
-  border-right: 1px solid #E2E8F0;
-}
-
-.clean-table th:last-child {
-  border-right: none;
+  letter-spacing: 0.06em;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
 }
 
 .clean-table td {
-  padding: 0.5rem 0.625rem;
-  border-bottom: 1px solid #F1F5F9;
-  border-right: 1px solid #F1F5F9;
-  font-size: 0.8125rem;
-}
-
-.clean-table td:last-child {
-  border-right: none;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 13px;
 }
 
 .clean-table tr:hover td {
-  background-color: #F8FAFC;
+  background-color: var(--surface2);
 }
 
-/* Active Editable Cell */
+/* Cell State Classes */
 .cell-active {
   background-color: #FFFFFF;
   border: 1.5px solid #0F172A !important;
   border-radius: 4px;
 }
 
-/* Locked / Other Role Cell */
 .cell-locked {
   background-color: #F8FAFC;
   opacity: 0.55;
   cursor: not-allowed;
 }
 
-/* Out of Spec Cell */
 .cell-out-of-spec {
   background-color: #FEF2F2 !important;
   border: 1.5px solid #EF4444 !important;
@@ -81,6 +372,7 @@ body {
     background-color: #FFFFFF !important;
     color: #000000 !important;
   }
+
   .no-print {
     display: none !important;
   }

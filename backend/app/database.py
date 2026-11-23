@@ -2,7 +2,11 @@ import sys
 import logging
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, declarative_base
-from backend.app.config import DATABASE_URL, DB_NAME, DB_HOST, DB_PORT
+
+try:
+    from backend.app.config import DATABASE_URL, DB_NAME, DB_HOST, DB_PORT
+except ImportError:
+    from app.config import DATABASE_URL, DB_NAME, DB_HOST, DB_PORT
 
 logger = logging.getLogger("taa.database")
 

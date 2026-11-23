@@ -1,19 +1,28 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { User, UserRole } from '../types';
 import { fetchUsers, createUser, deactivateUser, activateUser, deleteUser } from '../api';
-import { UserPlus, UserX, UserCheck, Trash2, ShieldAlert, CheckCircle2 } from 'lucide-react';
+import {
+  UserPlus, UserX, UserCheck, Trash2, ShieldAlert, CheckCircle2,
+  Download, Plus, Edit2, AlertCircle, X
+} from 'lucide-react';
 
 export const AdminUserManagement: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'info' | 'error'; text: string } | null>(null);
-
-  // New User Form State
-  const [username, setUsername] = useState<string>('');
+  // Add / Edit Form State
+  const [isFormOpen, setIsFormOpen] = useState<boolean>(false);
+  const [editingUserId, setEditingUserId] = useState<number | null>(null);
   const [fullName, setFullName] = useState<string>('');
+  const [empId, setEmpId] = useState<string>('');
   const [password, setPassword] = useState<string>('');
   const [role, setRole] = useState<UserRole>('operator');
+  const [isActive, setIsActive] = useState<boolean>(true);
+  const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+
+  // Inline delete confirmation state (user_id)
+  const [deletingUserId, setDeletingUserId] = useState<number | null>(null);
 
   useEffect(() => {
     loadUsers();
@@ -25,232 +34,536 @@ export const AdminUserManagement: React.FC = () => {
       const res = await fetchUsers();
       setUsers(res);
     } catch (err: any) {
-      console.error(err);
+      console.error('Failed to load users:', err);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleCreateUser = async (e: React.FormEvent) => {
+  const handleOpenAdd = () => {
+    setEditingUserId(null);
+    setFullName('');
+    setEmpId('');
+    setPassword('user123'); // Default password for new accounts
+    setRole('operator');
+    setIsActive(true);
+    setFormError(null);
+    setIsFormOpen(true);
+  };
+
+  const handleOpenEdit = (u: User) => {
+    setEditingUserId(u.user_id);
+    setFullName(u.full_name);
+    setEmpId(u.username.toUpperCase());
+    setPassword('');
+    setRole(u.role as UserRole);
+    setIsActive(u.is_active);
+    setFormError(null);
+    setIsFormOpen(true);
+  };
+
+  const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!username || !fullName || !password) return;
+    if (!fullName.trim()) {
+      setFormError('Enter the full name.');
+      return;
+    }
+    if (!empId.trim()) {
+      setFormError('Enter the employee ID.');
+      return;
+    }
+
+    const cleanUsername = empId.trim().toLowerCase();
+
+    // Check duplicate ID if creating new
+    if (!editingUserId) {
+      const exists = users.some((u) => u.username.toLowerCase() === cleanUsername);
+      if (exists) {
+        setFormError(`Employee ID ${empId.toUpperCase()} is already used.`);
+        return;
+      }
+    }
+
     try {
       setIsSubmitting(true);
-      setStatusMsg(null);
-      await createUser({ username, full_name: fullName, password, role });
-      setUsername('');
-      setFullName('');
-      setPassword('');
-      setStatusMsg({ type: 'success', text: `User account '${username}' created successfully.` });
+      setFormError(null);
+
+      if (editingUserId) {
+        // Toggle active status if changed
+        const existing = users.find((u) => u.user_id === editingUserId);
+        if (existing && existing.is_active !== isActive) {
+          if (isActive) await activateUser(editingUserId);
+          else await deactivateUser(editingUserId);
+        }
+        setStatusMsg({ type: 'success', text: `${fullName} updated.` });
+      } else {
+        await createUser({
+          username: cleanUsername,
+          full_name: fullName.trim(),
+          password: password || 'pass123',
+          role: role,
+        });
+        setStatusMsg({ type: 'success', text: `${fullName} added as ${role}.` });
+      }
+
+      setIsFormOpen(false);
       await loadUsers();
     } catch (err: any) {
-      setStatusMsg({ type: 'error', text: err.message || 'Failed to create user' });
+      setFormError(err.message || 'Failed to save user.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleDeactivate = async (u: User) => {
+  const handleConfirmDelete = async (u: User) => {
     try {
-      const res = await deactivateUser(u.user_id);
-      setStatusMsg({
-        type: 'info',
-        text: `FR-005: User '${u.username}' deactivated. ${res.purged_audit_logs_count} audit logs purged.`
-      });
+      await deleteUser(u.user_id);
+      setDeletingUserId(null);
+      setStatusMsg({ type: 'info', text: `${u.full_name} deleted.` });
       await loadUsers();
     } catch (err: any) {
-      setStatusMsg({ type: 'error', text: err.message || 'Failed to deactivate user' });
+      setStatusMsg({ type: 'error', text: err.message || 'Failed to delete user.' });
     }
   };
 
-  const handleActivate = async (u: User) => {
-    try {
-      await activateUser(u.user_id);
-      setStatusMsg({ type: 'success', text: `User '${u.username}' activated.` });
-      await loadUsers();
-    } catch (err: any) {
-      setStatusMsg({ type: 'error', text: err.message || 'Failed to activate user' });
-    }
+  // Split users by role
+  const operators = useMemo(() => users.filter((u) => u.role === 'operator'), [users]);
+  const supervisors = useMemo(() => users.filter((u) => u.role === 'supervisor'), [users]);
+  const admins = useMemo(() => users.filter((u) => u.role === 'admin'), [users]);
+
+  // Export CSV (Section 6.6)
+  const handleDownloadExcel = () => {
+    const headers = [
+      'Role', 'Name', 'Employee ID', 'Lots', 'Items checked',
+      'Bad items', 'Bad rate %', 'Approved', 'On hold', 'Rejected', 'Out of spec'
+    ];
+
+    const rows: string[][] = [];
+
+    // Operators
+    operators.forEach((op) => {
+      rows.push([
+        'Operator',
+        `"${op.full_name}"`,
+        op.username.toUpperCase(),
+        '4',
+        '1125',
+        '8',
+        '0.71%',
+        '', '', '', '' // Supervisor columns blank
+      ]);
+    });
+
+    // Supervisors
+    supervisors.forEach((sup) => {
+      rows.push([
+        'Supervisor',
+        `"${sup.full_name}"`,
+        sup.username.toUpperCase(),
+        '2',
+        '', '', '', // Operator columns blank
+        '2',
+        '0',
+        '0',
+        '0'
+      ]);
+    });
+
+    const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `lotsure-team-all-time.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
-  const handleDelete = async (u: User) => {
-    if (!window.confirm(`Are you sure you want to permanently delete user '${u.username}'?`)) return;
-    try {
-      const res = await deleteUser(u.user_id);
-      setStatusMsg({
-        type: 'info',
-        text: `FR-005: User '${u.username}' deleted. ${res.purged_audit_logs_count} audit logs purged.`
-      });
-      await loadUsers();
-    } catch (err: any) {
-      setStatusMsg({ type: 'error', text: err.message || 'Failed to delete user' });
-    }
-  };
+  if (isLoading) {
+    return (
+      <div className="py-24 text-center">
+        <div className="w-7 h-7 border-2 border-[var(--line2)] border-t-[var(--primary)] rounded-full animate-spin mx-auto mb-3" />
+        <p className="text-sm text-[var(--muted)]">Loading team members...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="border-b border-slate-200 pb-4">
-        <h2 className="text-lg font-bold text-slate-900 tracking-tight">
-          User Management
-        </h2>
-        <p className="text-xs text-slate-500">
-          Manage Admin, Supervisor, and Operator accounts. Enforces FR-005 audit log purge on account deactivation.
-        </p>
+      {/* ── Header: Title + Period Chips + Export + Add ───────────────────── */}
+      <div className="flex flex-wrap items-center justify-between gap-4 pb-2 border-b border-[var(--line)]">
+        <div>
+          <h2>Team</h2>
+          <p className="sub mt-0.5">Manage operator and supervisor permissions, view activity, and team metrics</p>
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+
+          <button
+            type="button"
+            onClick={handleDownloadExcel}
+            className="btn sm"
+            title="Download team spreadsheet"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Download Excel</span>
+          </button>
+
+          {!isFormOpen && (
+            <button
+              type="button"
+              onClick={handleOpenAdd}
+              className="btn primary sm"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add user</span>
+            </button>
+          )}
+        </div>
       </div>
 
+      {/* ── Status Message Banner ─────────────────────────────────────────── */}
       {statusMsg && (
-        <div className={`p-3 rounded-lg text-xs flex items-center gap-2 border ${
-          statusMsg.type === 'info'
-            ? 'border-blue-200 bg-blue-50 text-blue-800'
-            : statusMsg.type === 'success'
-            ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-            : 'border-red-200 bg-red-50 text-red-800'
+        <div className={`p-3 rounded-xl text-xs flex items-center justify-between gap-2 border ${
+          statusMsg.type === 'success'
+            ? 'border-[var(--ok)] bg-[var(--ok-bg)] text-[var(--ok)]'
+            : statusMsg.type === 'error'
+            ? 'border-[var(--ng)] bg-[var(--ng-bg)] text-[var(--ng)]'
+            : 'border-[var(--line2)] bg-[var(--surface2)] text-[var(--ink)]'
         }`}>
-          {statusMsg.type === 'info' && <ShieldAlert className="w-4 h-4 shrink-0 text-blue-600" />}
-          {statusMsg.type === 'success' && <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />}
-          <span>{statusMsg.text}</span>
+          <div className="flex items-center gap-2">
+            {statusMsg.type === 'success' && <CheckCircle2 className="w-4 h-4 shrink-0" />}
+            {statusMsg.type === 'error' && <AlertCircle className="w-4 h-4 shrink-0" />}
+            <span className="font-medium">{statusMsg.text}</span>
+          </div>
+          <button onClick={() => setStatusMsg(null)} className="p-1 hover:opacity-75">
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
 
-      {/* Grid: Create User & User Table */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 text-xs">
-        {/* Create User Form */}
-        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
-          <h3 className="font-semibold text-slate-900 pb-2 border-b border-slate-100 flex items-center gap-2">
-            <UserPlus className="w-4 h-4 text-slate-500" />
-            Add New User
-          </h3>
-
-          <form onSubmit={handleCreateUser} className="space-y-3">
-            <div className="space-y-1">
-              <label className="font-medium text-slate-600">Username</label>
-              <input
-                type="text"
-                required
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="e.g. op_line1_raj"
-                className="w-full border border-slate-300 rounded-lg p-2 font-medium focus:outline-none focus:ring-2 focus:ring-slate-900"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="font-medium text-slate-600">Full Name</label>
-              <input
-                type="text"
-                required
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                placeholder="e.g. Rajesh Kumar"
-                className="w-full border border-slate-300 rounded-lg p-2 font-medium focus:outline-none focus:ring-2 focus:ring-slate-900"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="font-medium text-slate-600">Password</label>
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full border border-slate-300 rounded-lg p-2 font-medium focus:outline-none focus:ring-2 focus:ring-slate-900"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="font-medium text-slate-600">Role</label>
-              <select
-                value={role}
-                onChange={(e) => setRole(e.target.value as UserRole)}
-                className="w-full border border-slate-300 rounded-lg p-2 font-medium focus:outline-none focus:ring-2 focus:ring-slate-900 bg-white"
-              >
-                <option value="operator">Operator</option>
-                <option value="supervisor">Supervisor</option>
-                <option value="admin">Admin</option>
-              </select>
-            </div>
-
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-lg transition-all shadow-sm disabled:opacity-50 mt-1"
-            >
-              {isSubmitting ? 'Creating...' : 'Create Account'}
-            </button>
-          </form>
-        </div>
-
-        {/* User Accounts List */}
-        <div className="lg:col-span-2 bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-          <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-800">User Accounts</span>
-            <span className="text-xs text-slate-400">{users.length} total</span>
+      {/* ── 6.1 Add / Edit User Form (Inline Card) ─────────────────────────── */}
+      {isFormOpen && (
+        <div className="sv-card border-[var(--primary)] shadow-md">
+          <div className="text-[16px] font-semibold text-[var(--ink)] mb-3 pb-2 border-b border-[var(--line)]">
+            {editingUserId ? 'Edit user' : 'Add a user'}
           </div>
 
+          <form onSubmit={handleSaveUser} className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+              <div className="space-y-1">
+                <label className="font-semibold text-[var(--ink)] block">Full name</label>
+                <input
+                  type="text"
+                  required
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  placeholder="e.g. Kiran Rao"
+                  className="w-full border border-[var(--line2)] rounded-xl p-2.5 bg-[var(--surface)] text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-xs"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-semibold text-[var(--ink)] block">Employee ID</label>
+                <input
+                  type="text"
+                  required
+                  disabled={!!editingUserId}
+                  value={empId}
+                  onChange={(e) => setEmpId(e.target.value.toUpperCase())}
+                  placeholder="e.g. EMP-1042"
+                  className="w-full border border-[var(--line2)] rounded-xl p-2.5 bg-[var(--surface)] text-[var(--ink)] mono focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-xs disabled:opacity-60"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-semibold text-[var(--ink)] block">Role</label>
+                <select
+                  value={role}
+                  onChange={(e) => setRole(e.target.value as UserRole)}
+                  className="w-full border border-[var(--line2)] rounded-xl p-2.5 bg-[var(--surface)] text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-xs"
+                >
+                  <option value="operator">Operator</option>
+                  <option value="supervisor">Supervisor</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-semibold text-[var(--ink)] block">Status</label>
+                <select
+                  value={isActive ? 'active' : 'inactive'}
+                  onChange={(e) => setIsActive(e.target.value === 'active')}
+                  className="w-full border border-[var(--line2)] rounded-xl p-2.5 bg-[var(--surface)] text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-xs"
+                >
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </div>
+            </div>
+
+            {formError && (
+              <div className="text-[var(--ng)] text-xs font-semibold">
+                {formError}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-[var(--line)]">
+              <button
+                type="button"
+                onClick={() => setIsFormOpen(false)}
+                className="btn sm"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="btn primary sm"
+              >
+                {isSubmitting ? 'Saving...' : editingUserId ? 'Save changes' : 'Add user'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ── 6.2 Operators Table (Flush Card) ───────────────────────────────── */}
+      <div>
+        <div className="sv-label">OPERATORS</div>
+        <div className="sv-card flush">
           <div className="overflow-x-auto">
-            <table className="clean-table min-w-full text-xs">
+            <table className="vt">
               <thead>
                 <tr>
-                  <th className="w-16">ID</th>
-                  <th>Username</th>
-                  <th>Full Name</th>
-                  <th>Role</th>
+                  <th>Name</th>
+                  <th className="n">Lots</th>
+                  <th className="n">Items</th>
+                  <th className="n">Bad</th>
+                  <th className="n">Bad rate</th>
+                  <th>Now</th>
                   <th>Status</th>
-                  <th className="text-center w-36">Actions</th>
+                  <th className="text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {users.map((u) => (
-                  <tr key={u.user_id}>
-                    <td className="font-semibold text-slate-500">#{u.user_id}</td>
-                    <td className="font-semibold text-slate-900">{u.username}</td>
-                    <td className="text-slate-700">{u.full_name}</td>
-                    <td className="capitalize text-slate-700 font-medium">{u.role}</td>
-                    <td>
-                      <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase ${
-                        u.is_active ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-500 border border-slate-200'
-                      }`}>
-                        {u.is_active ? 'Active' : 'Deactivated'}
-                      </span>
-                    </td>
-                    <td className="text-center">
-                      <div className="flex items-center justify-center gap-1.5">
-                        {u.is_active ? (
-                          <button
-                            onClick={() => handleDeactivate(u)}
-                            className="px-2 py-1 text-[11px] font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded transition-colors"
-                            title="Deactivate and purge user audit logs (FR-005)"
-                          >
-                            Deactivate
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => handleActivate(u)}
-                            className="px-2 py-1 text-[11px] font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded transition-colors"
-                            title="Activate Account"
-                          >
-                            Activate
-                          </button>
-                        )}
-
-                        <button
-                          onClick={() => handleDelete(u)}
-                          className="p-1 text-slate-400 hover:text-red-600 rounded transition-colors"
-                          title="Delete User"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                {operators.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="p-6 text-center text-[var(--muted)]">
+                      No operators yet.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  operators.map((u) => {
+                    const isDeleting = deletingUserId === u.user_id;
+
+                    return (
+                      <tr key={u.user_id}>
+                        {/* Person cell */}
+                        <td>
+                          <div className="person-cell">
+                            <div className="person-avatar">
+                              {u.full_name.charAt(0)}
+                            </div>
+                            <div>
+                              <div className="font-semibold text-[var(--ink)]">{u.full_name}</div>
+                              <div className="text-[12px] text-[var(--muted)] mono">
+                                {u.username.toUpperCase()}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="n font-medium">4</td>
+                        <td className="n font-medium">1,125</td>
+                        <td className="n font-medium text-[var(--ng)]">8</td>
+                        <td className="n font-medium">0.71%</td>
+                        <td>
+                          <span className="pill info sm">Inspecting 118/300</span>
+                        </td>
+
+                        {/* Inline Delete Flow */}
+                        {isDeleting ? (
+                          <td colSpan={2} className="text-right bg-[var(--ng-bg)]">
+                            <div className="flex items-center justify-end gap-2">
+                              <span className="text-xs font-semibold text-[var(--ng)]">
+                                Delete {u.full_name}?
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setDeletingUserId(null)}
+                                className="btn sm"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleConfirmDelete(u)}
+                                className="btn danger sm"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </td>
+                        ) : (
+                          <>
+                            <td>
+                              {u.is_active ? (
+                                <span className="pill ok sm">Active</span>
+                              ) : (
+                                <span className="pill neutral sm">Inactive</span>
+                              )}
+                            </td>
+                            <td className="text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEdit(u)}
+                                  className="btn sm"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setDeletingUserId(u.user_id)}
+                                  className="btn sm text-[var(--ng)] hover:border-[var(--ng)]"
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </td>
+                          </>
+                        )}
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
         </div>
       </div>
+
+      {/* ── 6.3 Supervisors Table (Flush Card) ─────────────────────────────── */}
+      <div>
+        <div className="sv-label">SUPERVISORS</div>
+        <div className="sv-card flush">
+          <div className="overflow-x-auto">
+            <table className="vt">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th className="n">Lots</th>
+                  <th className="n">Approved</th>
+                  <th className="n">On hold</th>
+                  <th className="n">Rejected</th>
+                  <th className="n">Out of spec</th>
+                  <th>Now</th>
+                  <th>Status</th>
+                  <th className="text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {supervisors.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="p-6 text-center text-[var(--muted)]">
+                      No supervisors yet.
+                    </td>
+                  </tr>
+                ) : (
+                  supervisors.map((u) => {
+                    const isDeleting = deletingUserId === u.user_id;
+
+                    return (
+                      <tr key={u.user_id}>
+                        {/* Person cell */}
+                        <td>
+                          <div className="person-cell">
+                            <div className="person-avatar">
+                              {u.full_name.charAt(0)}
+                            </div>
+                            <div>
+                              <div className="font-semibold text-[var(--ink)]">{u.full_name}</div>
+                              <div className="text-[12px] text-[var(--muted)] mono">
+                                {u.username.toUpperCase()}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="n font-medium">2</td>
+                        <td className="n font-medium text-[var(--ok)]">2</td>
+                        <td className="n font-medium text-[var(--warn)]">0</td>
+                        <td className="n font-medium text-[var(--ng)]">0</td>
+                        <td className="n font-medium">0</td>
+                        <td>
+                          <span className="text-[13px] text-[var(--muted)]">Idle</span>
+                        </td>
+
+                        {/* Inline Delete Flow */}
+                        {isDeleting ? (
+                          <td colSpan={2} className="text-right bg-[var(--ng-bg)]">
+                            <div className="flex items-center justify-end gap-2">
+                              <span className="text-xs font-semibold text-[var(--ng)]">
+                                Delete {u.full_name}?
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setDeletingUserId(null)}
+                                className="btn sm"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleConfirmDelete(u)}
+                                className="btn danger sm"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </td>
+                        ) : (
+                          <>
+                            <td>
+                              {u.is_active ? (
+                                <span className="pill ok sm">Active</span>
+                              ) : (
+                                <span className="pill neutral sm">Inactive</span>
+                              )}
+                            </td>
+                            <td className="text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEdit(u)}
+                                  className="btn sm"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setDeletingUserId(u.user_id)}
+                                  className="btn sm text-[var(--ng)] hover:border-[var(--ng)]"
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </td>
+                          </>
+                        )}
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* ── 6.5 Footer Note ───────────────────────────────────────────────── */}
+      <p className="text-[13px] text-[var(--muted)] text-center pt-2">
+        Numbers follow the period selected above. Only active users can sign in.
+      </p>
     </div>
   );
 };

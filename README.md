@@ -11,7 +11,7 @@ The **TAA – Inspection Management System** digitizes manufacturing **Initial F
 
 - **Frontend:** React (Vite + TypeScript + IndexedDB Offline Sync + Tailwind / High-Contrast Monochrome CSS)
 - **Backend:** Python (FastAPI + SQLAlchemy + ReportLab + OpenPyXL + python-barcode + qrcode + Pillow)
-- **Database:** PostgreSQL (with SQLAlchemy models mirroring Section 7 `DR-001`, plus SQLite fallback for local development)
+- **Database:** PostgreSQL (with SQLAlchemy models mirroring Section 7 `DR-001`)
 - **Live Sync:** WebSocket channel (`/ws/live`) pushes sheet, batch, cell and scan events to every connected client, with an HTTP polling fallback.
 - **TFT Hardware Integration:** Wired (USB HID) and Wireless (Bluetooth/2.4GHz HID) scanner wedge listener, plus HTML5 device camera barcode/QR scanner (`jsqr`, `@zxing/browser`).
 
@@ -74,7 +74,7 @@ Seeded automatically on first start.
 |---|---|---|
 | Python | 3.11 – 3.12 recommended (3.11 is used in Docker) | Backend |
 | Node.js + npm | 20+ | Building / developing the frontend |
-| PostgreSQL | 14+ (optional) | Only if `DB_TYPE=postgresql`; SQLite needs nothing |
+| PostgreSQL | 14+ | Required for database storage |
 | Docker Desktop | latest (optional) | Docker deployment |
 
 All commands below are for **Windows PowerShell**, run from the `Srs-TAA` folder. On macOS/Linux use `source .venv/bin/activate` instead of `.\.venv\Scripts\Activate.ps1`.
@@ -92,7 +92,7 @@ pip install -r backend\requirements.txt
 
 # Configuration
 Copy-Item backend\.env.example backend\.env
-# Edit backend\.env – for the quickest start set DB_TYPE=sqlite (see Section 4)
+# Edit backend\.env with your PostgreSQL credentials (see Section 4)
 
 # Frontend
 cd frontend
@@ -169,10 +169,10 @@ python -m pytest backend/tests/test_api.py -v
 
 | Variable | Default | Description |
 |---|---|---|
-| `DB_TYPE` | `sqlite` | `sqlite` (local file `backend/taa_inspection.db`) or `postgresql` |
+| `DB_TYPE` | `postgresql` | PostgreSQL database type (`postgresql`) |
 | `DB_USER` / `DB_PASSWORD` | `postgres` / `postgres` | PostgreSQL credentials |
 | `DB_HOST` / `DB_PORT` | `localhost` / `5432` | PostgreSQL server |
-| `DB_NAME` | `taa_inspection` | PostgreSQL database name |
+| `DB_NAME` | `TAA` | PostgreSQL database name |
 | `DATABASE_URL` | – | Optional full connection URL; when set it overrides `DB_TYPE` and the `DB_*` values |
 | `SECRET_KEY` | – | JWT signing key – use a long random value in any shared environment |
 | `ALGORITHM` | `HS256` | JWT algorithm |
@@ -256,7 +256,7 @@ Tables and demo data are created automatically on startup.
 | `http://localhost:8000` shows an old UI or a blank page | Rebuild the frontend: `cd frontend; npm run build` |
 | `ModuleNotFoundError` when starting the backend | Activate the venv and run `pip install -r backend\requirements.txt` |
 | `pip install` fails on a very new Python (3.13+) | Use Python 3.11 or 3.12: `py -3.12 -m venv .venv` |
-| Cannot connect to PostgreSQL | Check the `DB_*` values in `backend\.env`, or set `DB_TYPE=sqlite` |
+| Cannot connect to PostgreSQL | Check the `DB_*` values in `backend\.env` and verify PostgreSQL service is running on port 5432 |
 | Port 8000 already in use | `$env:PORT=8001; python run.py` (and update the proxy target in `vite.config.ts` for dev mode) |
 | Docker: `set DB_PASSWORD in .env` | Create `.env` from `.env.docker.example` next to `docker-compose.yml` |
 

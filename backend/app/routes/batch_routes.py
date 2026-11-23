@@ -158,12 +158,6 @@ def update_cell_response(
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
 
-    if current_user.role == "supervisor":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden: Supervisors cannot modify Operator checksheet measurements."
-        )
-
     if current_user.role == "operator" and batch.operator_submitted_at is not None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -174,10 +168,25 @@ def update_cell_response(
     if not item:
         raise HTTPException(status_code=404, detail="Control item not found")
 
+    # Operators cannot edit supervisor-assigned fields
     if current_user.role == "operator" and (item.editable_by_operator is False or item.assigned_role == "supervisor"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Forbidden: Operators cannot edit fields assigned to Supervisors."
+        )
+
+    # Supervisors can only edit their own assigned fields (operator fields are locked after op submission)
+    if current_user.role == "supervisor" and item.assigned_role != "supervisor":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Supervisors cannot modify Operator checksheet measurements."
+        )
+
+    # Supervisor fields are only open once operator has submitted
+    if current_user.role == "supervisor" and batch.operator_submitted_at is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Operator must submit the inspection before supervisor fields can be filled."
         )
 
     is_spec = True
