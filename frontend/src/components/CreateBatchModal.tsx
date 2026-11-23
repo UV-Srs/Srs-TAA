@@ -211,41 +211,40 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
                 <Layers className="w-3.5 h-3.5" style={{ color: 'var(--muted)' }} />
                 Inspection Sheet Template
               </label>
-              {selectedTemplate?.is_default && (
-                <span className="text-[10px] font-semibold flex items-center gap-1" style={{ color: 'var(--warn)' }}>
-                  <Star className="w-3 h-3 fill-current" />
-                  Default
-                </span>
-              )}
+              <span className="text-[10px]" style={{ color: 'var(--muted)' }}>
+                {templates.length} template{templates.length !== 1 ? 's' : ''} available
+              </span>
             </div>
 
-            <div className="flex items-center gap-2">
-              <select
-                value={selectedSheetId}
-                onChange={e => handleTemplateChange(e.target.value)}
-                disabled={isLoadingTemplates}
-                className="flex-1 px-3 py-2 rounded-lg outline-none cursor-pointer"
-                style={{ border: '1px solid var(--line2)', background: 'var(--surface)', color: 'var(--ink)', fontSize: 12 }}
+            <select
+              value={selectedSheetId}
+              onChange={e => handleTemplateChange(e.target.value)}
+              disabled={isLoadingTemplates}
+              className="w-full px-3 py-2 rounded-lg outline-none cursor-pointer"
+              style={{ border: '1px solid var(--line2)', background: 'var(--surface)', color: 'var(--ink)', fontSize: 12 }}
+            >
+              {templates.map(t => (
+                <option key={t.sheet_id} value={t.sheet_id}>
+                  {t.is_default ? '★ [Default] ' : ''}{t.sheet_id} — {t.part_name || t.document_title} ({t.part_no})
+                </option>
+              ))}
+            </select>
+
+            {onCreateNewSheet && (
+              <button
+                type="button"
+                onClick={() => { onClose(); onCreateNewSheet(); }}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg font-semibold text-xs transition-colors"
+                style={{
+                  background: 'var(--surface)',
+                  color: 'var(--accent)',
+                  border: '1.5px dashed var(--accent)',
+                }}
               >
-                {templates.map(t => (
-                  <option key={t.sheet_id} value={t.sheet_id}>
-                    {t.is_default ? '★ [Default] ' : ''}{t.sheet_id} — {t.part_name || t.document_title} ({t.part_no})
-                  </option>
-                ))}
-              </select>
-
-              {onCreateNewSheet && (
-                <button
-                  type="button"
-                  onClick={() => { onClose(); onCreateNewSheet(); }}
-                  className="shrink-0 px-3 py-2 rounded-lg font-semibold text-[11px] transition-colors whitespace-nowrap"
-                  style={{ background: 'var(--accent-soft)', color: 'var(--accent)', border: '1px solid var(--accent)' }}
-                  title="Create a blank inspection sheet template"
-                >
-                  + New Sheet
-                </button>
-              )}
-            </div>
+                <span style={{ fontSize: 16, lineHeight: 1 }}>＋</span>
+                Create a new blank inspection sheet
+              </button>
+            )}
 
             {selectedTemplate && (
               <div className="p-3 rounded-lg space-y-1.5"
