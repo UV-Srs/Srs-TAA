@@ -137,6 +137,14 @@ def resolve_code(
         ).order_by(InspectionBatch.created_at.desc()).first()
 
     if not template and not batch:
+        # Notify the same user's desktop so an admin can immediately register a batch
+        notify_live("SCAN_NOT_FOUND", {
+            "scanned_code": clean_code,
+            "raw_code": code,
+            "format": format_detected,
+            "user_id": current_user.user_id,
+            "role": current_user.role,
+        })
         raise HTTPException(
             status_code=404,
             detail={

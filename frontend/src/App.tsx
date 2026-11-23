@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { User, InspectionBatch, QRResolveResult } from './types';
 import { getCurrentStoredUser, logoutUser, fetchBatches, fetchProgressDashboard } from './api';
-import { onBatchCreated, onBatchUpdated, onSheetUpdated, onScanResolved } from './liveSync';
+import { onBatchCreated, onBatchUpdated, onSheetUpdated, onScanResolved, onScanNotFound } from './liveSync';
 import { Header } from './components/Header';
 import { UniversalScanBar } from './components/UniversalScanBar';
 import { BatchSidebar } from './components/BatchSidebar';
@@ -25,6 +25,7 @@ export const App: React.FC = () => {
   const [currentBatchId, setCurrentBatchId] = useState<number | null>(null);
   const [batches, setBatches] = useState<InspectionBatch[]>([]);
   const [progressSummary, setProgressSummary] = useState<any>(null);
+  const [pendingNewBatchCode, setPendingNewBatchCode] = useState<string | null>(null);
 
   useEffect(() => {
     if (currentUser) {
@@ -42,14 +43,24 @@ export const App: React.FC = () => {
       loadBatches();
     });
 
-    // Remote-scan push: when this user scans on another device (e.g. phone),
+    // Remote-scan push: when this user scans a registered batch on another device (e.g. phone),
     // the laptop automatically opens that batch instantly.
     const unsub4 = onScanResolved((data) => {
       if (!currentUser) return;
-      if (data.user_id !== currentUser.user_id) return; // only react to own scans
+      if (data.user_id !== currentUser.user_id) return;
       setCurrentBatchId(data.batch_id);
       setActiveTab('sheet');
       loadBatches();
+    });
+
+    // Remote-scan push: when the admin scans an UNREGISTERED code on the phone,
+    // the desktop switches to the Admin Dashboard and pre-opens the Create Batch modal.
+    const unsub5 = onScanNotFound((data) => {
+      if (!currentUser) return;
+      if (data.user_id !== currentUser.user_id) return;
+      if (currentUser.role !== 'admin') return;
+      setPendingNewBatchCode(data.scanned_code);
+      setActiveTab('dashboard');
     });
 
     return () => {
@@ -57,6 +68,7 @@ export const App: React.FC = () => {
       unsub2();
       unsub3();
       unsub4();
+      unsub5();
     };
   }, [currentUser]);
 
@@ -170,6 +182,8 @@ export const App: React.FC = () => {
               setCurrentBatchId(bId);
               setActiveTab('sheet');
             }}
+            pendingLotNumber={pendingNewBatchCode}
+            onPendingConsumed={() => setPendingNewBatchCode(null)}
           />
         )}
 

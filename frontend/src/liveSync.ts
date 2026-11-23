@@ -168,3 +168,13 @@ export function onScanResolved(handler: (data: {
 }) => void) {
   return liveSync.subscribe('SCAN_RESOLVED', handler);
 }
+
+export function onScanNotFound(handler: (data: {
+  scanned_code: string;
+  raw_code: string;
+  format: string;
+  user_id: number;
+  role: string;
+}) => void) {
+  return liveSync.subscribe('SCAN_NOT_FOUND', handler);
+}

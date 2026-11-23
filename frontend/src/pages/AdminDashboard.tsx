@@ -10,9 +10,11 @@ import { PrintLabelModal } from '../components/PrintLabelModal';
 
 interface AdminDashboardProps {
   onSelectBatch: (batchId: number) => void;
+  pendingLotNumber?: string | null;
+  onPendingConsumed?: () => void;
 }
 
-export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch }) => {
+export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch, pendingLotNumber, onPendingConsumed }) => {
   const [data, setData] = useState<any>(null);
   const [sheets, setSheets] = useState<SheetTemplate[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -32,6 +34,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch })
   useEffect(() => {
     loadDashboard();
   }, []);
+
+  // When an unregistered QR is scanned on the phone, auto-open the Create Batch
+  // modal with the scanned code pre-filled as the lot number.
+  useEffect(() => {
+    if (!pendingLotNumber) return;
+    setLotNumber(pendingLotNumber);
+    setIsNewBatchOpen(true);
+    onPendingConsumed?.();
+  }, [pendingLotNumber]);
 
   const loadDashboard = async () => {
     try {
