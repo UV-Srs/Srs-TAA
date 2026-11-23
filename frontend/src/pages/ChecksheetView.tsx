@@ -4,16 +4,14 @@ import {
 } from '../types';
 import {
   fetchBatchDetail, updateCellResponse, submitOperatorBatch,
-  reviewSupervisorBatch, reviewSingleField, releaseBatchHold, getExportUrl
+  reviewSupervisorBatch, reviewSingleField, releaseBatchHold
 } from '../api';
 import { saveCellOffline, getOfflineCellsForBatch, cacheBatchOffline, getCachedBatchOffline } from '../db';
 import { FullSheetCompletionModal } from '../components/FullSheetCompletionModal';
 import { RejectionModal } from '../components/RejectionModal';
-import { CameraCaptureModal } from '../components/CameraCaptureModal';
-import { PrintLabelModal } from '../components/PrintLabelModal';
 import { onSheetUpdated, onBatchUpdated as onLiveBatchUpdated, onCellUpdated } from '../liveSync';
 import {
-  Check, Lock, Camera, Printer, Download,
+  Check, Lock,
   AlertTriangle, ShieldCheck, CheckCircle2, ChevronRight,
   Clock, RefreshCw, X, AlertCircle
 } from 'lucide-react';
@@ -54,8 +52,6 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
   const [isCompletionModalOpen, setIsCompletionModalOpen] = useState<boolean>(false);
   const [missingFieldsList, setMissingFieldsList] = useState<string[]>([]);
   const [isRejectionModalOpen, setIsRejectionModalOpen] = useState<boolean>(false);
-  const [isCameraModalOpen, setIsCameraModalOpen] = useState<boolean>(false);
-  const [isPrintModalOpen, setIsPrintModalOpen] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   // Supervisor Hold Modal
@@ -563,44 +559,6 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
               </h2>
             </div>
 
-            {/* Quick Actions */}
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setIsCameraModalOpen(true)}
-                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium rounded-lg flex items-center gap-1.5 transition-colors text-xs"
-              >
-                <Camera className="w-3.5 h-3.5 text-slate-700" />
-                <span>Add Photo</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setIsPrintModalOpen(true)}
-                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium rounded-lg flex items-center gap-1.5 transition-colors text-xs"
-              >
-                <Printer className="w-3.5 h-3.5 text-slate-700" />
-                <span>QR Labels</span>
-              </button>
-
-              <a
-                href={getExportUrl(batch.batch_id, 'pdf')}
-                download
-                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium rounded-lg flex items-center gap-1.5 transition-colors text-xs"
-              >
-                <Download className="w-3.5 h-3.5 text-slate-700" />
-                <span>PDF</span>
-              </a>
-
-              <a
-                href={getExportUrl(batch.batch_id, 'xlsx')}
-                download
-                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium rounded-lg flex items-center gap-1.5 transition-colors text-xs"
-              >
-                <Download className="w-3.5 h-3.5 text-slate-700" />
-                <span>Excel</span>
-              </a>
-            </div>
           </div>
         </div>
 
@@ -1219,19 +1177,6 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
         controlItems={template.control_items}
         onSubmit={handleConfirmRejection}
         isSubmitting={isSubmitting}
-      />
-
-      <CameraCaptureModal
-        isOpen={isCameraModalOpen}
-        onClose={() => setIsCameraModalOpen(false)}
-        batchId={batch.batch_id}
-        onPhotoUploaded={loadBatch}
-      />
-
-      <PrintLabelModal
-        isOpen={isPrintModalOpen}
-        onClose={() => setIsPrintModalOpen(false)}
-        sheetId={template.sheet_id}
       />
     </div>
   );
