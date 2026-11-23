@@ -23,10 +23,16 @@ class LiveSyncClient {
       return;
     }
 
+    const token = localStorage.getItem('taa_jwt_token');
+    if (!token) {
+      // Not logged in yet — don't attempt a connection that will be rejected.
+      return;
+    }
+
     this.isConnecting = true;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host || 'localhost:8000';
-    const wsUrl = `${protocol}//${host}/ws/live`;
+    const wsUrl = `${protocol}//${host}/ws/live?token=${encodeURIComponent(token)}`;
 
     try {
       this.ws = new WebSocket(wsUrl);

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { User, InspectionBatch, QRResolveResult } from './types';
 import { getCurrentStoredUser, logoutUser, fetchBatches, fetchProgressDashboard } from './api';
-import { onBatchCreated, onBatchUpdated, onSheetUpdated, onScanResolved, onScanNotFound } from './liveSync';
+import { liveSync, onBatchCreated, onBatchUpdated, onSheetUpdated, onScanResolved, onScanNotFound } from './liveSync';
 import { Header } from './components/Header';
 import { UniversalScanBar } from './components/UniversalScanBar';
 import { BatchSidebar } from './components/BatchSidebar';
@@ -30,6 +30,7 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (currentUser) {
       loadBatches();
+      liveSync.connect(); // token is now in localStorage — establish the authenticated WebSocket
     }
 
     // Real-Time Live Sync: Automatically refresh batches and progress when any change occurs
