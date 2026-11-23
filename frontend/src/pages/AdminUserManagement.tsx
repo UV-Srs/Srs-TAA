@@ -103,11 +103,11 @@ export const AdminUserManagement: React.FC = () => {
     <div className="space-y-6">
       {/* Header */}
       <div className="pb-4" style={{ borderBottom: '1px solid var(--line)' }}>
-        <h2 className="text-lg font-semibold tracking-tight" style={{ color: 'var(--ink)' }}>
-          User Management
+        <h2 className="font-semibold" style={{ fontSize: 24, letterSpacing: '-0.015em', color: 'var(--ink)' }}>
+          Team
         </h2>
-        <p className="text-xs" style={{ color: 'var(--muted)' }}>
-          Manage Admin, Supervisor, and Operator accounts. Enforces FR-005 audit log purge on account deactivation.
+        <p className="text-sm mt-0.5" style={{ color: 'var(--muted)' }}>
+          Manage Admin, Supervisor and Operator accounts.
         </p>
       </div>
 
@@ -191,10 +191,9 @@ export const AdminUserManagement: React.FC = () => {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full py-2.5 font-medium rounded-xl transition-all disabled:opacity-50 mt-1"
-              style={{ background: 'var(--primary)', color: 'var(--on-primary)' }}
+              className="btn primary w-full mt-1"
             >
-              {isSubmitting ? 'Creating...' : 'Create Account'}
+              {isSubmitting ? 'Creating…' : 'Create Account'}
             </button>
           </form>
         </div>

@@ -66,8 +66,8 @@ export const AuditLogsView: React.FC = () => {
       {/* Header */}
       <div className="pb-4 flex flex-wrap items-center justify-between gap-3" style={{ borderBottom: '1px solid var(--line)' }}>
         <div>
-          <h2 className="text-lg font-semibold tracking-tight" style={{ color: 'var(--ink)' }}>Audit Activity Trail</h2>
-          <p className="text-xs" style={{ color: 'var(--muted)' }}>Immutable log of logins, field inputs, decisions, and supervisor overrides</p>
+          <h2 className="font-semibold" style={{ fontSize: 24, letterSpacing: '-0.015em', color: 'var(--ink)' }}>Audit Log</h2>
+          <p className="text-sm mt-0.5" style={{ color: 'var(--muted)' }}>Immutable log of logins, field inputs, decisions, and supervisor overrides</p>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
