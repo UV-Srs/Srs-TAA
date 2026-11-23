@@ -16,7 +16,7 @@ export const FullSheetCompletionModal: React.FC<FullSheetCompletionModalProps> =
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm no-print">
-      <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md shadow-xl overflow-hidden text-xs">
+      <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto shadow-xl text-xs">
         {/* Header */}
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-2 text-amber-600">

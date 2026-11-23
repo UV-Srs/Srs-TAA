@@ -243,14 +243,14 @@ export const AdminSheetBuilder: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
           <select
             value={selectedSheetId}
             onChange={(e) => {
               const found = sheetsList.find((s) => s.sheet_id === e.target.value);
               if (found) populateForm(found);
             }}
-            className="border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-medium bg-white focus:outline-none"
+            className="w-full sm:w-auto min-w-0 sm:max-w-[260px] truncate border border-slate-300 rounded-lg px-3 py-2 sm:py-1.5 text-xs font-medium bg-white focus:outline-none"
           >
             {sheetsList.map((s) => (
               <option key={s.sheet_id} value={s.sheet_id}>
@@ -261,7 +261,7 @@ export const AdminSheetBuilder: React.FC = () => {
 
           <button
             onClick={handleStartBlank}
-            className="px-3 py-1.5 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-lg transition-colors flex items-center gap-1.5"
+            className="px-3 py-2 sm:py-1.5 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-lg transition-colors flex flex-1 sm:flex-none items-center justify-center gap-1.5 whitespace-nowrap"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Blank Sheet</span>
@@ -270,7 +270,7 @@ export const AdminSheetBuilder: React.FC = () => {
           <button
             onClick={() => setIsPrintModalOpen(true)}
             disabled={isNewSheet}
-            className="px-3 py-1.5 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-40"
+            className="px-3 py-2 sm:py-1.5 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-lg transition-colors flex flex-1 sm:flex-none items-center justify-center gap-1.5 whitespace-nowrap disabled:opacity-40"
           >
             <Printer className="w-3.5 h-3.5" />
             <span>View QR</span>
@@ -279,7 +279,7 @@ export const AdminSheetBuilder: React.FC = () => {
           <button
             disabled={isSaving}
             onClick={handleSave}
-            className="px-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium rounded-lg transition-all shadow-sm flex items-center gap-1.5 disabled:opacity-50"
+            className="px-4 py-2 sm:py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium rounded-lg transition-all shadow-sm flex flex-1 sm:flex-none items-center justify-center gap-1.5 whitespace-nowrap disabled:opacity-50"
           >
             <Save className="w-3.5 h-3.5" />
             <span>{isSaving ? 'Saving...' : 'Save Template'}</span>
@@ -300,12 +300,12 @@ export const AdminSheetBuilder: React.FC = () => {
 
       {/* Part Metadata Card */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4 text-xs">
-        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+        <div className="flex items-center justify-between gap-3 pb-3 border-b border-slate-100">
           <span className="font-semibold text-slate-900">Sheet Metadata & Identification</span>
           <button
             type="button"
             onClick={() => setIsTFTScanOpen(true)}
-            className="text-[11px] font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-md flex items-center gap-1 transition-colors"
+            className="text-[11px] font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-md flex items-center gap-1 transition-colors whitespace-nowrap shrink-0"
           >
             <QrCode className="w-3.5 h-3.5" />
             <span>Scan Part Number</span>
@@ -403,7 +403,7 @@ export const AdminSheetBuilder: React.FC = () => {
 
       {/* Control Items Matrix Card */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
-        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+        <div className="flex items-center justify-between gap-3 pb-3 border-b border-slate-100">
           <div>
             <h3 className="text-xs font-semibold text-slate-900">Control Items & Specification Matrix</h3>
             <p className="text-[11px] text-slate-500">Configure visual checklist rows and numeric sample measurement grids</p>
@@ -412,7 +412,7 @@ export const AdminSheetBuilder: React.FC = () => {
           <button
             type="button"
             onClick={handleAddRow}
-            className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium rounded-lg flex items-center gap-1 transition-all"
+            className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium rounded-lg flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Add Row</span>
