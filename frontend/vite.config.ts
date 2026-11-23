@@ -1,9 +1,19 @@
-import { defineConfig } from 'vite'
+import { defineConfig, createLogger } from 'vite'
 import react from '@vitejs/plugin-react'
 import basicSsl from '@vitejs/plugin-basic-ssl'
 
-// https://vitejs.dev/config/
+// Silence the "[vite] ws proxy socket error: ECONNRESET" noise.
+// ECONNRESET just means the browser closed the WebSocket (tab close / refresh) —
+// it is completely normal and not an application error.
+const logger = createLogger()
+const _origError = logger.error.bind(logger)
+logger.error = (msg, opts) => {
+  if (opts?.error?.code === 'ECONNRESET' || opts?.error?.code === 'ECONNREFUSED') return
+  _origError(msg, opts)
+}
+
 export default defineConfig({
+  customLogger: logger,
   plugins: [react(), basicSsl()],
   server: {
     port: 5173,
