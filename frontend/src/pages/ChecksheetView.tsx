@@ -603,7 +603,6 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                 <Download className="w-3.5 h-3.5 text-slate-700" />
                 <span>Excel</span>
               </a>
-
               <a
                 href={getExportUrl(batch.batch_id, 'csv')}
                 download
