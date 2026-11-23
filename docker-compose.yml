@@ -1,0 +1,41 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-taa_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      POSTGRES_DB: ${DB_NAME:-taa_inspection}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-taa_user} -d ${DB_NAME:-taa_inspection}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # No "ports:" on purpose - PostgreSQL stays internal to the compose network.
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_TYPE: postgresql
+      DB_USER: ${DB_USER:-taa_user}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: ${DB_NAME:-taa_inspection}
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
+    ports:
+      # host port : container port. Default 8020; override with APP_PORT in .env.
+      - "${APP_PORT:-8020}:8000"
+    volumes:
+      - uploads:/app/backend/uploads
+
+volumes:
+  pgdata:
+  uploads:
