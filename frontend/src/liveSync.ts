@@ -13,6 +13,7 @@ class LiveSyncClient {
   private pingInterval: number | null = null;
   private isConnecting: boolean = false;
   private isConnected: boolean = false;
+  private failCount: number = 0;
 
   constructor() {
     this.connect();
@@ -40,7 +41,7 @@ class LiveSyncClient {
       this.ws.onopen = () => {
         this.isConnected = true;
         this.isConnecting = false;
-        // console.log('[LiveSync] Real-time live connection established.');
+        this.failCount = 0;
         this.startHeartbeat();
       };
 
@@ -55,10 +56,16 @@ class LiveSyncClient {
         }
       };
 
-      this.ws.onclose = () => {
+      this.ws.onclose = (event) => {
         this.isConnected = false;
         this.isConnecting = false;
         this.stopHeartbeat();
+        // code 4001 = auth rejected — no point retrying until reconnect() is called after login
+        if (event.code === 4001) {
+          this.failCount = 0;
+          return;
+        }
+        this.failCount++;
         this.scheduleReconnect();
       };
 
@@ -75,10 +82,12 @@ class LiveSyncClient {
 
   private scheduleReconnect() {
     if (this.reconnectTimeout) return;
+    // Exponential backoff: 2.5s, 5s, 10s, 20s, 30s max
+    const delay = Math.min(2500 * Math.pow(2, this.failCount - 1), 30000);
     this.reconnectTimeout = window.setTimeout(() => {
       this.reconnectTimeout = null;
       this.connect();
-    }, 2500);
+    }, delay);
   }
 
   private startHeartbeat() {
@@ -140,6 +149,7 @@ class LiveSyncClient {
     }
     this.isConnected = false;
     this.isConnecting = false;
+    this.failCount = 0;
     this.stopHeartbeat();
     this.connect();
   }

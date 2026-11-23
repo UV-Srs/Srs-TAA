@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User, InspectionBatch, QRResolveResult } from './types';
-import { getCurrentStoredUser, logoutUser, fetchBatches, fetchProgressDashboard, startInspectionFromTemplate, fetchPendingScan } from './api';
+import { getCurrentStoredUser, logoutUser, fetchBatches, fetchProgressDashboard, startInspectionFromTemplate, fetchPendingScan, apiRequest } from './api';
 import { onBatchCreated, onBatchUpdated, onSheetUpdated, onScanNotFound, liveSync } from './liveSync';
 import { Header } from './components/Header';
 import { UniversalScanBar } from './components/UniversalScanBar';
@@ -19,7 +19,8 @@ function isMobileDevice() {
 }
 
 export const App: React.FC = () => {
-  const [currentUser, setCurrentUser] = useState<User | null>(getCurrentStoredUser());
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authChecked, setAuthChecked] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<string>('sheet');
   const [currentBatchId, setCurrentBatchId] = useState<number | null>(null);
   const [batches, setBatches] = useState<InspectionBatch[]>([]);
@@ -28,6 +29,24 @@ export const App: React.FC = () => {
   const [createBatchCode, setCreateBatchCode] = useState<string>('');
   const [createBatchSheetId, setCreateBatchSheetId] = useState<string>('');
   const [createBatchLinkBarcode, setCreateBatchLinkBarcode] = useState<string>('');
+
+  // Verify stored token with backend on startup — prevents stale/expired token from bypassing login
+  useEffect(() => {
+    const stored = getCurrentStoredUser();
+    if (!stored) {
+      setAuthChecked(true);
+      return;
+    }
+    apiRequest<User>('/api/auth/me')
+      .then((user) => {
+        setCurrentUser(user);
+      })
+      .catch(() => {
+        // Token invalid/expired — apiRequest already cleared localStorage
+        setCurrentUser(null);
+      })
+      .finally(() => setAuthChecked(true));
+  }, []);
   const handleOpenCreateBatch = (code = '', sheetId = '', linkBarcode = '') => {
     setCreateBatchCode(code);
     setCreateBatchSheetId(sheetId);
@@ -111,6 +130,14 @@ export const App: React.FC = () => {
       setActiveTab('sheet');
     }
   };
+
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+        <div className="w-6 h-6 border-2 border-slate-500 border-t-white rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   if (!currentUser) {
     return (
