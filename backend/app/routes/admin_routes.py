@@ -317,6 +317,33 @@ def update_sheet(sheet_id: str, payload: SheetTemplateCreate, db: Session = Depe
     notify_live("SHEET_UPDATED", {"sheet_id": template.sheet_id, "action": "UPDATE"})
     return template
 
+@router.patch("/sheets/{sheet_id}/items/{item_id}/role")
+def patch_item_role(
+    sheet_id: str,
+    item_id: int,
+    payload: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Update only the assigned_role of a single control item (safe even when batches are active)."""
+    new_role = payload.get("assigned_role", "").lower()
+    if new_role not in ("operator", "supervisor"):
+        raise HTTPException(status_code=422, detail="assigned_role must be 'operator' or 'supervisor'")
+
+    item = db.query(TemplateControlItem).filter(
+        TemplateControlItem.item_id == item_id,
+        TemplateControlItem.sheet_id == sheet_id
+    ).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Control item not found")
+
+    item.assigned_role = new_role
+    db.commit()
+    db.refresh(item)
+    notify_live("SHEET_UPDATED", {"sheet_id": sheet_id, "action": "ROLE_ASSIGNED"})
+    return {"item_id": item.item_id, "assigned_role": item.assigned_role}
+
+
 @router.patch("/sheets/{sheet_id}/set-default", response_model=SheetTemplateResponse)
 def set_default_sheet(sheet_id: str, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
     """Mark one sheet template as the active default. Clears is_default on all others."""

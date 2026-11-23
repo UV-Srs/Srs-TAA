@@ -4,7 +4,8 @@ import {
 } from '../types';
 import {
   fetchBatchDetail, updateCellResponse, submitOperatorBatch,
-  reviewSupervisorBatch, reviewSingleField, releaseBatchHold, downloadBatchExport
+  reviewSupervisorBatch, reviewSingleField, releaseBatchHold, downloadBatchExport,
+  patchControlItemRole
 } from '../api';
 import { saveCellOffline, getOfflineCellsForBatch, cacheBatchOffline, getCachedBatchOffline } from '../db';
 import { FullSheetCompletionModal } from '../components/FullSheetCompletionModal';
@@ -15,7 +16,7 @@ import { onSheetUpdated, onBatchUpdated as onLiveBatchUpdated, onCellUpdated } f
 import {
   Check, Lock, Camera, Printer, Download,
   AlertTriangle, ShieldCheck, CheckCircle2, ChevronRight,
-  Clock, RefreshCw, X, AlertCircle, Settings
+  Clock, RefreshCw, X, AlertCircle, Settings, UserCheck
 } from 'lucide-react';
 
 interface ChecksheetViewProps {
@@ -74,6 +75,11 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
   const [releaseOutcome, setReleaseOutcome] = useState<'approve' | 'reject' | 'reinspect'>('approve');
   const [releaseNote, setReleaseNote] = useState<string>('');
   const [releaseRejectItemIds, setReleaseRejectItemIds] = useState<number[]>([]);
+
+  // Role assignment panel
+  const [isAssignMode, setIsAssignMode] = useState<boolean>(false);
+  const [savingRoles, setSavingRoles] = useState<Set<number>>(new Set());
+  const [localRoles, setLocalRoles] = useState<Record<number, 'operator' | 'supervisor'>>({});
 
   useEffect(() => {
     loadBatch();
@@ -589,6 +595,19 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
     }
   };
 
+  const handleAssignRole = async (itemId: number, role: 'operator' | 'supervisor') => {
+    if (!batch?.sheet_id) return;
+    setSavingRoles(prev => { const s = new Set(prev); s.add(itemId); return s; });
+    try {
+      await patchControlItemRole(batch.sheet_id, itemId, role);
+      setLocalRoles(prev => ({ ...prev, [itemId]: role }));
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to update role assignment.');
+    } finally {
+      setSavingRoles(prev => { const s = new Set(prev); s.delete(itemId); return s; });
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center p-16 gap-3" style={{ color: 'var(--muted)' }}>
@@ -716,12 +735,28 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
 
             {/* Quick Actions */}
             <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+              {currentUser.role === 'admin' && (
+                <button
+                  type="button"
+                  onClick={() => setIsAssignMode(o => !o)}
+                  className="px-2.5 py-1.5 font-medium rounded flex items-center gap-1.5 transition-colors text-xs"
+                  style={isAssignMode
+                    ? { background: 'var(--primary)', color: 'var(--on-primary)' }
+                    : { background: 'var(--accent-soft)', color: 'var(--accent)', border: '1px solid var(--accent)' }
+                  }
+                  title="Assign fields to Operator or Supervisor"
+                >
+                  <UserCheck className="w-3.5 h-3.5" />
+                  <span>Assign Roles</span>
+                </button>
+              )}
+
               {currentUser.role === 'admin' && onEditTemplate && batch?.sheet_id && (
                 <button
                   type="button"
                   onClick={() => onEditTemplate(batch.sheet_id)}
                   className="px-2.5 py-1.5 font-medium rounded flex items-center gap-1.5 transition-colors text-xs"
-                  style={{ background: 'var(--primary)', color: 'var(--on-primary)' }}
+                  style={{ background: 'var(--surface2)', color: 'var(--muted)' }}
                   title="Open this checksheet template in the builder"
                 >
                   <Settings className="w-3.5 h-3.5" />
@@ -775,6 +810,76 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Admin Role Assignment Panel */}
+        {currentUser.role === 'admin' && isAssignMode && (
+          <div style={{ borderBottom: '1px solid var(--line)', background: 'var(--surface)' }}>
+            <div className="px-5 pt-4 pb-1 flex items-center justify-between">
+              <div>
+                <span className="sv-label" style={{ marginBottom: 2 }}>Field Role Assignment</span>
+                <p className="text-[11px]" style={{ color: 'var(--muted)' }}>
+                  Visual / tickbox checks → <strong>Operator</strong> &nbsp;·&nbsp; Dimension / measurement checks → <strong>Supervisor</strong>
+                </p>
+              </div>
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}>
+                {template.control_items.filter(i => {
+                  const r = i.item_id !== undefined ? (localRoles[i.item_id] ?? i.assigned_role) : i.assigned_role;
+                  return r === 'supervisor';
+                }).length} supervisor fields
+              </span>
+            </div>
+            <div className="px-5 pb-4 space-y-1.5 max-h-72 overflow-y-auto">
+              {template.control_items.map(item => {
+                const currentRole = item.item_id !== undefined
+                  ? (localRoles[item.item_id] ?? item.assigned_role ?? 'operator')
+                  : (item.assigned_role ?? 'operator');
+                const isSaving = item.item_id !== undefined && savingRoles.has(item.item_id);
+                return (
+                  <div key={item.item_id ?? item.serial_no}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg"
+                    style={{ background: 'var(--surface2)', border: '1px solid var(--line)' }}
+                  >
+                    <span className="text-[11px] font-mono shrink-0" style={{ color: 'var(--muted)', minWidth: 24 }}>#{item.serial_no}</span>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-xs font-semibold truncate block" style={{ color: 'var(--ink)' }}>{item.control_item_name}</span>
+                      <span className="text-[10px]" style={{ color: 'var(--muted)' }}>{item.application_method}</span>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        disabled={isSaving}
+                        onClick={() => item.item_id !== undefined && handleAssignRole(item.item_id, 'operator')}
+                        className="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all"
+                        style={currentRole === 'operator'
+                          ? { background: 'var(--accent-soft)', color: 'var(--accent)', border: '1.5px solid var(--accent)' }
+                          : { background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--line)' }
+                        }
+                      >
+                        Operator
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isSaving}
+                        onClick={() => item.item_id !== undefined && handleAssignRole(item.item_id, 'supervisor')}
+                        className="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all"
+                        style={currentRole === 'supervisor'
+                          ? { background: 'var(--ok-bg)', color: 'var(--ok)', border: '1.5px solid var(--ok)' }
+                          : { background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--line)' }
+                        }
+                      >
+                        Supervisor
+                      </button>
+                      {isSaving && (
+                        <div className="w-3 h-3 border-2 rounded-full animate-spin shrink-0"
+                          style={{ borderColor: 'var(--muted)', borderTopColor: 'transparent' }} />
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Supervisor Item Overview Panel — only for SERIAL_TICKBOX batches */}
         {currentUser.role === 'supervisor' && isSupervisorTurn && (() => {

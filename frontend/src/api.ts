@@ -152,6 +152,17 @@ export async function updateSheet(sheetId: string, data: SheetTemplate): Promise
   });
 }
 
+export async function patchControlItemRole(
+  sheetId: string,
+  itemId: number,
+  role: 'operator' | 'supervisor'
+): Promise<{ item_id: number; assigned_role: string }> {
+  return apiRequest(`/api/admin/sheets/${sheetId}/items/${itemId}/role`, {
+    method: 'PATCH',
+    body: JSON.stringify({ assigned_role: role }),
+  });
+}
+
 export async function setDefaultSheet(sheetId: string): Promise<SheetTemplate> {
   return apiRequest<SheetTemplate>(`/api/admin/sheets/${sheetId}/set-default`, { method: 'PATCH' });
 }
