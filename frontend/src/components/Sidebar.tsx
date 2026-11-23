@@ -44,24 +44,19 @@ function NavLink({
   onClose: () => void;
 }) {
   const Icon = item.icon;
-  const isActive = activeTab === item.id && item.id !== 'sheet'
-    ? activeTab === item.id
-    : activeTab === item.id;
+  const isActive = activeTab === item.id;
 
   return (
     <button
       type="button"
       onClick={() => { setActiveTab(item.id); onClose(); }}
-      className={`relative w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all
+      className={`w-full flex items-center gap-3 px-3 rounded-xl text-[15px] font-medium transition-all h-12
         ${isActive
-          ? 'bg-white/10 text-white'
-          : 'text-slate-400 hover:bg-white/5 hover:text-slate-100'
+          ? 'bg-[#E7EFF8] text-[#2D5B8C] font-semibold'
+          : 'text-[#677386] hover:bg-[#EEF1F6] hover:text-[#1B2533]'
         }`}
     >
-      {isActive && (
-        <span className="absolute inset-y-1.5 left-0 w-0.5 rounded-r-full bg-indigo-400" />
-      )}
-      <Icon className={`w-5 h-5 shrink-0 ${isActive ? 'text-indigo-400' : ''}`} />
+      <Icon className={`w-5 h-5 shrink-0 ${isActive ? 'text-[#2D5B8C]' : 'text-[#677386]'}`} />
       <span className="truncate leading-none">{item.label}</span>
     </button>
   );
@@ -88,9 +83,9 @@ function SidebarContent({
 
   return (
     <>
-      {/* ── Navigation ───────────────────────────────────────── */}
-      <nav className="flex-1 px-2 py-4 space-y-0.5 overflow-y-auto">
-        <p className="px-3 pb-2 text-[10px] font-semibold text-slate-500 uppercase tracking-widest">
+      {/* Navigation */}
+      <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
+        <p className="px-3 pb-2 text-[11px] font-semibold text-[#677386] uppercase tracking-wider">
           Workspace
         </p>
         {workspaceItems.map((item, i) => (
@@ -105,9 +100,9 @@ function SidebarContent({
 
         {user.role === 'admin' && adminItems.length > 0 && (
           <>
-            <div className="my-3 border-t border-white/[0.06]" />
-            <p className="px-3 pb-2 text-[10px] font-semibold text-slate-500 uppercase tracking-widest">
-              Admin
+            <div className="my-3 border-t border-[#E2E6EC]" />
+            <p className="px-3 pb-2 text-[11px] font-semibold text-[#677386] uppercase tracking-wider">
+              Admin Tools
             </p>
             {adminItems.map((item, i) => (
               <NavLink
@@ -122,20 +117,20 @@ function SidebarContent({
         )}
       </nav>
 
-      {/* ── User card ─────────────────────────────────────────── */}
-      <div className="shrink-0 border-t border-white/[0.06] p-3">
+      {/* User card */}
+      <div className="shrink-0 border-t border-[#E2E6EC] p-3">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-indigo-500/25 text-indigo-300 flex items-center justify-center font-bold text-sm uppercase shrink-0 select-none">
+          <div className="w-8 h-8 rounded-lg bg-[#E7EFF8] text-[#2D5B8C] flex items-center justify-center font-bold text-sm uppercase shrink-0 select-none">
             {user.full_name.charAt(0)}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-white text-xs font-semibold leading-tight truncate">{user.full_name}</p>
-            <p className="text-slate-500 text-[10px] capitalize leading-tight mt-0.5">{user.role}</p>
+            <p className="text-[#1B2533] text-xs font-semibold leading-tight truncate">{user.full_name}</p>
+            <p className="text-[#677386] text-[10px] capitalize leading-tight mt-0.5">{user.role}</p>
           </div>
           <button
             type="button"
             onClick={onLogout}
-            className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-md transition-colors shrink-0"
+            className="p-1.5 text-[#677386] hover:text-[#C8463E] hover:bg-[#FCEAE8] rounded-md transition-colors shrink-0"
             title="Sign out"
           >
             <LogOut className="w-4 h-4" />
@@ -152,15 +147,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <>
       {/* Desktop — fixed width, always visible */}
-      <div className="hidden lg:flex flex-col h-screen w-56 bg-slate-900 border-r border-white/[0.06] sticky top-0 shrink-0">
+      <div
+        className="hidden lg:flex flex-col h-screen w-[220px] sticky top-0 shrink-0"
+        style={{ background: 'var(--surface)', borderRight: '1px solid var(--line)' }}
+      >
         {/* Brand */}
-        <div className="flex items-center gap-2.5 h-14 px-4 border-b border-white/[0.06] shrink-0">
-          <div className="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-black text-[11px] tracking-tight shrink-0 select-none">
+        <div
+          className="flex items-center gap-3 h-14 px-4 shrink-0"
+          style={{ borderBottom: '1px solid var(--line)' }}
+        >
+          <div className="w-[34px] h-[34px] rounded-[10px] bg-[#2D5B8C] text-white flex items-center justify-center font-black text-[11px] tracking-tight shrink-0 select-none">
             TAA
           </div>
           <div className="min-w-0">
-            <p className="text-white font-bold text-sm leading-none truncate">Inspection</p>
-            <p className="text-slate-500 text-[10px] mt-0.5 leading-none">Shop Floor QA</p>
+            <p className="text-[#1B2533] font-semibold text-[16px] leading-none truncate">TAA Inspection</p>
+            <p className="text-[#677386] text-[13px] mt-0.5 leading-none">Lot inspection made simple</p>
           </div>
         </div>
 
@@ -177,22 +178,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {mobileOpen && (
         <>
           <div className="fixed inset-0 bg-black/60 z-40 lg:hidden" onClick={onCloseMobile} />
-          <div className="fixed inset-y-0 left-0 z-50 w-56 flex flex-col bg-slate-900 border-r border-white/[0.06] lg:hidden">
+          <div
+            className="fixed inset-y-0 left-0 z-50 w-[220px] flex flex-col lg:hidden"
+            style={{ background: 'var(--surface)', borderRight: '1px solid var(--line)' }}
+          >
             {/* Brand + close */}
-            <div className="flex items-center justify-between h-14 px-4 border-b border-white/[0.06] shrink-0">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-black text-[11px]">
+            <div
+              className="flex items-center justify-between h-14 px-4 shrink-0"
+              style={{ borderBottom: '1px solid var(--line)' }}
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-[34px] h-[34px] rounded-[10px] bg-[#2D5B8C] text-white flex items-center justify-center font-black text-[11px]">
                   TAA
                 </div>
                 <div>
-                  <p className="text-white font-bold text-sm leading-none">Inspection</p>
-                  <p className="text-slate-500 text-[10px] mt-0.5">Shop Floor QA</p>
+                  <p className="text-[#1B2533] font-semibold text-[16px] leading-none">TAA Inspection</p>
+                  <p className="text-[#677386] text-[13px] mt-0.5">Lot inspection made simple</p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={onCloseMobile}
-                className="p-1.5 text-slate-500 hover:text-white hover:bg-white/5 rounded-md transition-colors"
+                className="p-1.5 text-[#677386] hover:text-[#1B2533] hover:bg-[#EEF1F6] rounded-md transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>

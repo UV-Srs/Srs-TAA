@@ -87,7 +87,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch, p
   };
 
   if (isLoading) {
-    return <div className="py-20 text-center text-xs font-medium text-slate-500">Loading dashboard...</div>;
+    return <div className="py-20 text-center text-xs font-medium" style={{ color: 'var(--muted)' }}>Loading dashboard...</div>;
   }
 
   const summary = data?.summary || {};
@@ -96,12 +96,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch, p
   return (
     <div className="space-y-6">
       {/* Title & Actions */}
-      <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-200">
+      <div className="flex flex-wrap items-center justify-between gap-4 pb-4" style={{ borderBottom: '1px solid var(--line)' }}>
         <div>
-          <h2 className="text-lg font-bold text-slate-900 tracking-tight">
+          <h2 className="text-lg font-semibold tracking-tight" style={{ color: 'var(--ink)' }}>
             Inspection Dashboard
           </h2>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>
             Real-time batch quality status, stage tracking, and reports
           </p>
         </div>
@@ -111,16 +111,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch, p
           {sheets.find(s => s.is_default) && (() => {
             const def = sheets.find(s => s.is_default)!;
             return (
-              <div className="flex items-center gap-1.5 bg-slate-900 text-white text-[11px] font-medium px-3 py-1.5 rounded-lg">
+              <div className="flex items-center gap-1.5 text-[11px] font-medium px-3 py-1.5 rounded-lg" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}>
                 <Star className="w-3 h-3 fill-yellow-400 text-yellow-400 shrink-0" />
-                <span className="text-slate-300">Active:</span>
+                <span style={{ color: 'var(--muted)' }}>Active:</span>
                 <span className="font-mono font-semibold">{def.sheet_id}</span>
               </div>
             );
           })()}
           <button
             onClick={loadDashboard}
-            className="p-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 rounded-lg transition-colors"
+            className="p-2 rounded-lg transition-colors"
+            style={{ border: '1px solid var(--line)', background: 'var(--surface)', color: 'var(--muted)' }}
             title="Refresh Dashboard"
           >
             <RefreshCw className="w-4 h-4" />
@@ -132,7 +133,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch, p
               if (def) setSelectedSheetId(def.sheet_id);
               setIsNewBatchOpen(true);
             }}
-            className="bg-slate-900 hover:bg-slate-800 text-white font-medium text-xs px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition-all shadow-sm"
+            className="font-medium text-xs px-3.5 py-2 rounded-xl flex items-center gap-1.5 transition-all"
+            style={{ background: 'var(--primary)', color: 'var(--on-primary)' }}
           >
             <Plus className="w-4 h-4" />
             <span>New Batch</span>
@@ -141,7 +143,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch, p
       </div>
 
       {errorMsg && (
-        <div className="border border-red-200 bg-red-50 text-red-700 p-3 rounded-lg text-xs flex items-center gap-2">
+        <div className="p-3 rounded-lg text-xs flex items-center gap-2" style={{ border: '1px solid #f1b8b5', background: 'var(--ng-bg)', color: 'var(--ng)' }}>
           <AlertCircle className="w-4 h-4 shrink-0" />
           <span>{errorMsg}</span>
         </div>
@@ -149,42 +151,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch, p
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <div className="bg-white border border-slate-200 p-4 rounded">
-          <span className="text-[11px] font-medium text-slate-500 block">Total Batches</span>
-          <span className="text-2xl font-bold text-slate-900 mt-1 block">{summary.total_batches || 0}</span>
-        </div>
-
-        <div className="bg-white border border-slate-200 p-4 rounded">
-          <span className="text-[11px] font-medium text-slate-500 block">Pending Operator</span>
-          <span className="text-2xl font-bold text-slate-800 mt-1 block">{summary.pending_operator || 0}</span>
-        </div>
-
-        <div className="bg-white border border-slate-200 p-4 rounded">
-          <span className="text-[11px] font-medium text-slate-500 block">Awaiting Review</span>
-          <span className="text-2xl font-bold text-slate-800 mt-1 block">{summary.awaiting_supervisor || 0}</span>
-        </div>
-
-        <div className="bg-white border border-slate-200 p-4 rounded">
-          <span className="text-[11px] font-medium text-amber-700 block">On Hold</span>
-          <span className="text-2xl font-bold text-amber-900 mt-1 block">{summary.on_hold || 0}</span>
-        </div>
-
-        <div className="bg-white border border-slate-200 p-4 rounded">
-          <span className="text-[11px] font-medium text-emerald-700 block">Approved</span>
-          <span className="text-2xl font-bold text-emerald-900 mt-1 block">{summary.approved || 0}</span>
-        </div>
-
-        <div className="bg-white border border-slate-200 p-4 rounded">
-          <span className="text-[11px] font-medium text-red-700 block">Rejected</span>
-          <span className="text-2xl font-bold text-red-900 mt-1 block">{summary.rejected || 0}</span>
-        </div>
+        {[
+          { label: 'Total Batches',    value: summary.total_batches || 0,       labelColor: 'var(--muted)', valueColor: 'var(--ink)' },
+          { label: 'Pending Operator', value: summary.pending_operator || 0,    labelColor: 'var(--muted)', valueColor: 'var(--ink)' },
+          { label: 'Awaiting Review',  value: summary.awaiting_supervisor || 0, labelColor: 'var(--muted)', valueColor: 'var(--ink)' },
+          { label: 'On Hold',          value: summary.on_hold || 0,             labelColor: 'var(--warn)',  valueColor: 'var(--warn)' },
+          { label: 'Approved',         value: summary.approved || 0,            labelColor: 'var(--ok)',    valueColor: 'var(--ok)' },
+          { label: 'Rejected',         value: summary.rejected || 0,            labelColor: 'var(--ng)',    valueColor: 'var(--ng)' },
+        ].map(({ label, value, labelColor, valueColor }) => (
+          <div key={label} className="p-4 rounded-xl" style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}>
+            <span className="text-[11px] font-semibold uppercase tracking-wider block" style={{ color: labelColor }}>{label}</span>
+            <span className="text-2xl font-semibold mt-1 block tabular-nums" style={{ color: valueColor }}>{value}</span>
+          </div>
+        ))}
       </div>
 
       {/* Batches Table Card */}
-      <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-        <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
-          <span className="text-xs font-semibold text-slate-800">All Inspection Batches</span>
-          <span className="text-xs text-slate-400">{batches.length} total</span>
+      <div className="overflow-hidden rounded-[16px]" style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}>
+        <div className="px-5 py-3 flex items-center justify-between" style={{ borderBottom: '1px solid var(--line)' }}>
+          <span className="text-xs font-semibold" style={{ color: 'var(--ink)' }}>All Inspection Batches</span>
+          <span className="text-xs" style={{ color: 'var(--muted)' }}>{batches.length} total</span>
         </div>
 
         <div className="overflow-x-auto">
@@ -205,38 +191,38 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch, p
             <tbody>
               {batches.map((b: any) => (
                 <tr key={b.batch_id}>
-                  <td className="font-semibold text-slate-500">#{b.batch_id}</td>
+                  <td className="font-semibold tabular-nums" style={{ color: 'var(--muted)' }}>#{b.batch_id}</td>
                   <td>
-                    <div className="font-semibold text-slate-900">{b.sheet_id}</div>
-                    <div className="text-[11px] text-slate-500 truncate max-w-xs">
+                    <div className="font-semibold" style={{ color: 'var(--ink)' }}>{b.sheet_id}</div>
+                    <div className="text-[11px] truncate max-w-xs" style={{ color: 'var(--muted)' }}>
                       {b.part_no || 'N/A'} • {b.part_name || 'N/A'}
                     </div>
                   </td>
-                  <td className="font-semibold text-slate-800">{b.lot_number}</td>
-                  <td className="text-slate-600">{b.lot_quantity || '-'}</td>
-                  <td className="font-medium text-slate-700">{b.inspection_mode}</td>
+                  <td className="font-semibold" style={{ color: 'var(--ink)' }}>{b.lot_number}</td>
+                  <td style={{ color: 'var(--muted)' }}>{b.lot_quantity || '-'}</td>
+                  <td className="font-medium" style={{ color: 'var(--ink)' }}>{b.inspection_mode}</td>
                   <td>
-                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden border border-slate-200 mb-1">
+                    <div className="w-full h-2 rounded-full overflow-hidden mb-1" style={{ background: 'var(--surface2)', border: '1px solid var(--line)' }}>
                       <div
-                        className={`h-full rounded-full transition-all duration-300 ${
-                          b.status === 'APPROVED' ? 'bg-emerald-500' :
-                          b.status === 'REJECTED' ? 'bg-red-500' : 'bg-slate-800'
-                        }`}
-                        style={{ width: `${b.completion_pct}%` }}
+                        className="h-full rounded-full transition-all duration-300"
+                        style={{
+                          width: `${b.completion_pct}%`,
+                          background: b.status === 'APPROVED' ? 'var(--ok)' : b.status === 'REJECTED' ? 'var(--ng)' : 'var(--accent)',
+                        }}
                       />
                     </div>
-                    <span className="text-[10px] text-slate-400 font-medium">{b.completion_pct}%</span>
+                    <span className="text-[10px] font-medium tabular-nums" style={{ color: 'var(--muted)' }}>{b.completion_pct}%</span>
                   </td>
-                  <td className="text-slate-700 font-medium text-xs">
+                  <td className="font-medium text-xs" style={{ color: 'var(--ink)' }}>
                     {b.bottleneck_stage}
                   </td>
                   <td>
-                    <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase ${
-                      b.status === 'APPROVED' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
-                      b.status === 'REJECTED' ? 'bg-red-50 text-red-700 border border-red-200' :
-                      b.status === 'ON_HOLD' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
-                      'bg-slate-100 text-slate-700 border border-slate-200'
-                    }`}>
+                    <span className="pill" style={
+                      b.status === 'APPROVED' ? { background: 'var(--ok-bg)', color: 'var(--ok)' } :
+                      b.status === 'REJECTED' ? { background: 'var(--ng-bg)', color: 'var(--ng)' } :
+                      b.status === 'ON_HOLD'  ? { background: 'var(--warn-bg)', color: 'var(--warn)' } :
+                      { background: 'var(--surface2)', color: 'var(--muted)' }
+                    }>
                       {b.status.replace(/_/g, ' ')}
                     </span>
                   </td>
@@ -244,14 +230,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch, p
                     <div className="flex items-center justify-center gap-1.5">
                       <button
                         onClick={() => onSelectBatch(b.batch_id)}
-                        className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded transition-colors"
+                        className="p-1.5 rounded transition-colors"
+                        style={{ color: 'var(--muted)' }}
                         title="Open Checksheet"
                       >
                         <ExternalLink className="w-3.5 h-3.5" />
                       </button>
                       <button
                         onClick={() => setPrintSheetId(b.sheet_id)}
-                        className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded transition-colors"
+                        className="p-1.5 rounded transition-colors"
+                        style={{ color: 'var(--muted)' }}
                         title="Print QR"
                       >
                         <Printer className="w-3.5 h-3.5" />
@@ -259,7 +247,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch, p
                       <button
                         type="button"
                         onClick={() => downloadBatchExport(b.batch_id, 'pdf', b.lot_number).catch(console.error)}
-                        className="px-2 py-1 text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded"
+                        className="px-2 py-1 text-[11px] font-semibold rounded"
+                        style={{ background: 'var(--surface2)', color: 'var(--ink)' }}
                         title="Export PDF"
                       >
                         PDF
@@ -267,7 +256,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch, p
                       <button
                         type="button"
                         onClick={() => downloadBatchExport(b.batch_id, 'xlsx', b.lot_number).catch(console.error)}
-                        className="px-2 py-1 text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded"
+                        className="px-2 py-1 text-[11px] font-semibold rounded"
+                        style={{ background: 'var(--surface2)', color: 'var(--ink)' }}
                         title="Export Excel"
                       >
                         XLSX
@@ -283,19 +273,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch, p
 
       {/* Simple Create Batch Dialog */}
       {isNewBatchOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
-          <div className="bg-white border border-slate-200 rounded-lg w-full max-w-md p-6 space-y-4 shadow-lg text-xs">
-            <h3 className="text-sm font-bold text-slate-900 pb-2 border-b border-slate-100">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-sm" style={{ background: 'rgba(27,37,51,0.4)' }}>
+          <div className="w-full max-w-md p-6 space-y-4 text-xs" style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 16, boxShadow: 'var(--shadow)' }}>
+            <h3 className="text-sm font-semibold pb-2" style={{ color: 'var(--ink)', borderBottom: '1px solid var(--line)' }}>
               Create New Inspection Batch
             </h3>
 
             <form onSubmit={handleCreateBatch} className="space-y-3.5">
               <div className="space-y-1">
-                <label className="font-medium text-slate-700">Checksheet Template</label>
+                <label className="font-medium" style={{ color: 'var(--ink)' }}>Checksheet Template</label>
                 <select
                   value={selectedSheetId}
                   onChange={(e) => setSelectedSheetId(e.target.value)}
-                  className="w-full border border-slate-300 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-slate-900 bg-white"
+                  className="w-full p-2 outline-none"
+                  style={{ border: '1px solid var(--line2)', borderRadius: 10, background: 'var(--surface)', color: 'var(--ink)' }}
                 >
                   {sheets.map((s) => (
                     <option key={s.sheet_id} value={s.sheet_id}>
@@ -304,47 +295,51 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch, p
                   ))}
                 </select>
                 {selectedSheetId && sheets.find(s => s.sheet_id === selectedSheetId)?.is_default && (
-                  <p className="text-[11px] text-emerald-700 font-medium flex items-center gap-1">
-                    <Star className="w-3 h-3 fill-emerald-600 text-emerald-600" />
+                  <p className="text-[11px] font-medium flex items-center gap-1" style={{ color: 'var(--ok)' }}>
+                    <Star className="w-3 h-3" />
                     Active Template — this is the default for all new batches
                   </p>
                 )}
               </div>
 
               <div className="space-y-1">
-                <label className="font-medium text-slate-700">Lot / Batch Number</label>
+                <label className="font-medium" style={{ color: 'var(--ink)' }}>Lot / Batch Number</label>
                 <input
                   type="text"
                   required
                   value={lotNumber}
                   onChange={(e) => setLotNumber(e.target.value)}
                   placeholder="e.g. LOT-2026-495B"
-                  className="w-full border border-slate-300 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                  className="w-full p-2 outline-none"
+                  style={{ border: '1px solid var(--line2)', borderRadius: 10, color: 'var(--ink)' }}
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="font-medium text-slate-700">Lot Quantity</label>
+                <label className="font-medium" style={{ color: 'var(--ink)' }}>Lot Quantity</label>
                 <input
                   type="number"
                   value={lotQuantity}
                   onChange={(e) => setLotQuantity(Number(e.target.value))}
-                  className="w-full border border-slate-300 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                  className="w-full p-2 outline-none"
+                  style={{ border: '1px solid var(--line2)', borderRadius: 10, color: 'var(--ink)' }}
                 />
               </div>
 
-              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+              <div className="pt-3 flex items-center justify-end gap-2" style={{ borderTop: '1px solid var(--line)' }}>
                 <button
                   type="button"
                   onClick={() => setIsNewBatchOpen(false)}
-                  className="px-4 py-2 font-medium text-slate-600 hover:text-slate-900 rounded-lg"
+                  className="px-4 py-2 font-medium rounded-lg"
+                  style={{ color: 'var(--muted)' }}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isCreating}
-                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-lg transition-all disabled:opacity-50"
+                  className="px-4 py-2 font-medium rounded-xl transition-all disabled:opacity-50"
+                  style={{ background: 'var(--primary)', color: 'var(--on-primary)' }}
                 >
                   {isCreating ? 'Creating...' : 'Create Batch'}
                 </button>

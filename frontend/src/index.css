@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -18,17 +20,66 @@
 }
 
 :root {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: 'Poppins', system-ui, -apple-system, 'Segoe UI', sans-serif;
   color-scheme: light;
+
+  /* LotSure color tokens */
+  --bg:          #F3F5F8;
+  --surface:     #FFFFFF;
+  --surface2:    #EEF1F6;
+  --ink:         #1B2533;
+  --muted:       #677386;
+  --line:        #E2E6EC;
+  --line2:       #CDD4DE;
+  --primary:     #2D5B8C;
+  --on-primary:  #FFFFFF;
+  --accent:      #3E78B2;
+  --accent-soft: #E7EFF8;
+
+  --ok:      #23855A;
+  --ok-bg:   #E4F3EB;
+  --warn:    #A46A0E;
+  --warn-bg: #FCF1DC;
+  --ng:      #C8463E;
+  --ng-bg:   #FCEAE8;
+
+  --shadow: 0 1px 2px rgba(27,37,51,.04), 0 4px 16px rgba(27,37,51,.05);
 }
 
 body {
-  background-color: #F8FAFC;
-  color: #0F172A;
+  font-family: 'Poppins', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  background-color: var(--bg);
+  color: var(--ink);
   margin: 0;
   padding: 0;
   -webkit-font-smoothing: antialiased;
+  font-size: 16px;
+  line-height: 1.55;
 }
+
+/* LotSure Card */
+.ls-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+}
+
+/* Status Pills */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.pill.ok      { background: var(--ok-bg);      color: var(--ok);   }
+.pill.warn    { background: var(--warn-bg);     color: var(--warn); }
+.pill.ng      { background: var(--ng-bg);       color: var(--ng);   }
+.pill.info    { background: var(--accent-soft); color: var(--accent); }
+.pill.neutral { background: var(--surface2);    color: var(--muted); }
 
 /* Clean Modern Table */
 .clean-table {
@@ -38,15 +89,15 @@ body {
 }
 
 .clean-table th {
-  background-color: #F8FAFC;
-  color: #475569;
+  background-color: var(--surface2);
+  color: var(--muted);
   font-weight: 600;
-  font-size: 0.75rem;
+  font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 0.625rem 0.75rem;
-  border-bottom: 1px solid #E2E8F0;
-  border-right: 1px solid #E2E8F0;
+  letter-spacing: 0.07em;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--line);
+  border-right: 1px solid var(--line);
 }
 
 .clean-table th:last-child {
@@ -54,10 +105,10 @@ body {
 }
 
 .clean-table td {
-  padding: 0.5rem 0.625rem;
-  border-bottom: 1px solid #F1F5F9;
-  border-right: 1px solid #F1F5F9;
-  font-size: 0.8125rem;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  font-size: 13px;
 }
 
 .clean-table td:last-child {
@@ -65,29 +116,29 @@ body {
 }
 
 .clean-table tr:hover td {
-  background-color: #F8FAFC;
+  background-color: var(--surface2);
 }
 
 /* Active Editable Cell */
 .cell-active {
-  background-color: #FFFFFF;
-  border: 1.5px solid #0F172A !important;
+  background-color: var(--surface);
+  border: 1.5px solid var(--ink) !important;
   border-radius: 4px;
 }
 
 /* Locked / Other Role Cell */
 .cell-locked {
-  background-color: #F8FAFC;
+  background-color: var(--surface2);
   opacity: 0.55;
   cursor: not-allowed;
 }
 
 /* Out of Spec Cell */
 .cell-out-of-spec {
-  background-color: #FEF2F2 !important;
-  border: 1.5px solid #EF4444 !important;
+  background-color: var(--ng-bg) !important;
+  border: 1.5px solid var(--ng) !important;
   border-radius: 4px;
-  color: #B91C1C !important;
+  color: var(--ng) !important;
 }
 
 /* Print Optimization */

@@ -33,27 +33,41 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4 select-none">
-      <div className="w-full max-w-sm bg-white border border-slate-200 rounded-lg p-8 shadow-sm space-y-6">
+    <div
+      className="min-h-screen flex flex-col justify-center items-center p-4 select-none"
+      style={{ background: 'var(--bg)' }}
+    >
+      <div
+        className="w-full max-w-[400px] p-10 space-y-6"
+        style={{
+          background: 'var(--surface)',
+          border: '1px solid var(--line)',
+          borderRadius: 16,
+          boxShadow: 'var(--shadow)',
+        }}
+      >
         {/* Brand */}
-        <div className="text-center space-y-2">
-          <div className="w-12 h-12 bg-slate-900 text-white font-black text-base rounded flex items-center justify-center mx-auto tracking-tight">
+        <div className="text-center space-y-3">
+          <div
+            className="w-11 h-11 text-white font-black text-base flex items-center justify-center mx-auto tracking-tight select-none"
+            style={{ background: 'var(--primary)', borderRadius: 12 }}
+          >
             TAA
           </div>
           <div>
-            <h1 className="text-lg font-bold text-slate-900 tracking-tight">
-              Inspection System
+            <h1 className="text-[22px] font-semibold leading-tight" style={{ color: 'var(--ink)' }}>
+              TAA Inspection System
             </h1>
-            <p className="text-xs text-slate-500 mt-0.5">
+            <p className="text-[14px] mt-1" style={{ color: 'var(--muted)' }}>
               Sign in with your role account
             </p>
           </div>
         </div>
 
         {/* Login Form */}
-        <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+        <form onSubmit={handleSubmit} className="space-y-4 text-[14px]">
           <div className="space-y-1.5">
-            <label className="block font-semibold text-slate-700">Username</label>
+            <label className="block font-medium" style={{ color: 'var(--ink)' }}>Username</label>
             <div className="relative">
               <input
                 type="text"
@@ -61,31 +75,50 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                 autoFocus
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="w-full border border-slate-300 rounded px-3.5 py-2 text-xs text-slate-900 focus:outline-none focus:border-slate-700 focus:ring-1 focus:ring-slate-700 transition-all placeholder-slate-400 font-medium"
+                className="w-full px-3.5 py-2.5 text-[14px] outline-none transition-all placeholder:text-[#9ba8b7]"
+                style={{
+                  border: '1px solid var(--line2)',
+                  borderRadius: 12,
+                  color: 'var(--ink)',
+                  background: 'var(--surface)',
+                }}
+                onFocus={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.boxShadow = '0 0 0 3px var(--accent-soft)'; }}
+                onBlur={e => { e.currentTarget.style.borderColor = 'var(--line2)'; e.currentTarget.style.boxShadow = 'none'; }}
                 placeholder="e.g. operator, supervisor, admin"
               />
-              <UserCheck className="w-4 h-4 text-slate-400 absolute right-3 top-2.5" />
+              <UserCheck className="w-4 h-4 absolute right-3 top-3 pointer-events-none" style={{ color: 'var(--muted)' }} />
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <label className="block font-semibold text-slate-700">Password</label>
+            <label className="block font-medium" style={{ color: 'var(--ink)' }}>Password</label>
             <div className="relative">
               <input
                 type="password"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full border border-slate-300 rounded px-3.5 py-2 text-xs text-slate-900 focus:outline-none focus:border-slate-700 focus:ring-1 focus:ring-slate-700 transition-all placeholder-slate-400"
+                className="w-full px-3.5 py-2.5 text-[14px] outline-none transition-all placeholder:text-[#9ba8b7]"
+                style={{
+                  border: '1px solid var(--line2)',
+                  borderRadius: 12,
+                  color: 'var(--ink)',
+                  background: 'var(--surface)',
+                }}
+                onFocus={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.boxShadow = '0 0 0 3px var(--accent-soft)'; }}
+                onBlur={e => { e.currentTarget.style.borderColor = 'var(--line2)'; e.currentTarget.style.boxShadow = 'none'; }}
                 placeholder="Enter your password"
               />
-              <Key className="w-4 h-4 text-slate-400 absolute right-3 top-2.5" />
+              <Key className="w-4 h-4 absolute right-3 top-3 pointer-events-none" style={{ color: 'var(--muted)' }} />
             </div>
           </div>
 
           {errorMsg && (
-            <div className="border border-red-200 bg-red-50 text-red-700 p-3 rounded flex items-center gap-2 text-xs leading-snug">
-              <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+            <div
+              className="p-3 rounded-xl flex items-center gap-2 text-[13px] leading-snug"
+              style={{ background: 'var(--ng-bg)', border: '1px solid #f1b8b5', color: 'var(--ng)' }}
+            >
+              <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{errorMsg}</span>
             </div>
           )}
@@ -93,15 +126,24 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           <button
             type="submit"
             disabled={isLoading || !username || !password}
-            className="w-full py-2.5 bg-slate-900 hover:bg-slate-700 text-white font-semibold rounded flex items-center justify-center gap-2 transition-colors disabled:opacity-40 cursor-pointer mt-2"
+            className="w-full py-3 text-[15px] font-semibold flex items-center justify-center gap-2 transition-all disabled:opacity-40 cursor-pointer mt-2"
+            style={{
+              background: 'var(--primary)',
+              color: 'var(--on-primary)',
+              borderRadius: 12,
+              minHeight: 44,
+            }}
           >
             <LogIn className="w-4 h-4" />
             <span>{isLoading ? 'Signing In...' : 'Sign In'}</span>
           </button>
         </form>
 
-        <div className="pt-1 text-center text-[11px] text-slate-400 border-t border-slate-100">
-          Industrial Quality & Batch Inspection Management
+        <div
+          className="pt-3 text-center text-[12px]"
+          style={{ color: 'var(--muted)', borderTop: '1px solid var(--line)' }}
+        >
+          Powered by SRS Consulting
         </div>
       </div>
     </div>

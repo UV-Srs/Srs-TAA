@@ -133,7 +133,7 @@ export const App: React.FC = () => {
   }
 
   return (
-    <div className="flex h-screen bg-slate-100 text-slate-900 font-sans overflow-hidden">
+    <div className="flex h-screen overflow-hidden" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
       {/* ── Left nav sidebar ──────────────────────────────────────── */}
       <Sidebar
         user={currentUser}
@@ -163,7 +163,7 @@ export const App: React.FC = () => {
           {activeTab === 'sheet' && (
             <div className="flex flex-col h-full">
               {/* Scan bar — only on inspection tab */}
-              <div className="bg-white border-b border-slate-200 px-4 py-2 shrink-0">
+              <div className="px-4 py-2 shrink-0" style={{ background: 'var(--surface)', borderBottom: '1px solid var(--line)' }}>
                 <UniversalScanBar
                   currentUser={currentUser}
                   onBatchResolved={(bId) => {
@@ -180,7 +180,7 @@ export const App: React.FC = () => {
               </div>
             <div className="flex flex-1 min-h-0">
               {/* Batch queue panel */}
-              <div className="w-72 xl:w-80 shrink-0 border-r border-slate-200 bg-white flex flex-col">
+              <div className="w-72 xl:w-80 shrink-0 flex flex-col" style={{ background: 'var(--surface)', borderRight: '1px solid var(--line)' }}>
                 <BatchSidebar
                   batches={batches}
                   selectedBatchId={currentBatchId}

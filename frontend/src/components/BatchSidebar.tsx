@@ -102,13 +102,13 @@ export const BatchSidebar: React.FC<BatchSidebarProps> = ({
     : batches.filter(b => STATUS_FILTERS.find(f => f.key === statusFilter)?.statuses.includes(b.status));
 
   return (
-    <aside className="w-full h-full bg-white overflow-hidden text-xs flex flex-col">
+    <aside className="w-full h-full overflow-hidden text-xs flex flex-col" style={{ background: 'var(--surface)' }}>
 
       {/* ── Header ──────────────────────────────────────────────── */}
-      <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between shrink-0">
+      <div className="px-4 py-3 flex items-center justify-between shrink-0" style={{ borderBottom: '1px solid var(--line)' }}>
         <div className="flex items-center gap-2">
-          <h3 className="font-semibold text-slate-900">{title}</h3>
-          <span className="text-[11px] text-slate-400 tabular-nums">{batches.length}</span>
+          <h3 className="font-semibold" style={{ color: 'var(--ink)' }}>{title}</h3>
+          <span className="text-[11px] tabular-nums" style={{ color: 'var(--muted)' }}>{batches.length}</span>
         </div>
 
         {isAdmin && (
@@ -117,7 +117,8 @@ export const BatchSidebar: React.FC<BatchSidebarProps> = ({
               <button
                 type="button"
                 onClick={onCreateBatch}
-                className="text-[11px] font-semibold bg-slate-900 hover:bg-slate-700 text-white px-2.5 py-1 rounded flex items-center gap-1 transition-colors"
+                className="text-[11px] font-semibold px-2.5 py-1 rounded-lg flex items-center gap-1 transition-colors"
+                style={{ background: 'var(--primary)', color: 'var(--on-primary)' }}
                 title="Create New Inspection Batch"
               >
                 <Plus className="w-3 h-3" />
@@ -127,7 +128,8 @@ export const BatchSidebar: React.FC<BatchSidebarProps> = ({
             <button
               type="button"
               onClick={() => downloadCsvExport().catch(console.error)}
-              className="text-slate-500 hover:text-slate-900 flex items-center gap-1 transition-colors px-2 py-1 rounded hover:bg-slate-100"
+              className="flex items-center gap-1 transition-colors px-2 py-1 rounded"
+              style={{ color: 'var(--muted)' }}
               title="Export CSV"
             >
               <Download className="w-3.5 h-3.5" />
@@ -137,67 +139,69 @@ export const BatchSidebar: React.FC<BatchSidebarProps> = ({
       </div>
 
       {/* ── Search ──────────────────────────────────────────────── */}
-      <div className="px-3 py-2 border-b border-slate-100 shrink-0">
+      <div className="px-3 py-2 shrink-0" style={{ borderBottom: '1px solid var(--line)' }}>
         <div className="relative">
-          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--muted)' }} />
           <input
             type="text"
             value={searchQuery}
             onChange={e => handleSearchChange(e.target.value)}
             placeholder="Search lot or part..."
-            className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 focus:border-slate-500 focus:bg-white rounded text-xs text-slate-800 placeholder-slate-400 outline-none transition-colors"
+            className="w-full pl-8 pr-3 py-1.5 rounded text-xs outline-none transition-colors"
+            style={{ background: 'var(--surface2)', border: '1px solid var(--line)', color: 'var(--ink)' }}
           />
         </div>
       </div>
 
       {/* ── Status filter pills ─────────────────────────────────────── */}
-      <div className="px-3 py-1.5 border-b border-slate-100 flex gap-1 overflow-x-auto shrink-0">
+      <div className="px-3 py-1.5 flex gap-1 overflow-x-auto shrink-0" style={{ borderBottom: '1px solid var(--line)' }}>
         {STATUS_FILTERS.map(f => {
           const count = f.key === 'all' ? batches.length : batches.filter(b => f.statuses.includes(b.status)).length;
+          const isActive = statusFilter === f.key;
           return (
             <button
               key={f.key}
               type="button"
               onClick={() => setStatusFilter(f.key)}
-              className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors whitespace-nowrap ${
-                statusFilter === f.key
-                  ? 'bg-slate-900 text-white'
-                  : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-              }`}
+              className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors whitespace-nowrap"
+              style={isActive
+                ? { background: 'var(--primary)', color: 'var(--on-primary)' }
+                : { background: 'var(--surface2)', color: 'var(--muted)' }
+              }
             >
-              {f.label} <span className={statusFilter === f.key ? 'text-slate-300' : 'text-slate-400'}>{count}</span>
+              {f.label} <span style={{ opacity: 0.7 }}>{count}</span>
             </button>
           );
         })}
       </div>
 
       {/* ── Batch list ──────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
+      <div className="flex-1 overflow-y-auto divide-y" style={{ borderColor: 'var(--line)' }}>
         {filteredBatches.length === 0 ? (
           currentUser.role === 'supervisor' && statusFilter === 'all' ? (
             <div className="py-10 px-5 text-center space-y-2">
-              <Clock className="w-6 h-6 text-slate-300 mx-auto" />
-              <p className="font-medium text-slate-600">No batches pending review</p>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
+              <Clock className="w-6 h-6 mx-auto" style={{ color: 'var(--line2)' }} />
+              <p className="font-medium" style={{ color: 'var(--muted)' }}>No batches pending review</p>
+              <p className="text-[11px] leading-relaxed" style={{ color: 'var(--muted)' }}>
                 Batches will appear here once operators complete their inspection.
               </p>
             </div>
           ) : isScanRole ? (
             <div className="py-10 px-5 text-center space-y-2">
-              <ScanLine className="w-6 h-6 text-slate-300 mx-auto" />
-              <p className="font-medium text-slate-600">Scan a barcode to begin</p>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
+              <ScanLine className="w-6 h-6 mx-auto" style={{ color: 'var(--line2)' }} />
+              <p className="font-medium" style={{ color: 'var(--muted)' }}>Scan a barcode to begin</p>
+              <p className="text-[11px] leading-relaxed" style={{ color: 'var(--muted)' }}>
                 Use the scan bar above or a USB / Bluetooth scanner to open your batch.
               </p>
             </div>
           ) : (
             <div className="py-10 px-5 text-center space-y-1">
-              <Clock className="w-5 h-5 text-slate-300 mx-auto" />
-              <p className="font-medium text-slate-500">
+              <Clock className="w-5 h-5 mx-auto" style={{ color: 'var(--line2)' }} />
+              <p className="font-medium" style={{ color: 'var(--muted)' }}>
                 {statusFilter !== 'all' ? 'No batches in this status' : 'No batches found'}
               </p>
               {statusFilter !== 'all' && (
-                <button onClick={() => setStatusFilter('all')} className="text-[11px] text-slate-500 underline">Clear filter</button>
+                <button onClick={() => setStatusFilter('all')} className="text-[11px] underline" style={{ color: 'var(--muted)' }}>Clear filter</button>
               )}
             </div>
           )
@@ -209,9 +213,14 @@ export const BatchSidebar: React.FC<BatchSidebarProps> = ({
             const isDeleting = deletingId === b.batch_id;
 
             return (
-              <div key={b.batch_id} className={`relative group border-l-2 transition-colors ${
-                isSelected ? 'border-l-slate-900 bg-slate-50' : 'border-l-transparent hover:bg-slate-50/70'
-              }`}>
+              <div
+                key={b.batch_id}
+                className="relative group border-l-2 transition-colors"
+                style={{
+                  borderLeftColor: isSelected ? 'var(--primary)' : 'transparent',
+                  background: isSelected ? 'var(--accent-soft)' : 'transparent',
+                }}
+              >
                 {/* Main row button */}
                 <button
                   type="button"
@@ -221,22 +230,22 @@ export const BatchSidebar: React.FC<BatchSidebarProps> = ({
                   <span className={`mt-[5px] w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} />
                   <div className="flex-1 min-w-0 pr-5">
                     <div className="flex items-baseline justify-between gap-1">
-                      <span className="font-mono font-bold text-[11px] text-slate-900 truncate">
+                      <span className="font-mono font-bold text-[11px] truncate" style={{ color: 'var(--ink)' }}>
                         {b.lot_number}
                       </span>
-                      <span className="text-[10px] text-slate-400 font-medium shrink-0">{label}</span>
+                      <span className="text-[10px] font-medium shrink-0" style={{ color: 'var(--muted)' }}>{label}</span>
                     </div>
-                    <p className="text-[11px] text-slate-500 truncate">
+                    <p className="text-[11px] truncate" style={{ color: 'var(--muted)' }}>
                       {b.product_name || b.template?.part_name || b.sheet_id}
                     </p>
-                    <div className="flex items-center gap-2 mt-0.5 text-[10px] text-slate-400">
+                    <div className="flex items-center gap-2 mt-0.5 text-[10px]" style={{ color: 'var(--muted)' }}>
                       <span>{b.line_name || 'Line 1'}</span>
                       {b.round > 1 && (
-                        <span className="text-violet-600 font-semibold">Round {b.round}</span>
+                        <span className="font-semibold" style={{ color: 'var(--accent)' }}>Round {b.round}</span>
                       )}
                     </div>
                     {b.is_overdue && (
-                      <div className="flex items-center gap-1 mt-1 text-[10px] text-red-600 font-semibold">
+                      <div className="flex items-center gap-1 mt-1 text-[10px] font-semibold" style={{ color: 'var(--ng)' }}>
                         <AlertCircle className="w-3 h-3 shrink-0" />
                         Hold overdue
                       </div>
@@ -250,7 +259,8 @@ export const BatchSidebar: React.FC<BatchSidebarProps> = ({
                     type="button"
                     onClick={e => { e.stopPropagation(); setConfirmDeleteId(b.batch_id); }}
                     title="Delete this batch"
-                    className="absolute top-2.5 right-2 p-1 rounded text-slate-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
+                    className="absolute top-2.5 right-2 p-1 rounded opacity-0 group-hover:opacity-100 transition-all"
+                    style={{ color: 'var(--muted)' }}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -259,18 +269,19 @@ export const BatchSidebar: React.FC<BatchSidebarProps> = ({
                 {/* Inline delete confirmation */}
                 {isConfirming && (
                   <div className="px-3 pb-3 -mt-1">
-                    <div className="bg-red-50 border border-red-200 rounded-lg p-2.5 space-y-2">
-                      <p className="text-[11px] text-red-800 font-semibold leading-snug">
+                    <div className="rounded-lg p-2.5 space-y-2" style={{ background: 'var(--ng-bg)', border: '1px solid #f1b8b5' }}>
+                      <p className="text-[11px] font-semibold leading-snug" style={{ color: 'var(--ng)' }}>
                         Delete <span className="font-mono">{b.lot_number}</span>?
                       </p>
-                      <p className="text-[10px] text-red-600 leading-snug">
+                      <p className="text-[10px] leading-snug" style={{ color: 'var(--ng)' }}>
                         All measurements, decisions and attachments will be permanently removed.
                       </p>
                       <div className="flex gap-1.5 pt-0.5">
                         <button
                           type="button"
                           onClick={e => { e.stopPropagation(); setConfirmDeleteId(null); }}
-                          className="flex-1 py-1 bg-white border border-slate-200 text-slate-600 rounded text-[11px] font-medium hover:bg-slate-50 transition-colors flex items-center justify-center gap-1"
+                          className="flex-1 py-1 rounded text-[11px] font-medium transition-colors flex items-center justify-center gap-1"
+                          style={{ background: 'var(--surface)', border: '1px solid var(--line)', color: 'var(--muted)' }}
                         >
                           <X className="w-3 h-3" /> Cancel
                         </button>
@@ -278,7 +289,8 @@ export const BatchSidebar: React.FC<BatchSidebarProps> = ({
                           type="button"
                           disabled={isDeleting}
                           onClick={e => { e.stopPropagation(); handleDelete(b.batch_id); }}
-                          className="flex-1 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-[11px] font-semibold transition-colors flex items-center justify-center gap-1 disabled:opacity-50"
+                          className="flex-1 py-1 rounded text-[11px] font-semibold transition-colors flex items-center justify-center gap-1 disabled:opacity-50"
+                          style={{ background: 'var(--ng)', color: '#fff' }}
                         >
                           <Trash2 className="w-3 h-3" />
                           {isDeleting ? 'Deleting…' : 'Delete'}
