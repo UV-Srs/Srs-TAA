@@ -2,12 +2,13 @@ import os
 import asyncio
 from pathlib import Path
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+import jwt as _jwt
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from backend.app.config import UPLOAD_DIR, BASE_DIR
+from backend.app.config import UPLOAD_DIR, BASE_DIR, SECRET_KEY, ALGORITHM
 from backend.app.database import engine, Base, SessionLocal
 from backend.app import models
 from backend.app.seed_data import seed_database
@@ -61,11 +62,31 @@ app.add_middleware(
 
 # WebSocket Endpoint for Live Real-Time Collaboration
 @app.websocket("/ws/live")
-async def websocket_live_endpoint(websocket: WebSocket):
-    await live_manager.connect(websocket)
+async def websocket_live_endpoint(websocket: WebSocket, token: str = Query(default="")):
+    # Validate JWT before accepting the connection
+    user_id: int | None = None
+    try:
+        if not token:
+            raise ValueError("no token")
+        payload = _jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username = payload.get("sub")
+        if not username:
+            raise ValueError("no sub")
+        db = SessionLocal()
+        try:
+            user = db.query(models.User).filter(models.User.username == username).first()
+            if not user or not user.is_active:
+                raise ValueError("invalid user")
+            user_id = user.user_id
+        finally:
+            db.close()
+    except Exception:
+        await websocket.close(code=4001)
+        return
+
+    await live_manager.connect(websocket, user_id=user_id)
     try:
         while True:
-            # Keepalive receiver
             data = await websocket.receive_text()
             if data == "ping":
                 await websocket.send_text('{"type":"pong"}')

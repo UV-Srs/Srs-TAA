@@ -9,45 +9,54 @@ logger = logging.getLogger("taa.live_sync")
 class LiveConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
+        # Maps WebSocket → user_id so we can send targeted events
+        self._user_map: Dict[WebSocket, int] = {}
         self._loop: Optional[asyncio.AbstractEventLoop] = None
 
     def set_event_loop(self, loop: asyncio.AbstractEventLoop):
         self._loop = loop
 
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, websocket: WebSocket, user_id: int | None = None):
         await websocket.accept()
         self.active_connections.append(websocket)
-        logger.info(f"[LiveSync] Client connected. Total active: {len(self.active_connections)}")
+        if user_id is not None:
+            self._user_map[websocket] = user_id
+        logger.info(f"[LiveSync] Client connected (user_id={user_id}). Total: {len(self.active_connections)}")
 
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
-            logger.info(f"[LiveSync] Client disconnected. Total active: {len(self.active_connections)}")
+            self._user_map.pop(websocket, None)
+            logger.info(f"[LiveSync] Client disconnected. Total: {len(self.active_connections)}")
 
     async def broadcast(self, event_type: str, data: Any):
         if not self.active_connections:
             return
-
-        message = json.dumps({
-            "type": event_type,
-            "data": data
-        })
-
-        stale_connections = []
-        for connection in list(self.active_connections):
+        message = json.dumps({"type": event_type, "data": data})
+        stale = []
+        for conn in list(self.active_connections):
             try:
-                await connection.send_text(message)
+                await conn.send_text(message)
             except Exception as e:
-                logger.warning(f"[LiveSync] Failed to send message to client: {e}")
-                stale_connections.append(connection)
+                logger.warning(f"[LiveSync] Send failed: {e}")
+                stale.append(conn)
+        for s in stale:
+            self.disconnect(s)
 
-        for stale in stale_connections:
-            self.disconnect(stale)
+    async def send_to_user(self, user_id: int, event_type: str, data: Any):
+        """Send an event only to connections belonging to a specific user."""
+        message = json.dumps({"type": event_type, "data": data})
+        stale = []
+        for conn, uid in list(self._user_map.items()):
+            if uid == user_id:
+                try:
+                    await conn.send_text(message)
+                except Exception:
+                    stale.append(conn)
+        for s in stale:
+            self.disconnect(s)
 
-    def dispatch(self, event_type: str, data: Any):
-        """
-        Thread-safe broadcast dispatcher callable from both sync and async routes.
-        """
+    def _run_coroutine(self, coro):
         try:
             loop = self._loop
             if not loop or loop.is_closed():
@@ -55,18 +64,28 @@ class LiveConnectionManager:
                     loop = asyncio.get_running_loop()
                 except RuntimeError:
                     loop = None
-
             if loop and loop.is_running():
-                asyncio.run_coroutine_threadsafe(self.broadcast(event_type, data), loop)
+                asyncio.run_coroutine_threadsafe(coro, loop)
             else:
-                # If no running loop yet, create one temporarily
-                asyncio.run(self.broadcast(event_type, data))
+                asyncio.run(coro)
         except Exception as err:
-            logger.warning(f"[LiveSync] Broadcast dispatch error: {err}")
+            logger.warning(f"[LiveSync] Dispatch error: {err}")
+
+    def dispatch(self, event_type: str, data: Any):
+        """Thread-safe broadcast to all connected clients."""
+        self._run_coroutine(self.broadcast(event_type, data))
+
+    def dispatch_to_user(self, user_id: int, event_type: str, data: Any):
+        """Thread-safe targeted send to one user's connections."""
+        self._run_coroutine(self.send_to_user(user_id, event_type, data))
 
 # Singleton instance
 live_manager = LiveConnectionManager()
 
 def notify_live(event_type: str, data: Any):
-    """Public helper function for routes to trigger real-time updates."""
+    """Broadcast an event to all connected clients."""
     live_manager.dispatch(event_type, data)
+
+def notify_user(user_id: int, event_type: str, data: Any):
+    """Send an event only to a specific user's connections."""
+    live_manager.dispatch_to_user(user_id, event_type, data)

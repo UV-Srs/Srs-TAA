@@ -236,6 +236,12 @@ export async function resolveQR(code: string): Promise<QRResolveResult> {
   return apiRequest<QRResolveResult>(`/api/qr/resolve/${encodeURIComponent(code)}`);
 }
 
+export async function startInspectionFromTemplate(sheetId: string): Promise<{ batch_id: number }> {
+  return apiRequest<{ batch_id: number }>(`/api/qr/templates/${encodeURIComponent(sheetId)}/start`, {
+    method: 'POST',
+  });
+}
+
 export async function fetchSheetQRCodes(sheetId: string): Promise<{
   sheet_id: string;
   document_title: string;
@@ -270,4 +276,10 @@ export function getExportUrl(batchId: number, format: 'pdf' | 'xlsx'): string {
 
 export function getCsvExportUrl(): string {
   return `/api/admin/export-csv`;
+}
+
+// Polling fallback: returns and clears the latest pending scan event for this user
+export async function fetchPendingScan(): Promise<any | null> {
+  const result = await apiRequest<{ scan: any | null }>('/api/qr/pending-scan', { method: 'GET' });
+  return result.scan ?? null;
 }

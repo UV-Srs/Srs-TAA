@@ -1,8 +1,10 @@
 import json
+import pathlib
 import re
 from urllib.parse import urlparse, parse_qs
 from typing import Optional, Dict, Any, Tuple
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from backend.app.database import get_db
@@ -10,8 +12,28 @@ from backend.app.models import User, SheetTemplate, InspectionBatch
 from backend.app.schemas import QRResolveResponse
 from backend.app.auth import get_current_user
 from backend.app.qr_engine import generate_qr_base64, generate_barcode_base64
+from backend.app.live_sync import notify_live, notify_user
+from backend.app.config import UPLOAD_DIR
 
 router = APIRouter(prefix="/api/qr", tags=["QR & Barcode Engine"])
+
+# File-backed pending scan store — polling fallback when WebSocket isn't connected
+_PENDING_FILE = pathlib.Path(UPLOAD_DIR) / "pending_scans.json"
+
+def _load_pending() -> dict:
+    try:
+        if _PENDING_FILE.exists():
+            return json.loads(_PENDING_FILE.read_text())
+    except Exception:
+        pass
+    return {}
+
+def _save_pending(data: dict):
+    try:
+        _PENDING_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _PENDING_FILE.write_text(json.dumps(data))
+    except Exception:
+        pass
 
 def parse_scan_code(raw: str) -> Tuple[str, str]:
     """
@@ -127,6 +149,13 @@ def resolve_code(
     if not batch and not template:
         template = db.query(SheetTemplate).filter(SheetTemplate.sheet_id == clean_code).first()
 
+    # Part labels commonly contain the part number rather than the internal sheet ID.
+    # Match the scanned value to the admin-created template's part_no.
+    if not batch and not template:
+        template = db.query(SheetTemplate).filter(
+            func.lower(func.trim(SheetTemplate.part_no)) == clean_code.lower()
+        ).first()
+
     # If template found without batch, find the most recent open batch
     if template and not batch:
         batch = db.query(InspectionBatch).filter(
@@ -134,6 +163,27 @@ def resolve_code(
         ).order_by(InspectionBatch.created_at.desc()).first()
 
     if not template and not batch:
+        # Emit SCAN_NOT_FOUND so the admin desktop can open CreateBatchModal immediately
+        _not_found_payload = {
+            "type": "SCAN_NOT_FOUND",
+            "raw_code": code,
+            "format_detected": format_detected,
+            "suggested_sheet_id": None,
+            "part_no": None,
+            "part_name": None,
+            "vendor": None,
+            "customer": None,
+            "model": None,
+            "lot_number": None,
+            "gtin": None,
+            "user_id": current_user.user_id,
+            "role": current_user.role,
+        }
+        store = _load_pending()
+        store[str(current_user.user_id)] = _not_found_payload
+        _save_pending(store)
+        # Send only to the user whose scan triggered this — not all connected clients
+        notify_user(current_user.user_id, "SCAN_NOT_FOUND", _not_found_payload)
         raise HTTPException(
             status_code=404,
             detail={
@@ -186,6 +236,40 @@ def resolve_code(
             }
         }
 
+@router.post("/templates/{sheet_id}/start")
+def start_inspection_from_template(
+    sheet_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Create the first inspection batch when an operator scans a known part label."""
+    if current_user.role not in {"operator", "supervisor", "admin"}:
+        raise HTTPException(status_code=403, detail="Not allowed to start an inspection")
+
+    template = db.query(SheetTemplate).filter(SheetTemplate.sheet_id == sheet_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="Sheet template not found")
+
+    batch = db.query(InspectionBatch).filter(
+        InspectionBatch.sheet_id == template.sheet_id
+    ).order_by(InspectionBatch.created_at.desc()).first()
+    if batch:
+        return {"batch_id": batch.batch_id}
+
+    lot_number = f"PART-{template.part_no or template.sheet_id}"
+    batch = InspectionBatch(
+        sheet_id=template.sheet_id,
+        lot_number=lot_number,
+        product_name=template.part_name or template.document_title,
+        status="CREATED_PENDING_OPERATOR",
+        round=1,
+    )
+    db.add(batch)
+    db.commit()
+    db.refresh(batch)
+    notify_live("BATCH_CREATED", {"batch_id": batch.batch_id, "sheet_id": batch.sheet_id, "lot_number": batch.lot_number})
+    return {"batch_id": batch.batch_id}
+
 @router.get("/codes/{sheet_id}")
 def get_template_codes(
     sheet_id: str,
@@ -207,3 +291,13 @@ def get_template_codes(
         "qr_base64": qr_b64,
         "barcode_base64": barcode_b64
     }
+
+@router.get("/pending-scan")
+def get_pending_scan(current_user: User = Depends(get_current_user)):
+    """Polling fallback: returns and clears the latest SCAN_NOT_FOUND event for this user."""
+    store = _load_pending()
+    key = str(current_user.user_id)
+    scan = store.pop(key, None)
+    if scan is not None:
+        _save_pending(store)
+    return {"scan": scan}
