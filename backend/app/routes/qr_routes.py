@@ -1,5 +1,4 @@
 import json
-import os
 import pathlib
 import re
 from urllib.parse import urlparse, parse_qs
@@ -183,6 +182,7 @@ def resolve_code(
         store = _load_pending()
         store[str(current_user.user_id)] = _not_found_payload
         _save_pending(store)
+        # Send only to the user whose scan triggered this — not all connected clients
         notify_user(current_user.user_id, "SCAN_NOT_FOUND", _not_found_payload)
         raise HTTPException(
             status_code=404,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, InspectionBatch, QRResolveResult } from './types';
 import { getCurrentStoredUser, logoutUser, fetchBatches, fetchProgressDashboard, startInspectionFromTemplate, fetchPendingScan } from './api';
 import { onBatchCreated, onBatchUpdated, onSheetUpdated, onScanNotFound, liveSync } from './liveSync';
@@ -28,10 +28,6 @@ export const App: React.FC = () => {
   const [createBatchCode, setCreateBatchCode] = useState<string>('');
   const [createBatchSheetId, setCreateBatchSheetId] = useState<string>('');
   const [createBatchLinkBarcode, setCreateBatchLinkBarcode] = useState<string>('');
-  const currentBatchIdRef = useRef<number | null>(currentBatchId);
-
-  useEffect(() => { currentBatchIdRef.current = currentBatchId; }, [currentBatchId]);
-
   const handleOpenCreateBatch = (code = '', sheetId = '', linkBarcode = '') => {
     setCreateBatchCode(code);
     setCreateBatchSheetId(sheetId);
