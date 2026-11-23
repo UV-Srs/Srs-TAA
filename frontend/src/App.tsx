@@ -217,12 +217,13 @@ export const App: React.FC = () => {
                     } : undefined}
                   />
                 ) : (
-                  <div className="flex flex-col items-center justify-center h-64 text-slate-400 border border-dashed border-slate-200 rounded-xl bg-white">
-                    <svg className="w-10 h-10 mb-3 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <div className="flex flex-col items-center justify-center h-64 rounded-xl"
+                    style={{ border: '2px dashed var(--line2)', background: 'var(--surface)' }}>
+                    <svg className="w-10 h-10 mb-3" style={{ color: 'var(--line2)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                     </svg>
-                    <p className="text-sm font-medium">No batch selected</p>
-                    <p className="text-xs text-slate-400 mt-1">Scan a barcode or pick a batch from the queue</p>
+                    <p className="text-sm font-medium" style={{ color: 'var(--muted)' }}>No batch selected</p>
+                    <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>Scan a barcode or pick a batch from the queue</p>
                   </div>
                 )}
               </div>
@@ -269,17 +270,17 @@ export const App: React.FC = () => {
 
       {/* ── Phone scan popup ─────────────────────────────────────── */}
       {pendingScan?.type === 'SCAN_RESOLVED' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden border border-slate-200">
-            <div className="bg-emerald-50 border-b border-emerald-100 p-5 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center shrink-0">
-                <svg className="w-5 h-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <div className="fixed inset-0 z-50 flex items-center justify-center mx-4" style={{ background: 'rgba(27,37,51,0.4)', backdropFilter: 'blur(4px)' }}>
+          <div className="w-full max-w-sm overflow-hidden shadow-2xl" style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 16 }}>
+            <div className="p-5 flex items-center gap-3" style={{ background: 'var(--ok-bg)', borderBottom: '1px solid #b2dcc5' }}>
+              <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ background: 'var(--ok-bg)', border: '2px solid #b2dcc5' }}>
+                <svg className="w-5 h-5" style={{ color: 'var(--ok)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
                 </svg>
               </div>
               <div>
-                <p className="font-bold text-slate-900">Scanned from phone</p>
-                <p className="text-xs text-slate-500 mt-0.5">Open this sheet on the laptop?</p>
+                <p className="font-semibold" style={{ color: 'var(--ok)' }}>Scanned from phone</p>
+                <p className="text-xs mt-0.5" style={{ color: 'var(--ok)' }}>Open this sheet on the laptop?</p>
               </div>
             </div>
             <div className="p-5 space-y-2">
@@ -289,15 +290,16 @@ export const App: React.FC = () => {
                 ['Batch #', pendingScan.batch_id],
               ].map(([label, val]) => (
                 <div key={label} className="flex justify-between text-sm">
-                  <span className="text-slate-500">{label}</span>
-                  <span className="font-semibold text-slate-800">{val}</span>
+                  <span style={{ color: 'var(--muted)' }}>{label}</span>
+                  <span className="font-semibold" style={{ color: 'var(--ink)' }}>{val}</span>
                 </div>
               ))}
             </div>
             <div className="flex gap-3 px-5 pb-5">
               <button
                 onClick={() => setPendingScan(null)}
-                className="flex-1 py-2.5 text-sm font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                className="flex-1 py-2.5 text-sm font-semibold rounded-lg transition-colors"
+                style={{ background: 'var(--surface2)', color: 'var(--ink)' }}
               >
                 Dismiss
               </button>
@@ -310,7 +312,8 @@ export const App: React.FC = () => {
                   setActiveTab('sheet');
                   loadBatches();
                 }}
-                className="flex-1 py-2.5 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors"
+                className="flex-1 py-2.5 text-sm font-semibold rounded-lg transition-colors"
+                style={{ background: 'var(--ok)', color: '#fff' }}
               >
                 Open Sheet
               </button>

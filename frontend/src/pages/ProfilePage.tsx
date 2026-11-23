@@ -7,10 +7,10 @@ interface ProfilePageProps {
   currentUser: User;
 }
 
-const ROLE_COLOR: Record<string, string> = {
-  admin:      'bg-violet-100 text-violet-700',
-  supervisor: 'bg-blue-100 text-blue-700',
-  operator:   'bg-emerald-100 text-emerald-700',
+const ROLE_STYLE: Record<string, React.CSSProperties> = {
+  admin:      { background: 'var(--accent-soft)', color: 'var(--accent)' },
+  supervisor: { background: 'var(--ok-bg)', color: 'var(--ok)' },
+  operator:   { background: 'var(--surface2)', color: 'var(--muted)' },
 };
 
 function PasswordStrength({ password }: { password: string }) {
@@ -21,19 +21,21 @@ function PasswordStrength({ password }: { password: string }) {
     { label: 'Contains a letter',     ok: /[a-zA-Z]/.test(password) },
   ];
   const score = checks.filter(c => c.ok).length;
-  const bar = ['bg-red-400', 'bg-amber-400', 'bg-emerald-500'][score - 1] ?? 'bg-slate-200';
+  const barColor = ['var(--ng)', 'var(--warn)', 'var(--ok)'][score - 1] ?? 'var(--line)';
 
   return (
     <div className="mt-2 space-y-1.5">
       <div className="flex gap-1">
         {[0, 1, 2].map(i => (
-          <div key={i} className={`h-1 flex-1 rounded-full transition-colors ${i < score ? bar : 'bg-slate-200'}`} />
+          <div key={i} className="h-1 flex-1 rounded-full transition-colors"
+            style={{ background: i < score ? barColor : 'var(--line)' }} />
         ))}
       </div>
       <div className="space-y-1">
         {checks.map(c => (
-          <div key={c.label} className={`flex items-center gap-1.5 text-[11px] ${c.ok ? 'text-emerald-600' : 'text-slate-400'}`}>
-            <CheckCircle2 className={`w-3 h-3 shrink-0 ${c.ok ? 'text-emerald-500' : 'text-slate-300'}`} />
+          <div key={c.label} className="flex items-center gap-1.5 text-[11px]"
+            style={{ color: c.ok ? 'var(--ok)' : 'var(--muted)' }}>
+            <CheckCircle2 className="w-3 h-3 shrink-0" style={{ color: c.ok ? 'var(--ok)' : 'var(--line2)' }} />
             {c.label}
           </div>
         ))}
@@ -51,7 +53,7 @@ function PasswordInput({
   const [show, setShow] = useState(false);
   return (
     <div>
-      <label htmlFor={id} className="block text-xs font-semibold text-slate-700 mb-1.5">{label}</label>
+      <label htmlFor={id} className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--ink)' }}>{label}</label>
       <div className="relative">
         <input
           id={id}
@@ -59,13 +61,17 @@ function PasswordInput({
           value={value}
           onChange={e => onChange(e.target.value)}
           placeholder={placeholder}
-          className="w-full px-3 py-2.5 pr-10 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-shadow"
+          className="w-full px-3 py-2.5 pr-10 rounded-lg text-sm outline-none transition-shadow"
+          style={{ border: '1px solid var(--line2)', background: 'var(--surface)', color: 'var(--ink)' }}
+          onFocus={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.boxShadow = '0 0 0 3px var(--accent-soft)'; }}
+          onBlur={e => { e.currentTarget.style.borderColor = 'var(--line2)'; e.currentTarget.style.boxShadow = 'none'; }}
         />
         <button
           type="button"
           tabIndex={-1}
           onClick={() => setShow(s => !s)}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 transition-colors"
+          className="absolute right-3 top-1/2 -translate-y-1/2 transition-colors"
+          style={{ color: 'var(--muted)' }}
         >
           {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
         </button>
@@ -116,40 +122,42 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ currentUser }) => {
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       {/* ── Profile card ──────────────────────────────────────── */}
-      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+      <div className="overflow-hidden" style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 16 }}>
         {/* Cover band */}
-        <div className="h-20 bg-gradient-to-r from-indigo-600 to-indigo-500" />
+        <div className="h-20" style={{ background: 'var(--primary)' }} />
 
         <div className="px-6 pb-6">
           {/* Avatar */}
           <div className="-mt-10 mb-4 flex items-end justify-between">
-            <div className="w-20 h-20 rounded-2xl bg-slate-900 text-white flex items-center justify-center font-black text-2xl ring-4 ring-white select-none shadow-lg">
+            <div className="w-20 h-20 rounded-2xl flex items-center justify-center font-black text-2xl ring-4 ring-white select-none shadow-lg"
+              style={{ background: 'var(--accent-soft)', color: 'var(--primary)' }}>
               {initials}
             </div>
-            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full capitalize ${ROLE_COLOR[currentUser.role] ?? 'bg-slate-100 text-slate-600'}`}>
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full capitalize pill"
+              style={ROLE_STYLE[currentUser.role] ?? { background: 'var(--surface2)', color: 'var(--muted)' }}>
               {currentUser.role}
             </span>
           </div>
 
           <div>
-            <h2 className="text-xl font-bold text-slate-900">{currentUser.full_name}</h2>
-            <p className="text-sm text-slate-500 mt-0.5">@{currentUser.username}</p>
+            <h2 className="text-xl font-semibold" style={{ color: 'var(--ink)' }}>{currentUser.full_name}</h2>
+            <p className="text-sm mt-0.5" style={{ color: 'var(--muted)' }}>@{currentUser.username}</p>
           </div>
 
           {/* Info row */}
           <div className="mt-5 grid grid-cols-2 gap-3">
-            <div className="bg-slate-50 rounded-lg px-4 py-3 flex items-center gap-3">
-              <UserIcon className="w-4 h-4 text-slate-400 shrink-0" />
+            <div className="rounded-lg px-4 py-3 flex items-center gap-3" style={{ background: 'var(--surface2)' }}>
+              <UserIcon className="w-4 h-4 shrink-0" style={{ color: 'var(--muted)' }} />
               <div>
-                <p className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold">Username</p>
-                <p className="text-sm font-semibold text-slate-800">@{currentUser.username}</p>
+                <p className="text-[10px] uppercase tracking-wide font-semibold" style={{ color: 'var(--muted)' }}>Username</p>
+                <p className="text-sm font-semibold" style={{ color: 'var(--ink)' }}>@{currentUser.username}</p>
               </div>
             </div>
-            <div className="bg-slate-50 rounded-lg px-4 py-3 flex items-center gap-3">
-              <ShieldCheck className="w-4 h-4 text-slate-400 shrink-0" />
+            <div className="rounded-lg px-4 py-3 flex items-center gap-3" style={{ background: 'var(--surface2)' }}>
+              <ShieldCheck className="w-4 h-4 shrink-0" style={{ color: 'var(--muted)' }} />
               <div>
-                <p className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold">Role</p>
-                <p className="text-sm font-semibold text-slate-800 capitalize">{currentUser.role}</p>
+                <p className="text-[10px] uppercase tracking-wide font-semibold" style={{ color: 'var(--muted)' }}>Role</p>
+                <p className="text-sm font-semibold capitalize" style={{ color: 'var(--ink)' }}>{currentUser.role}</p>
               </div>
             </div>
           </div>
@@ -157,23 +165,26 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ currentUser }) => {
       </div>
 
       {/* ── Change password ───────────────────────────────────── */}
-      <div className="bg-white border border-slate-200 rounded-xl p-6">
+      <div className="p-6" style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 16 }}>
         <div className="flex items-center gap-2.5 mb-5">
-          <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center">
-            <Lock className="w-4 h-4 text-indigo-600" />
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'var(--accent-soft)' }}>
+            <Lock className="w-4 h-4" style={{ color: 'var(--primary)' }} />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-slate-900">Change Password</h3>
-            <p className="text-xs text-slate-500">Update your login credentials</p>
+            <h3 className="text-sm font-semibold" style={{ color: 'var(--ink)' }}>Change Password</h3>
+            <p className="text-xs" style={{ color: 'var(--muted)' }}>Update your login credentials</p>
           </div>
         </div>
 
         {result && (
-          <div className={`flex items-start gap-2.5 p-3.5 rounded-lg mb-5 text-sm
-            ${result.ok ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
+          <div className="flex items-start gap-2.5 p-3.5 rounded-lg mb-5 text-sm"
+            style={result.ok
+              ? { background: 'var(--ok-bg)', border: '1px solid #b2dcc5', color: 'var(--ok)' }
+              : { background: 'var(--ng-bg)', border: '1px solid #f1b8b5', color: 'var(--ng)' }
+            }>
             {result.ok
-              ? <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600" />
-              : <AlertCircle  className="w-4 h-4 shrink-0 mt-0.5 text-red-600" />
+              ? <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" style={{ color: 'var(--ok)' }} />
+              : <AlertCircle  className="w-4 h-4 shrink-0 mt-0.5" style={{ color: 'var(--ng)' }} />
             }
             <span>{result.msg}</span>
           </div>
@@ -208,7 +219,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ currentUser }) => {
               placeholder="Repeat the new password"
             />
             {mismatch && (
-              <p className="mt-1.5 text-xs text-red-600 flex items-center gap-1">
+              <p className="mt-1.5 text-xs flex items-center gap-1" style={{ color: 'var(--ng)' }}>
                 <AlertCircle className="w-3 h-3" /> Passwords do not match
               </p>
             )}
@@ -218,7 +229,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ currentUser }) => {
             <button
               type="submit"
               disabled={!canSubmit}
-              className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 text-white font-semibold text-sm rounded-lg transition-colors"
+              className="w-full py-2.5 font-semibold text-sm rounded-lg transition-colors disabled:opacity-40"
+              style={{ background: 'var(--primary)', color: 'var(--on-primary)' }}
             >
               {isSubmitting ? 'Saving…' : 'Update Password'}
             </button>

@@ -295,7 +295,7 @@ export const AdminSheetBuilder: React.FC<AdminSheetBuilderProps> = ({ initialPre
   };
 
   if (isLoading) return (
-    <div className="py-20 text-center text-xs font-medium text-slate-500">Loading builder...</div>
+    <div className="py-20 text-center text-xs font-medium" style={{ color: 'var(--muted)' }}>Loading builder...</div>
   );
 
   const currentSheet = sheetsList.find(s => s.sheet_id === selectedSheetId);
@@ -307,45 +307,49 @@ export const AdminSheetBuilder: React.FC<AdminSheetBuilderProps> = ({ initialPre
 
       {/* ── Active Template Banner ───────────────────────────────────────── */}
       {defaultSheet && (
-        <div className="flex items-center gap-3 bg-slate-900 text-white rounded px-4 py-3 text-xs">
-          <Star className="w-4 h-4 text-yellow-400 shrink-0 fill-yellow-400" />
+        <div className="flex items-center gap-3 rounded-xl px-4 py-3 text-xs"
+          style={{ background: 'var(--primary)', color: 'var(--on-primary)' }}>
+          <Star className="w-4 h-4 shrink-0 fill-yellow-400 text-yellow-400" />
           <div className="flex-1 min-w-0">
             <span className="font-semibold">Active Template: </span>
             <span className="font-mono">{defaultSheet.sheet_id}</span>
             {defaultSheet.part_name && (
-              <span className="text-slate-300 ml-2">— {defaultSheet.part_name}</span>
+              <span className="ml-2 opacity-70">— {defaultSheet.part_name}</span>
             )}
           </div>
-          <span className="text-slate-400 text-[11px]">All new batches use this template</span>
+          <span className="text-[11px] opacity-60">All new batches use this template</span>
         </div>
       )}
 
       {/* ── Top Bar ─────────────────────────────────────────────────────── */}
-      <div className="pb-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-4">
+      <div className="pb-4 flex flex-wrap items-center justify-between gap-4" style={{ borderBottom: '1px solid var(--line)' }}>
         <div>
-          <h2 className="text-lg font-bold text-slate-900 tracking-tight">Checksheet Template Builder</h2>
-          <p className="text-xs text-slate-500">Scan a part barcode to create a sheet, or build one manually</p>
+          <h2 className="text-lg font-semibold tracking-tight" style={{ color: 'var(--ink)' }}>Checksheet Template Builder</h2>
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>Scan a part barcode to create a sheet, or build one manually</p>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
           {/* Scan to create */}
           <button
             onClick={() => { setScannerMode('part-scan'); setIsScanOpen(true); }}
-            className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 shadow-sm"
+            className="px-3.5 py-1.5 text-xs font-semibold rounded-lg flex items-center gap-1.5 shadow-sm transition-opacity hover:opacity-90"
+            style={{ background: 'var(--primary)', color: 'var(--on-primary)' }}
           >
             <ScanLine className="w-3.5 h-3.5" />
             <span>Scan Part</span>
           </button>
 
           {/* Sheet picker + Delete grouped together */}
-          <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg overflow-hidden">
+          <div className="flex items-center gap-1 rounded-lg overflow-hidden"
+            style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}>
             <select
               value={selectedSheetId}
               onChange={(e) => {
                 const found = sheetsList.find(s => s.sheet_id === e.target.value);
                 if (found) populateForm(found);
               }}
-              className="border-0 pl-3 pr-2 py-1.5 text-xs font-medium bg-transparent focus:outline-none max-w-[200px]"
+              className="border-0 pl-3 pr-2 py-1.5 text-xs font-medium bg-transparent outline-none max-w-[200px]"
+              style={{ color: 'var(--ink)' }}
             >
               {sheetsList.map(s => (
                 <option key={s.sheet_id} value={s.sheet_id}>
@@ -356,12 +360,13 @@ export const AdminSheetBuilder: React.FC<AdminSheetBuilderProps> = ({ initialPre
 
             {!isNewSheet && (
               <>
-                <div className="w-px h-5 bg-slate-200 shrink-0" />
+                <div className="w-px h-5 shrink-0" style={{ background: 'var(--line)' }} />
                 <button
                   onClick={() => setShowDeleteConfirm(true)}
                   disabled={isDeleting || isCurrentDefault}
                   title={isCurrentDefault ? 'Cannot delete the active template — set another as active first' : `Delete template "${sheetId}" and all its batches`}
-                  className="px-2.5 py-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-30 transition-colors"
+                  className="px-2.5 py-1.5 disabled:opacity-30 transition-colors"
+                  style={{ color: 'var(--muted)' }}
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -371,7 +376,8 @@ export const AdminSheetBuilder: React.FC<AdminSheetBuilderProps> = ({ initialPre
 
           <button
             onClick={() => startBlankSheet()}
-            className="px-3 py-1.5 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-lg flex items-center gap-1.5"
+            className="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1.5 transition-colors"
+            style={{ border: '1px solid var(--line)', background: 'var(--surface)', color: 'var(--ink)' }}
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Blank Sheet</span>
@@ -382,11 +388,11 @@ export const AdminSheetBuilder: React.FC<AdminSheetBuilderProps> = ({ initialPre
               onClick={handleSetDefault}
               disabled={isSettingDefault || isCurrentDefault}
               title={isCurrentDefault ? 'Already the active template' : 'Set as active template for new batches'}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1.5 transition-all border ${
-                isCurrentDefault
-                  ? 'bg-yellow-50 border-yellow-300 text-yellow-800 cursor-default'
-                  : 'border-slate-200 bg-white hover:bg-yellow-50 hover:border-yellow-300 text-slate-700 hover:text-yellow-800'
-              } disabled:opacity-60`}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1.5 transition-all disabled:opacity-60"
+              style={isCurrentDefault
+                ? { border: '1px solid #d4a800', background: '#fffbeb', color: '#854d0e' }
+                : { border: '1px solid var(--line)', background: 'var(--surface)', color: 'var(--muted)' }
+              }
             >
               {isCurrentDefault
                 ? <><Star className="w-3.5 h-3.5 fill-yellow-500 text-yellow-500" /><span>Active</span></>
@@ -398,7 +404,8 @@ export const AdminSheetBuilder: React.FC<AdminSheetBuilderProps> = ({ initialPre
           <button
             onClick={() => setIsPrintModalOpen(true)}
             disabled={isNewSheet}
-            className="px-3 py-1.5 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-lg flex items-center gap-1.5 disabled:opacity-40"
+            className="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1.5 disabled:opacity-40 transition-colors"
+            style={{ border: '1px solid var(--line)', background: 'var(--surface)', color: 'var(--ink)' }}
           >
             <Printer className="w-3.5 h-3.5" />
             <span>View QR</span>
@@ -407,7 +414,8 @@ export const AdminSheetBuilder: React.FC<AdminSheetBuilderProps> = ({ initialPre
           <button
             disabled={isSaving}
             onClick={handleSave}
-            className="px-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium rounded-lg flex items-center gap-1.5 disabled:opacity-50 shadow-sm"
+            className="px-4 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1.5 disabled:opacity-50 shadow-sm transition-opacity hover:opacity-90"
+            style={{ background: 'var(--primary)', color: 'var(--on-primary)' }}
           >
             <Save className="w-3.5 h-3.5" />
             <span>{isSaving ? 'Saving...' : 'Save Template'}</span>
@@ -417,25 +425,28 @@ export const AdminSheetBuilder: React.FC<AdminSheetBuilderProps> = ({ initialPre
 
       {/* ── Status Message ───────────────────────────────────────────────── */}
       {statusMsg && (
-        <div className={`p-3 rounded-lg text-xs flex items-start gap-2 border ${
-          statusMsg.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-          : statusMsg.type === 'info'  ? 'border-blue-200 bg-blue-50 text-blue-800'
-          : 'border-red-200 bg-red-50 text-red-800'
-        }`}>
+        <div className="p-3 rounded-lg text-xs flex items-start gap-2"
+          style={statusMsg.type === 'success'
+            ? { border: '1px solid #b2dcc5', background: 'var(--ok-bg)', color: 'var(--ok)' }
+            : statusMsg.type === 'info'
+            ? { border: '1px solid var(--line2)', background: 'var(--accent-soft)', color: 'var(--accent)' }
+            : { border: '1px solid #f1b8b5', background: 'var(--ng-bg)', color: 'var(--ng)' }
+          }>
           {statusMsg.type === 'success'
-            ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+            ? <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" style={{ color: 'var(--ok)' }} />
             : <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />}
           <span>{statusMsg.text}</span>
         </div>
       )}
 
       {/* ── Metadata Card ────────────────────────────────────────────────── */}
-      <div className="bg-white border border-slate-200 rounded-lg p-5 space-y-4 text-xs">
-        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+      <div className="p-5 space-y-4 text-xs" style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 16 }}>
+        <div className="flex items-center justify-between pb-3" style={{ borderBottom: '1px solid var(--line)' }}>
           <div className="flex items-center gap-2">
-            <span className="font-semibold text-slate-900">Sheet Metadata & Part Identification</span>
+            <span className="font-semibold" style={{ color: 'var(--ink)' }}>Sheet Metadata & Part Identification</span>
             {isCurrentDefault && (
-              <span className="inline-flex items-center gap-1 bg-yellow-100 text-yellow-800 border border-yellow-300 px-2 py-0.5 rounded-full text-[10px] font-semibold">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold"
+                style={{ background: '#fffbeb', color: '#854d0e', border: '1px solid #d4a800' }}>
                 <Star className="w-2.5 h-2.5 fill-yellow-600" /> ACTIVE
               </span>
             )}
@@ -443,7 +454,8 @@ export const AdminSheetBuilder: React.FC<AdminSheetBuilderProps> = ({ initialPre
           <button
             type="button"
             onClick={() => { setScannerMode('resolve'); setIsScanOpen(true); }}
-            className="text-[11px] font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-md flex items-center gap-1 transition-colors"
+            className="text-[11px] font-medium px-2.5 py-1 rounded-md flex items-center gap-1 transition-colors"
+            style={{ color: 'var(--muted)', background: 'var(--surface2)' }}
           >
             <QrCode className="w-3.5 h-3.5" />
             <span>Scan QR for Sheet ID</span>
@@ -452,14 +464,15 @@ export const AdminSheetBuilder: React.FC<AdminSheetBuilderProps> = ({ initialPre
 
         {/* Assigned physical barcode banner */}
         {externalBarcode && (
-          <div className="flex items-center gap-2 bg-slate-900 text-white rounded-lg px-3 py-2.5">
-            <Barcode className="w-4 h-4 shrink-0 text-slate-300" />
+          <div className="flex items-center gap-2 rounded-lg px-3 py-2.5"
+            style={{ background: 'var(--primary)', color: 'var(--on-primary)' }}>
+            <Barcode className="w-4 h-4 shrink-0 opacity-70" />
             <div className="flex-1 min-w-0">
-              <div className="text-[10px] text-slate-400 font-medium uppercase tracking-wide">Physical Barcode Linked</div>
+              <div className="text-[10px] opacity-60 font-medium uppercase tracking-wide">Physical Barcode Linked</div>
               <div className="font-mono font-semibold truncate">{externalBarcode}</div>
             </div>
             <button type="button" onClick={() => setExternalBarcode('')}
-              className="text-slate-400 hover:text-white p-0.5 rounded" title="Remove barcode link">
+              className="opacity-60 hover:opacity-100 p-0.5 rounded" title="Remove barcode link">
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -467,28 +480,26 @@ export const AdminSheetBuilder: React.FC<AdminSheetBuilderProps> = ({ initialPre
 
         {/* Core fields */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+          {[
+            { label: 'Sheet ID', required: true, value: sheetId, onChange: (v: string) => setSheetId(v), placeholder: 'e.g. 18351M62Q50-IFM' },
+            { label: 'Part Number', value: partNo, onChange: (v: string) => setPartNo(v), placeholder: 'e.g. 18351M62Q50' },
+            { label: 'Part Name', value: partName, onChange: (v: string) => setPartName(v), placeholder: 'e.g. PIPE, PURGE LINE (RH)' },
+          ].map(f => (
+            <div key={f.label} className="space-y-1">
+              <label className="font-medium block" style={{ color: 'var(--muted)' }}>
+                {f.label} {f.required && <span style={{ color: 'var(--ng)' }}>*</span>}
+              </label>
+              <input type="text" required={f.required} value={f.value} onChange={e => f.onChange(e.target.value)}
+                placeholder={f.placeholder}
+                className="w-full rounded-lg p-2 font-medium outline-none"
+                style={{ border: '1px solid var(--line2)', color: 'var(--ink)', background: 'var(--surface)' }} />
+            </div>
+          ))}
           <div className="space-y-1">
-            <label className="font-medium text-slate-600 block">Sheet ID <span className="text-red-500">*</span></label>
-            <input type="text" required value={sheetId} onChange={e => setSheetId(e.target.value)}
-              placeholder="e.g. 18351M62Q50-IFM"
-              className="w-full border border-slate-300 rounded-lg p-2 font-medium focus:outline-none focus:ring-2 focus:ring-slate-900" />
-          </div>
-          <div className="space-y-1">
-            <label className="font-medium text-slate-600 block">Part Number</label>
-            <input type="text" value={partNo} onChange={e => setPartNo(e.target.value)}
-              placeholder="e.g. 18351M62Q50"
-              className="w-full border border-slate-300 rounded-lg p-2 font-medium focus:outline-none focus:ring-2 focus:ring-slate-900" />
-          </div>
-          <div className="space-y-1">
-            <label className="font-medium text-slate-600 block">Part Name</label>
-            <input type="text" value={partName} onChange={e => setPartName(e.target.value)}
-              placeholder="e.g. PIPE, PURGE LINE (RH)"
-              className="w-full border border-slate-300 rounded-lg p-2 font-medium focus:outline-none focus:ring-2 focus:ring-slate-900" />
-          </div>
-          <div className="space-y-1">
-            <label className="font-medium text-slate-600 block">Category</label>
+            <label className="font-medium block" style={{ color: 'var(--muted)' }}>Category</label>
             <select value={partCategory} onChange={e => setPartCategory(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg p-2 font-medium focus:outline-none focus:ring-2 focus:ring-slate-900 bg-white">
+              className="w-full rounded-lg p-2 font-medium outline-none"
+              style={{ border: '1px solid var(--line2)', background: 'var(--surface)', color: 'var(--ink)' }}>
               <option value="MAIN PART">MAIN PART</option>
               <option value="CHILD PART">CHILD PART</option>
             </select>
@@ -496,44 +507,43 @@ export const AdminSheetBuilder: React.FC<AdminSheetBuilderProps> = ({ initialPre
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-          <div className="space-y-1">
-            <label className="font-medium text-slate-600 block">Model</label>
-            <input type="text" value={modelName} onChange={e => setModelName(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-slate-900" />
-          </div>
-          <div className="space-y-1">
-            <label className="font-medium text-slate-600 block">Vendor</label>
-            <input type="text" value={vendorName} onChange={e => setVendorName(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-slate-900" />
-          </div>
-          <div className="space-y-1">
-            <label className="font-medium text-slate-600 block">Customer</label>
-            <input type="text" value={customerName} onChange={e => setCustomerName(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-slate-900" />
-          </div>
+          {[
+            { label: 'Model', value: modelName, onChange: setModelName },
+            { label: 'Vendor', value: vendorName, onChange: setVendorName },
+            { label: 'Customer', value: customerName, onChange: setCustomerName },
+          ].map(f => (
+            <div key={f.label} className="space-y-1">
+              <label className="font-medium block" style={{ color: 'var(--muted)' }}>{f.label}</label>
+              <input type="text" value={f.value} onChange={e => f.onChange(e.target.value)}
+                className="w-full rounded-lg p-2 outline-none"
+                style={{ border: '1px solid var(--line2)', color: 'var(--ink)', background: 'var(--surface)' }} />
+            </div>
+          ))}
         </div>
 
         <div className="space-y-1">
-          <label className="font-medium text-slate-600 block">Document Title</label>
+          <label className="font-medium block" style={{ color: 'var(--muted)' }}>Document Title</label>
           <input type="text" value={documentTitle} onChange={e => setDocumentTitle(e.target.value)}
-            className="w-full border border-slate-300 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-slate-900" />
+            className="w-full rounded-lg p-2 outline-none"
+            style={{ border: '1px solid var(--line2)', color: 'var(--ink)', background: 'var(--surface)' }} />
         </div>
       </div>
 
       {/* ── Control Items Matrix ──────────────────────────────────────────── */}
-      <div className="bg-white border border-slate-200 rounded-lg p-5 space-y-4">
-        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+      <div className="p-5 space-y-4" style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 16 }}>
+        <div className="flex items-center justify-between pb-3" style={{ borderBottom: '1px solid var(--line)' }}>
           <div>
-            <h3 className="text-xs font-semibold text-slate-900">Control Items & Specification Matrix</h3>
-            <p className="text-[11px] text-slate-500">Configure checklist rows and numeric measurement grids</p>
+            <h3 className="text-xs font-semibold" style={{ color: 'var(--ink)' }}>Control Items & Specification Matrix</h3>
+            <p className="text-[11px]" style={{ color: 'var(--muted)' }}>Configure checklist rows and numeric measurement grids</p>
           </div>
           <button type="button" onClick={handleAddRow}
-            className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium rounded-lg flex items-center gap-1">
+            className="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1 transition-opacity hover:opacity-90"
+            style={{ background: 'var(--primary)', color: 'var(--on-primary)' }}>
             <Plus className="w-3.5 h-3.5" /><span>Add Row</span>
           </button>
         </div>
 
-        <div className="overflow-x-auto border border-slate-200 rounded-lg">
+        <div className="overflow-x-auto rounded-lg" style={{ border: '1px solid var(--line)' }}>
           <table className="clean-table min-w-full text-xs">
             <thead>
               <tr>
@@ -554,35 +564,41 @@ export const AdminSheetBuilder: React.FC<AdminSheetBuilderProps> = ({ initialPre
             <tbody>
               {controlItems.map((item, idx) => (
                 <tr key={idx}>
-                  <td className="text-center font-semibold text-slate-400 text-[11px]">{item.serial_no}</td>
+                  <td className="text-center font-semibold text-[11px]" style={{ color: 'var(--muted)' }}>{item.serial_no}</td>
                   <td>
                     <input type="text" value={item.stage_name}
                       onChange={e => handleUpdateItem(idx, 'stage_name', e.target.value)}
-                      className="w-full border border-slate-200 rounded px-1.5 py-1 text-xs" placeholder="Stage" />
+                      className="w-full rounded px-1.5 py-1 text-xs outline-none"
+                      style={{ border: '1px solid var(--line)', color: 'var(--ink)' }} placeholder="Stage" />
                   </td>
                   <td>
                     <input type="text" value={item.control_item_name}
                       onChange={e => handleUpdateItem(idx, 'control_item_name', e.target.value)}
-                      className="w-full border border-slate-200 rounded px-1.5 py-1 text-xs font-medium" placeholder="Item name" />
+                      className="w-full rounded px-1.5 py-1 text-xs font-medium outline-none"
+                      style={{ border: '1px solid var(--line)', color: 'var(--ink)' }} placeholder="Item name" />
                   </td>
                   <td>
                     <input type="text" value={item.specification_content}
                       onChange={e => handleUpdateItem(idx, 'specification_content', e.target.value)}
-                      className="w-full border border-slate-200 rounded px-1.5 py-1 text-xs text-slate-700" placeholder="Spec" />
+                      className="w-full rounded px-1.5 py-1 text-xs outline-none"
+                      style={{ border: '1px solid var(--line)', color: 'var(--ink)' }} placeholder="Spec" />
                   </td>
                   <td>
                     <input type="text" value={item.application_method || ''}
                       onChange={e => handleUpdateItem(idx, 'application_method', e.target.value)}
-                      className="w-full border border-slate-200 rounded px-1.5 py-1 text-xs" placeholder="Method" />
+                      className="w-full rounded px-1.5 py-1 text-xs outline-none"
+                      style={{ border: '1px solid var(--line)', color: 'var(--ink)' }} placeholder="Method" />
                   </td>
                   <td>
                     <div className="flex flex-col gap-0.5">
                       <input type="text" value={item.normal_frequency || ''}
                         onChange={e => handleUpdateItem(idx, 'normal_frequency', e.target.value)}
-                        placeholder="Normal" className="w-full border border-slate-200 rounded px-1.5 py-0.5 text-[10px]" />
+                        placeholder="Normal" className="w-full rounded px-1.5 py-0.5 text-[10px] outline-none"
+                        style={{ border: '1px solid var(--line)', color: 'var(--ink)' }} />
                       <input type="text" value={item.ifm_frequency || ''}
                         onChange={e => handleUpdateItem(idx, 'ifm_frequency', e.target.value)}
-                        placeholder="IFM" className="w-full border border-slate-200 rounded px-1.5 py-0.5 text-[10px]" />
+                        placeholder="IFM" className="w-full rounded px-1.5 py-0.5 text-[10px] outline-none"
+                        style={{ border: '1px solid var(--line)', color: 'var(--ink)' }} />
                     </div>
                   </td>
                   <td>
@@ -606,7 +622,8 @@ export const AdminSheetBuilder: React.FC<AdminSheetBuilderProps> = ({ initialPre
                           handleUpdateItem(idx, 'visible_to_operator', true);
                         }
                       }}
-                      className="w-full border border-slate-200 rounded px-1.5 py-1 text-xs bg-white font-medium">
+                      className="w-full rounded px-1.5 py-1 text-xs font-medium outline-none"
+                      style={{ border: '1px solid var(--line)', background: 'var(--surface)', color: 'var(--ink)' }}>
                       <option value="SERIAL_TICKBOX">Tickbox</option>
                       <option value="NUMERIC_SAMPLE">Numeric</option>
                       <option value="STANDARD_INPUT">Text</option>
@@ -618,23 +635,27 @@ export const AdminSheetBuilder: React.FC<AdminSheetBuilderProps> = ({ initialPre
                         <div className="flex gap-1 justify-center">
                           <input type="number" step="0.01" value={item.min_val ?? ''}
                             onChange={e => handleUpdateItem(idx, 'min_val', e.target.value ? parseFloat(e.target.value) : null)}
-                            placeholder="Min" className="w-11 border border-slate-200 rounded p-1 text-[10px] text-center" />
+                            placeholder="Min" className="w-11 rounded p-1 text-[10px] text-center outline-none"
+                            style={{ border: '1px solid var(--line)', color: 'var(--ink)' }} />
                           <input type="number" step="0.01" value={item.max_val ?? ''}
                             onChange={e => handleUpdateItem(idx, 'max_val', e.target.value ? parseFloat(e.target.value) : null)}
-                            placeholder="Max" className="w-11 border border-slate-200 rounded p-1 text-[10px] text-center" />
+                            placeholder="Max" className="w-11 rounded p-1 text-[10px] text-center outline-none"
+                            style={{ border: '1px solid var(--line)', color: 'var(--ink)' }} />
                         </div>
                         <input type="text" value={item.unit || ''}
                           onChange={e => handleUpdateItem(idx, 'unit', e.target.value || null)}
-                          placeholder="unit" className="w-full border border-slate-200 rounded px-1.5 py-0.5 text-[10px] text-center font-mono" />
+                          placeholder="unit" className="w-full rounded px-1.5 py-0.5 text-[10px] text-center font-mono outline-none"
+                          style={{ border: '1px solid var(--line)', color: 'var(--ink)' }} />
                       </div>
                     ) : (
-                      <span className="text-[10px] text-slate-400">Pass/Fail</span>
+                      <span className="text-[10px]" style={{ color: 'var(--muted)' }}>Pass/Fail</span>
                     )}
                   </td>
                   <td>
                     <select value={item.assigned_role}
                       onChange={e => handleUpdateItem(idx, 'assigned_role', e.target.value as any)}
-                      className="w-full border border-slate-200 rounded px-1.5 py-1 text-xs bg-white">
+                      className="w-full rounded px-1.5 py-1 text-xs outline-none"
+                      style={{ border: '1px solid var(--line)', background: 'var(--surface)', color: 'var(--ink)' }}>
                       <option value="operator">Operator</option>
                       <option value="supervisor">Supervisor</option>
                       <option value="admin">Admin</option>
@@ -643,25 +664,25 @@ export const AdminSheetBuilder: React.FC<AdminSheetBuilderProps> = ({ initialPre
                   <td className="text-center">
                     <input type="checkbox" checked={item.is_required}
                       onChange={e => handleUpdateItem(idx, 'is_required', e.target.checked)}
-                      className="w-3.5 h-3.5 cursor-pointer accent-black" title="Required field" />
+                      className="w-3.5 h-3.5 cursor-pointer" style={{ accentColor: 'var(--primary)' }} title="Required field" />
                   </td>
                   <td className="text-center">
                     <input type="checkbox" checked={item.is_supervisor_checkpoint || false}
                       onChange={e => handleUpdateItem(idx, 'is_supervisor_checkpoint', e.target.checked)}
-                      className="w-3.5 h-3.5 cursor-pointer accent-violet-600" title="Supervisor checkpoint" />
+                      className="w-3.5 h-3.5 cursor-pointer" style={{ accentColor: 'var(--ok)' }} title="Supervisor checkpoint" />
                   </td>
                   <td className="text-center">
                     <div className="flex flex-col items-center gap-0.5">
                       <button type="button" onClick={() => handleMoveRow(idx, 'up')} disabled={idx === 0}
-                        className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-20 transition-colors" title="Move up">
+                        className="p-0.5 disabled:opacity-20 transition-colors" style={{ color: 'var(--muted)' }} title="Move up">
                         <ChevronUp className="w-3 h-3" />
                       </button>
                       <button type="button" onClick={() => handleMoveRow(idx, 'down')} disabled={idx === controlItems.length - 1}
-                        className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-20 transition-colors" title="Move down">
+                        className="p-0.5 disabled:opacity-20 transition-colors" style={{ color: 'var(--muted)' }} title="Move down">
                         <ChevronDown className="w-3 h-3" />
                       </button>
                       <button type="button" onClick={() => handleRemoveRow(idx)}
-                        className="p-0.5 text-slate-400 hover:text-red-600 rounded transition-colors" title="Delete row">
+                        className="p-0.5 rounded transition-colors" style={{ color: 'var(--muted)' }} title="Delete row">
                         <Trash2 className="w-3 h-3" />
                       </button>
                     </div>
@@ -680,27 +701,30 @@ export const AdminSheetBuilder: React.FC<AdminSheetBuilderProps> = ({ initialPre
 
       {/* ── Delete Confirmation ──────────────────────────────────────────── */}
       {showDeleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
-          <div className="bg-white border border-slate-200 rounded-lg w-full max-w-sm p-6 shadow-xl text-xs space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(27,37,51,0.4)', backdropFilter: 'blur(2px)' }}>
+          <div className="w-full max-w-sm p-6 shadow-xl text-xs space-y-4"
+            style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 16 }}>
             <div className="flex items-start gap-3">
-              <div className="w-9 h-9 rounded-full bg-red-100 flex items-center justify-center shrink-0">
-                <AlertTriangle className="w-5 h-5 text-red-600" />
+              <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
+                style={{ background: 'var(--ng-bg)' }}>
+                <AlertTriangle className="w-5 h-5" style={{ color: 'var(--ng)' }} />
               </div>
               <div>
-                <h3 className="font-semibold text-slate-900 text-sm">Delete Template</h3>
-                <p className="text-slate-500 mt-1 leading-relaxed">
-                  This will permanently delete <span className="font-mono font-semibold text-slate-800">{sheetId}</span> and
+                <h3 className="font-semibold text-sm" style={{ color: 'var(--ink)' }}>Delete Template</h3>
+                <p className="mt-1 leading-relaxed" style={{ color: 'var(--muted)' }}>
+                  This will permanently delete <span className="font-mono font-semibold" style={{ color: 'var(--ink)' }}>{sheetId}</span> and
                   <strong> all inspection batches</strong> linked to it, including all recorded measurements, decisions, and attachments.
                 </p>
-                <p className="text-red-600 font-semibold mt-2">This cannot be undone.</p>
+                <p className="font-semibold mt-2" style={{ color: 'var(--ng)' }}>This cannot be undone.</p>
               </div>
             </div>
 
-            <div className="flex gap-2 pt-2 border-t border-slate-100">
+            <div className="flex gap-2 pt-2" style={{ borderTop: '1px solid var(--line)' }}>
               <button
                 type="button"
                 onClick={() => setShowDeleteConfirm(false)}
-                className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded transition-colors"
+                className="flex-1 py-2 font-medium rounded transition-colors"
+                style={{ background: 'var(--surface2)', color: 'var(--ink)' }}
               >
                 Cancel
               </button>
@@ -708,7 +732,8 @@ export const AdminSheetBuilder: React.FC<AdminSheetBuilderProps> = ({ initialPre
                 type="button"
                 onClick={handleDelete}
                 disabled={isDeleting}
-                className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+                className="flex-1 py-2 font-semibold rounded flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+                style={{ background: 'var(--ng)', color: '#fff' }}
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>{isDeleting ? 'Deleting...' : 'Yes, Delete'}</span>
