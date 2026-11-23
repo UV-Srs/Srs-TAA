@@ -48,14 +48,14 @@ export const AuditLogsView: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="relative">
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <div className="relative flex-1 sm:flex-none">
             <input
               type="text"
               value={filterText}
               onChange={(e) => setFilterText(e.target.value)}
               placeholder="Search logs..."
-              className="border border-slate-300 rounded-lg px-3 py-1.5 pl-8 text-xs focus:outline-none focus:ring-2 focus:ring-slate-900 w-60"
+              className="border border-slate-300 rounded-lg px-3 py-1.5 pl-8 text-xs focus:outline-none focus:ring-2 focus:ring-slate-900 w-full sm:w-60"
             />
             <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
           </div>

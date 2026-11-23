@@ -483,7 +483,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
     <div className="space-y-4 text-xs font-sans pb-12">
       {/* Read-Only Banner if finalized or locked */}
       {isReadOnly && (
-        <div className="bg-black text-white px-5 py-3 rounded-xl flex items-center justify-between text-xs font-bold tracking-wider uppercase shadow-md mb-2">
+        <div className="bg-black text-white px-5 py-3 rounded-xl flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 text-xs font-bold tracking-wider uppercase shadow-md mb-2">
           <div className="flex items-center gap-2.5">
             <Lock className="w-4 h-4 text-white" />
             <span>LOCKED RECORD — READ-ONLY SUMMARY MODE</span>
@@ -609,12 +609,15 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
           <table className="w-full text-left text-xs border-collapse">
             <thead>
               <tr className="bg-slate-50 text-slate-600 border-b border-slate-200 font-semibold text-[11px] uppercase tracking-wider">
-                <th className="py-3 px-4 w-12 text-center">#</th>
-                <th className="py-3 px-4 min-w-[220px]">Inspection Item</th>
-                <th className="py-3 px-4 min-w-[180px]">Specification & Limits</th>
-                <th className="py-3 px-4 min-w-[200px]">Recorded Result</th>
+                <th className="py-3 px-2 sm:px-3 w-10 text-center">#</th>
+                <th className="py-3 px-3 hidden md:table-cell">Stage</th>
+                <th className="py-3 px-3 min-w-[130px] md:min-w-[180px]">Inspection Item</th>
+                <th className="py-3 px-3 min-w-[120px] md:min-w-[160px]">Specification & Limits</th>
+                <th className="py-3 px-3 hidden md:table-cell">Method</th>
+                <th className="py-3 px-3 min-w-[150px] md:min-w-[180px]">Recorded Result</th>
+                <th className="py-3 px-3 hidden md:table-cell">Owner</th>
                 {currentUser.role === 'supervisor' && opRejectedList.length > 0 && (
-                  <th className="py-3 px-4 min-w-[160px] text-center">Supervisor Review</th>
+                  <th className="py-3 px-3 min-w-[140px] text-center">Supervisor Review</th>
                 )}
               </tr>
             </thead>
@@ -651,15 +654,25 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
 
                 return (
                   <tr key={item.item_id || idx} className={`transition-colors border-b border-slate-100 ${rowClass}`}>
-                    <td className="py-2.5 px-3 text-center font-mono text-slate-700 font-bold">
+                    <td className="py-2.5 px-2 sm:px-3 text-center font-mono text-slate-700 font-bold">
                       {item.serial_no}
                     </td>
-                    <td className="py-2.5 px-3 font-semibold text-slate-800">
+                    <td className="py-2.5 px-3 font-semibold text-slate-800 hidden md:table-cell">
                       {item.stage_name}
                     </td>
                     <td className="py-2.5 px-3 font-bold text-slate-950">
+                      {item.stage_name && (
+                        <span className="md:hidden block text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
+                          {item.stage_name}
+                        </span>
+                      )}
                       {item.control_item_name}
                       {item.is_required && <span className="text-red-600 ml-0.5">*</span>}
+                      {isCheckpoint && (
+                        <span className="md:hidden mt-1 text-[9px] font-bold text-white bg-black px-1.5 py-0.5 rounded tracking-wide uppercase block w-fit">
+                          Sup Checkpoint
+                        </span>
+                      )}
                     </td>
                     <td className="py-2.5 px-3 font-mono text-[11px] text-slate-700">
                       {item.specification_content}
@@ -669,7 +682,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                         </span>
                       )}
                     </td>
-                    <td className="py-2.5 px-3 text-slate-600">
+                    <td className="py-2.5 px-3 text-slate-600 hidden md:table-cell">
                       {item.application_method || '-'}
                     </td>
 
@@ -681,7 +694,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                             <button
                               type="button"
                               onClick={() => handleCellChange(item, firstColKey, 'Pass')}
-                              className={`px-3 py-1 rounded font-bold text-xs transition-all ${
+                              className={`px-4 py-2 md:px-3 md:py-1 rounded font-bold text-xs transition-all ${
                                 currentVal === 'Pass'
                                   ? 'bg-black text-white shadow-sm'
                                   : 'text-black hover:bg-slate-100'
@@ -692,7 +705,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                             <button
                               type="button"
                               onClick={() => handleCellChange(item, firstColKey, 'Fail')}
-                              className={`px-3 py-1 rounded font-bold text-xs transition-all ${
+                              className={`px-4 py-2 md:px-3 md:py-1 rounded font-bold text-xs transition-all ${
                                 currentVal === 'Fail'
                                   ? 'bg-black text-white shadow-sm underline'
                                   : 'text-black hover:bg-slate-100'
@@ -702,13 +715,14 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                             </button>
                           </div>
                         ) : item.html_input_type === 'number' || item.row_mode === 'NUMERIC_SAMPLE' ? (
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <input
                               type="number"
+                              inputMode="decimal"
                               step="0.01"
                               value={currentVal}
                               onChange={(e) => handleCellChange(item, firstColKey, e.target.value)}
-                              className={`w-28 rounded-lg px-2.5 py-1 text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-black ${
+                              className={`w-28 rounded-lg px-2.5 py-2 md:py-1 text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-black ${
                                 isOutOfSpec
                                   ? 'border-2 border-dashed border-black bg-neutral-100 text-black'
                                   : 'border-2 border-black bg-white text-black'
@@ -747,7 +761,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                             value={currentVal}
                             onChange={(e) => handleCellChange(item, firstColKey, e.target.value)}
                             placeholder="Optional remark"
-                            className="w-full border-2 border-black rounded-lg px-2.5 py-1 text-xs font-medium focus:ring-2 focus:ring-black focus:outline-none"
+                            className="w-full border-2 border-black rounded-lg px-2.5 py-2 md:py-1 text-xs font-medium focus:ring-2 focus:ring-black focus:outline-none"
                           />
                         )
                       ) : (
@@ -771,7 +785,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                     </td>
 
                     {/* Owner / Role */}
-                    <td className="py-2.5 px-3">
+                    <td className="py-2.5 px-3 hidden md:table-cell">
                       <div className="flex flex-col gap-0.5">
                         <span className={`font-bold text-xs ${isAssigned ? 'text-black' : 'text-slate-400'}`}>
                           {item.assigned_role === 'supervisor' ? 'Supervisor' : 'Operator'}
@@ -841,7 +855,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                     alt={att.file_name || 'Inspection Photo'}
                     className="w-24 h-24 object-cover"
                   />
-                  <div className="absolute inset-0 bg-slate-900/60 text-white opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-1.5 text-[10px]">
+                  <div className="absolute inset-0 bg-slate-900/60 text-white opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity flex flex-col justify-end p-1.5 text-[10px]">
                     <span className="truncate">{att.file_name}</span>
                     <span className="text-[9px] text-slate-300">{att.capture_source}</span>
                   </div>
@@ -1036,7 +1050,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
       {/* Supervisor Hold Modal (FR-055) */}
       {isHoldModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 no-print backdrop-blur-sm">
-          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md shadow-xl overflow-hidden text-xs">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto shadow-xl text-xs">
             <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
               <h3 className="font-bold text-sm text-slate-900">Put Batch On Hold (Quarantine)</h3>
               <button onClick={() => setIsHoldModalOpen(false)} className="text-slate-400 hover:text-slate-700 p-1">
@@ -1110,7 +1124,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
       {/* Release Hold Modal (FR-057 & FR-058) */}
       {isReleaseModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 no-print backdrop-blur-sm">
-          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md shadow-xl overflow-hidden text-xs">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto shadow-xl text-xs">
             <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
               <h3 className="font-bold text-sm text-slate-900">Release Hold on {batch.lot_number}</h3>
               <button onClick={() => setIsReleaseModalOpen(false)} className="text-slate-400 hover:text-slate-700 p-1">
