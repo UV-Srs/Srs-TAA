@@ -1,5 +1,7 @@
 import io
 import csv
+import re
+from urllib.parse import quote
 from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
@@ -20,6 +22,8 @@ from backend.app.audit import log_audit, purge_user_audit_logs
 from backend.app.config import UPLOAD_DIR
 from backend.app.export_pdf import generate_pdf_report
 from backend.app.export_excel import generate_excel_report
+from backend.app.checksheet_report import generate_checksheet_csv
+from backend.app.report_people import resolve_report_people
 from backend.app.notifications import check_overdue_holds, send_notification
 from backend.app.live_sync import notify_live
 from backend.app.routes.batch_routes import format_batch_response
@@ -459,6 +463,7 @@ def export_all_records_csv(db: Session = Depends(get_db), current_user: User = D
 
     head = [
         "Batch", "Sheet ID", "Sheet", "Product", "Line", "Qty", "Status", "Round",
+        "Operator", "Supervisor",
         "Inspected by", "Inspection decision", "Inspected at",
         "Reviewed by", "Review decision", "Reviewed at",
         "Hold reason", "Hold placed by", "Hold released by", "Field values"
@@ -479,6 +484,7 @@ def export_all_records_csv(db: Session = Depends(get_db), current_user: User = D
 
         cells = db.query(BatchCellResponse).filter(BatchCellResponse.batch_id == b.batch_id).all()
         cell_summary = "; ".join([f"{c.item.control_item_name if c.item else c.item_id}[{c.column_key}]={c.cell_value}" for c in cells])
+        people = resolve_report_people(b, decisions)
 
         writer.writerow([
             b.lot_number,
@@ -489,6 +495,8 @@ def export_all_records_csv(db: Session = Depends(get_db), current_user: User = D
             b.lot_quantity or "",
             b.status,
             b.round or 1,
+            people["operator"],
+            people["supervisor"],
             fmt_user(last_ins),
             last_ins.decision if last_ins else "",
             last_ins.decided_at.isoformat() if last_ins and last_ins.decided_at else "",
@@ -513,12 +521,12 @@ def export_all_records_csv(db: Session = Depends(get_db), current_user: User = D
 @router.get("/batches/{batch_id}/export")
 def export_batch_report(
     batch_id: int,
-    format: str = Query("pdf", pattern="^(pdf|xlsx)$"),
+    format: str = Query("pdf", pattern="^(pdf|xlsx|csv)$"),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
     """
-    FR-014 / FR-051: Downloads the exact IFM checksheet in PDF or Excel (.xlsx).
+    FR-014 / FR-051: Downloads the exact IFM checksheet in PDF, Excel (.xlsx) or CSV.
     """
     batch = db.query(InspectionBatch).filter(InspectionBatch.batch_id == batch_id).first()
     if not batch:
@@ -534,6 +542,27 @@ def export_batch_report(
 
     filename_base = f"IFM_Checksheet_{template.sheet_id}_{batch.lot_number}"
 
+    def disposition(ext: str) -> str:
+        # ASCII-safe filename (lot numbers may contain spaces, slashes or non-Latin characters)
+        # plus an RFC 5987 UTF-8 version for browsers that support it.
+        full = f"{filename_base}.{ext}"
+        ascii_name = re.sub(r"[^A-Za-z0-9._-]+", "_", full)
+        return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(full, safe='')}"
+
+    if format == "csv":
+        csv_bytes = generate_checksheet_csv(
+            batch=batch,
+            template=template,
+            cell_responses=cell_responses,
+            decisions=decisions,
+            attachments=attachments
+        )
+        return Response(
+            content=csv_bytes,
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": disposition("csv")}
+        )
+
     if format == "pdf":
         pdf_bytes = generate_pdf_report(
             batch=batch,
@@ -546,7 +575,7 @@ def export_batch_report(
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",
-            headers={"Content-Disposition": f'attachment; filename="{filename_base}.pdf"'}
+            headers={"Content-Disposition": disposition("pdf")}
         )
     else:
         xlsx_bytes = generate_excel_report(
@@ -559,7 +588,7 @@ def export_batch_report(
         return Response(
             content=xlsx_bytes,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f'attachment; filename="{filename_base}.xlsx"'}
+            headers={"Content-Disposition": disposition("xlsx")}
         )
 
 # --- Activity / Audit Logs (FR-015) ---

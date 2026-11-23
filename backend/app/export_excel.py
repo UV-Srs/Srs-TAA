@@ -3,6 +3,7 @@ from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
+from backend.app.report_people import resolve_report_people
 
 def generate_excel_report(batch, template, cell_responses, decisions, attachments) -> bytes:
     """Generates an exact IFM Checksheet Excel (.xlsx) matching physical checksheet layout."""
@@ -200,9 +201,10 @@ def generate_excel_report(batch, template, cell_responses, decisions, attachment
     cur_row += 2
 
     # 4. Sign-Off Footer
-    prep_by = batch.prepared_user.full_name if batch.prepared_user else "Pending"
-    chk_by = batch.checked_user.full_name if batch.checked_user else "Pending"
-    app_by = batch.approved_user.full_name if batch.approved_user else "Pending"
+    people = resolve_report_people(batch, decisions)
+    prep_by = people["operator"]
+    chk_by = people["supervisor"]
+    app_by = people["approver"]
 
     ws.merge_cells(start_row=cur_row, start_column=1, end_row=cur_row, end_column=5)
     ws.cell(row=cur_row, column=1, value="PREPARED BY (Operator)").font = font_bold

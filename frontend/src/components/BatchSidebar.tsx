@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { InspectionBatch, User } from '../types';
-import { getCsvExportUrl } from '../api';
+import { getCsvExportUrl, downloadCsvReport, handleReportDownloadClick } from '../api';
 import { Download, AlertCircle, Clock, Search, ChevronDown } from 'lucide-react';
 
 interface BatchSidebarProps {
@@ -119,6 +119,7 @@ export const BatchSidebar: React.FC<BatchSidebarProps> = ({
             <a
               href={getCsvExportUrl()}
               download="taa-inspection-records.csv"
+              onClick={(e) => handleReportDownloadClick(e, downloadCsvReport)}
               className="text-[11px] font-medium text-slate-600 hover:text-slate-900 flex items-center gap-1 transition-colors"
               title="Download CSV"
             >

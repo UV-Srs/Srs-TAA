@@ -58,6 +58,8 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Let browser fetch() read the server-provided filename on report downloads.
+    expose_headers=["Content-Disposition"],
 )
 
 # WebSocket Endpoint for Live Real-Time Collaboration

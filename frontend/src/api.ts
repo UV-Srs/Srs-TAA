@@ -270,12 +270,81 @@ export async function syncOfflineQueue(mutations: OfflineMutation[]): Promise<an
   });
 }
 
-export function getExportUrl(batchId: number, format: 'pdf' | 'xlsx'): string {
+export type BatchReportFormat = 'pdf' | 'xlsx' | 'csv';
+
+export function getExportUrl(batchId: number, format: BatchReportFormat): string {
   return `/api/admin/batches/${batchId}/export?format=${format}`;
 }
 
 export function getCsvExportUrl(): string {
   return `/api/admin/export-csv`;
+}
+
+// --- Authenticated File Downloads ---
+// Plain <a href> links cannot send the Bearer token, so report exports are
+// fetched with the stored JWT and saved from a Blob instead.
+
+function parseContentDispositionFilename(header: string | null): string | null {
+  if (!header) return null;
+  const utf8 = /filename\*\s*=\s*(?:UTF-8'')?([^;]+)/i.exec(header);
+  if (utf8) {
+    try {
+      return decodeURIComponent(utf8[1].trim().replace(/^"|"$/g, ''));
+    } catch {
+      /* fall through to plain filename */
+    }
+  }
+  const plain = /filename\s*=\s*("?)([^";]+)\1/i.exec(header);
+  return plain ? plain[2].trim() : null;
+}
+
+export async function downloadAuthenticatedFile(path: string, fallbackFilename: string): Promise<void> {
+  const response = await fetch(`${API_BASE}${path}`, { headers: getAuthHeader() });
+
+  if (!response.ok) {
+    let errorDetail = `Download failed (HTTP ${response.status})`;
+    try {
+      const errorJson = await response.json();
+      errorDetail = errorJson.detail?.message || errorJson.detail || errorDetail;
+    } catch {
+      /* non-JSON error body; keep the generic message */
+    }
+    throw new Error(errorDetail);
+  }
+
+  const filename =
+    parseContentDispositionFilename(response.headers.get('Content-Disposition')) || fallbackFilename;
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = filename;
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  // Give the browser time to start the save before releasing the Blob.
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+}
+
+export function downloadBatchReport(batchId: number, format: BatchReportFormat): Promise<void> {
+  return downloadAuthenticatedFile(getExportUrl(batchId, format), `IFM_Checksheet_batch_${batchId}.${format}`);
+}
+
+export function downloadCsvReport(): Promise<void> {
+  return downloadAuthenticatedFile(getCsvExportUrl(), 'taa-inspection-records.csv');
+}
+
+/** Click handler for existing report <a> links: keeps the markup, swaps in an authenticated download. */
+export function handleReportDownloadClick(
+  event: { preventDefault: () => void },
+  download: () => Promise<void>
+): void {
+  event.preventDefault();
+  download().catch((err: unknown) => {
+    window.alert(`Report download failed: ${err instanceof Error ? err.message : String(err)}`);
+  });
 }
 
 // Polling fallback: returns and clears the latest pending scan event for this user
