@@ -132,10 +132,6 @@ export const TFTScannerModal: React.FC<TFTScannerModalProps> = ({
       onResolved(result);
       onClose();
     } catch (err: any) {
-<<<<<<< HEAD
-      const errorText = String(err.message || '');
-      setErrorMsg(errorText || 'Scanned code not found.');
-=======
       const isNotFound = typeof err?.message === 'string' && (err.message.includes("isn't registered") || err.message.includes('NOT_REGISTERED'));
       setErrorMsg(
         isNotFound
@@ -143,7 +139,6 @@ export const TFTScannerModal: React.FC<TFTScannerModalProps> = ({
           : err.message || 'Scanned code not found.'
       );
       onScanError?.(codeToResolve.trim(), err);
->>>>>>> e5a1a63 (feat(barcode): port full barcode scanning flow from qa to rbac)
     } finally {
       setIsLoading(false);
     }
