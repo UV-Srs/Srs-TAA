@@ -1,8 +1,7 @@
-import React, { useRef } from 'react';
+import React from 'react';
 import { OOS_ACTIONS, type Lot, type Workspace } from '../data';
 import { protoTime, shortName } from '../logic/format';
-import { DEC, badIdx, dimStatusSV, fmt, nSamples, paramsOf, st, stats, templateOf } from '../logic/rules';
-import { downloadReport } from '../logic/download';
+import { DEC, badIdx, checkValue, dimStatusSV, fmt, nSamples, paramsOf, spotsOf, st, stats, supChecksOf, templateOf } from '../logic/rules';
 import type { SupervisorController } from '../hooks/useSupervisorController';
 import { LotBar } from '../components/LotBar';
 
@@ -10,11 +9,11 @@ const PER = 30;
 
 /** Prototype svReport(L, readOnly): the report preview (before Save) and the saved read-only report. */
 export const ReportScreen: React.FC<{ ws: Workspace; c: SupervisorController; lot: Lot; readOnly: boolean }> = ({ ws, c, lot: L, readOnly }) => {
-  const ref = useRef<HTMLElement>(null);
   const tpl = templateOf(ws, L);
   const ITEMS = tpl?.items ?? [];
   const GROUPS = tpl?.groups ?? [];
   const PARAMS = paramsOf(ws, L);
+  const SUPCHECKS = supChecksOf(ws, L);
   const S = nSamples(ws, L);
   const ss = stats(ws, L);
   const bad = badIdx(L);
@@ -27,6 +26,12 @@ export const ReportScreen: React.FC<{ ws: Workspace; c: SupervisorController; lo
   const needOos = !!ss.bad.length && !L.oos && !readOnly;
   const lotDate = L.date ? new Date(L.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
   const methods = [...new Set(PARAMS.map((p) => p.method).filter(Boolean))].join(' / ');
+  // Prototype: 3 right-hand columns for the supervisor's spot checks.
+  const sps = spotsOf(L);
+  const spotOf = (j: number) => (sps[j] != null ? L.spot[String(sps[j])] : undefined);
+  // Prototype CHILD card: the template's child-part dimensions (stage name mentions "child").
+  const childParams = PARAMS.filter((q) => /child/i.test(q.grp));
+  const childName = childParams.length ? childParams[0].grp.replace(/^child part,?\s*/i, '') || childParams[0].grp : '';
 
   const blocks = Array.from({ length: pages }, (_, k) => {
     const idx: number[] = [];
@@ -40,27 +45,36 @@ export const ReportScreen: React.FC<{ ws: Workspace; c: SupervisorController; lo
     };
     return (
       <section key={k} className="rblock">
-        <div className="rb-head"><b>Items {idx[0] + 1} – {idx[idx.length - 1] + 1}</b><span>Page {k + 1} of {pages}</span></div>
+        <div className="rb-head"><b>Items {idx[0] + 1} – {idx[idx.length - 1] + 1}</b><span><i className="spkey"></i>Right columns: supervisor spot checks · Page {k + 1} of {pages}</span></div>
         <div className="rb-scroll">
-          <table className="rt">
+          <table className="rt svrt">
             <colgroup>
-              <col style={{ width: 34 }} /><col style={{ width: 150 }} /><col style={{ width: 190 }} /><col style={{ width: 86 }} />
+              <col style={{ width: 30 }} /><col style={{ width: 120 }} /><col style={{ width: 150 }} /><col style={{ width: 66 }} />
               {Array.from({ length: PER }, (_, j) => <col key={j} />)}
+              <col style={{ width: 6 }} /><col style={{ width: 34 }} /><col style={{ width: 34 }} /><col style={{ width: 34 }} />
             </colgroup>
             <thead>
               <tr>
                 <th>S.No</th><th>Control item</th><th>Content</th><th>Method</th>
                 {idx.map((i) => <th key={i} className="c">{i + 1}</th>)}{padCells('th')}
+                <th className="rbar"></th>
+                {[0, 1, 2].map((j) => <th key={`sp${j}`} className="c sp" title="Supervisor check">{sps[j] != null ? sps[j] + 1 : ''}</th>)}
               </tr>
             </thead>
             <tbody>
               {GROUPS.map((g) => (
                 <React.Fragment key={g}>
-                  <tr className="rg"><td colSpan={4 + PER}>{g}</td></tr>
+                  <tr className="rg"><td colSpan={4 + PER}>{g}</td><td className="rbar"></td><td colSpan={3} className="sphd"></td></tr>
                   {ITEMS.filter((x) => x.g === g).map((x) => (
                     <tr key={x.id}>
                       <td className="c">{ITEMS.indexOf(x) + 1}</td><td><b>{x.t}</b></td><td className="ds">{x.desc}</td><td className="ds">{x.method}</td>
                       {idx.map((i) => cell(i, x.id))}{padCells('td')}
+                      <td className="rbar"></td>
+                      {[0, 1, 2].map((j) => {
+                        const v = spotOf(j);
+                        if (!v) return <td key={`sp${j}`} className="c sp"></td>;
+                        return v.r === 'NG' && v.ng.includes(x.id) ? <td key={`sp${j}`} className="c sp ng">✕</td> : <td key={`sp${j}`} className="c sp ok">✓</td>;
+                      })}
                     </tr>
                   ))}
                 </React.Fragment>
@@ -71,6 +85,12 @@ export const ReportScreen: React.FC<{ ws: Workspace; c: SupervisorController; lo
                 <td colSpan={4}>Operator result</td>
                 {idx.map((i) => { const p = L.parts[i]; return p ? (p.r === 'NG' ? <td key={i} className="c ng">✕</td> : <td key={i} className="c ok">✓</td>) : <td key={i} className="c"></td>; })}
                 {padCells('td')}
+                <td className="rbar"></td>
+                {[0, 1, 2].map((j) => {
+                  const v = spotOf(j);
+                  if (!v) return <td key={`sp${j}`} className="c sp"></td>;
+                  return v.r === 'NG' ? <td key={`sp${j}`} className="c sp ng">✕</td> : <td key={`sp${j}`} className="c sp ok">✓</td>;
+                })}
               </tr>
               <tr className="decrow">
                 <td colSpan={4}>Supervisor decision</td>
@@ -81,6 +101,15 @@ export const ReportScreen: React.FC<{ ws: Workspace; c: SupervisorController; lo
                   return <td key={i} className={`c ${d ? DEC[d] : ''}`} title={d || ''}>{d === 'Approved' ? 'A' : d === 'On hold' ? 'H' : d === 'Rejected' ? 'R' : '—'}</td>;
                 })}
                 {padCells('td')}
+                <td className="rbar"></td>
+                {[0, 1, 2].map((j) => {
+                  // Spot check verdict, styled like the bad-item decisions: A = agree, good; R = found a problem.
+                  const v = spotOf(j);
+                  if (!v) return <td key={`sp${j}`} className="c sp"></td>;
+                  return v.r === 'NG'
+                    ? <td key={`sp${j}`} className={`c sp ${DEC.Rejected}`} title="Found a problem">R</td>
+                    : <td key={`sp${j}`} className={`c sp ${DEC.Approved}`} title="Agree, good">A</td>;
+                })}
               </tr>
             </tfoot>
           </table>
@@ -91,7 +120,7 @@ export const ReportScreen: React.FC<{ ws: Workspace; c: SupervisorController; lo
 
   const dims = S > 0 && (
     <section className="rblock">
-      <div className="rb-head"><b>Dimension check, samples (items 1 – {S})</b><span>{methods}</span></div>
+      <div className="rb-head"><b>{PARAMS.length ? 'Dimension check' : 'Supervisor checks'}, samples (items 1 – {S})</b><span>{methods}</span></div>
       <div className="rb-scroll">
         <table className="rt dimt">
           <colgroup>
@@ -100,7 +129,7 @@ export const ReportScreen: React.FC<{ ws: Workspace; c: SupervisorController; lo
             <col style={{ width: 100 }} />
           </colgroup>
           <thead>
-            <tr><th>Dimension</th><th>Spec</th>{Array.from({ length: S }, (_, j) => <th key={j} className="c">{j + 1}</th>)}<th>Result</th></tr>
+            <tr><th>{PARAMS.length ? 'Dimension' : 'Check'}</th><th>Spec</th>{Array.from({ length: S }, (_, j) => <th key={j} className="c">{j + 1}</th>)}<th>Result</th></tr>
           </thead>
           <tbody>
             {PARAMS.map((q) => {
@@ -113,6 +142,22 @@ export const ReportScreen: React.FC<{ ws: Workspace; c: SupervisorController; lo
                     const v = j < vals.length ? vals[j] : null;
                     const s = st(q, v);
                     return <td key={j} className={`c ${s === 'bad' ? 'ng' : s === 'warn' ? 'warn' : ''}`}>{v != null ? fmt(v) : ''}</td>;
+                  })}
+                  <td><span className={`pill ${cls} sm`}>{t}</span></td>
+                </tr>
+              );
+            })}
+            {SUPCHECKS.length > 0 && PARAMS.length > 0 && <tr className="rg"><td colSpan={S + 3}>Supervisor checks</td></tr>}
+            {SUPCHECKS.map((x) => {
+              const vals = x.samples.map((_, j) => checkValue(L, x, j));
+              const filled = vals.filter((v) => v != null).length;
+              const [cls, t] = vals.includes('NG') ? ['ng', 'Bad'] : filled < vals.length ? ['neutral', `${filled}/${vals.length}`] : ['ok', '✓'];
+              return (
+                <tr key={`sc-${x.id}`}>
+                  <td><b>{x.t}</b></td><td className="ds">{x.desc}</td>
+                  {Array.from({ length: S }, (_, j) => {
+                    const v = j < vals.length ? vals[j] : null;
+                    return <td key={j} className={`c ${v === 'NG' ? 'ng' : v === 'OK' ? 'ok' : ''}`}>{v === 'NG' ? '✕' : v === 'OK' ? '✓' : ''}</td>;
                   })}
                   <td><span className={`pill ${cls} sm`}>{t}</span></td>
                 </tr>
@@ -131,6 +176,7 @@ export const ReportScreen: React.FC<{ ws: Workspace; c: SupervisorController; lo
         <>
           <span className="hint">Read-only. {L.status === 'onhold' ? 'On hold.' : 'Completed.'}</span>
           <button className="btn big" onClick={c.svlots}>‹ Back to lots</button>
+          <button className="btn big primary" onClick={() => void c.download()} disabled={c.downloading}>{c.downloading ? 'Preparing PDF…' : 'Download PDF'}</button>
         </>
       ) : (
         <>
@@ -139,7 +185,8 @@ export const ReportScreen: React.FC<{ ws: Workspace; c: SupervisorController; lo
               : held ? <><b>{held} item{held > 1 ? 's' : ''} on hold.</b> The lot stays on hold until you approve or reject them.</>
                 : <><b>Report correct?</b> Save completes the lot.</>}
           </span>
-          <button className="btn big" onClick={() => ref.current && downloadReport(ref.current, L.code)}>Download</button>
+          <button className="btn big" onClick={c.svback}>‹ Back to review</button>
+          <button className="btn big" onClick={() => void c.download()} disabled={c.downloading}>{c.downloading ? 'Preparing PDF…' : 'Download PDF'}</button>
           <button className="btn big primary" onClick={() => void c.sign()} disabled={needOos || c.saving}>{held ? 'Save, keep on hold' : 'Save'}</button>
         </>
       )}
@@ -150,7 +197,7 @@ export const ReportScreen: React.FC<{ ws: Workspace; c: SupervisorController; lo
     <div className="opshell">
       <LotBar lot={L} onBack={c.svlots} />
       {c.errMsg && <div className="listmsg sv-ban">{c.errMsg}</div>}
-      <section ref={ref} className="pvwrap svpv">
+      <section className="pvwrap svpv">
         <div className="pvhead">
           <div>
             <h2>{readOnly ? 'Lot report' : 'Preview the lot report'}</h2>
@@ -177,6 +224,13 @@ export const ReportScreen: React.FC<{ ws: Workspace; c: SupervisorController; lo
             <div><dt>Reviewed by</dt><dd>{readOnly ? shortName(L.sup?.by?.name) : me}</dd></div>
           </dl>
         </div>
+        {childParams.length > 0 && (
+          <div className="card childcard">
+            <h3>Child part: {childName}</h3>
+            <div className="cspecs">{childParams.map((q) => <div key={q.id}><dt>{q.t}</dt><dd>{q.spec}</dd></div>)}</div>
+            <p className="sub" style={{ margin: '8px 0 0' }}>A child part is a smaller component used to make the finished part. Its dimensions are measured on the same {S} samples.</p>
+          </div>
+        )}
         {dims}
         {ss.bad.length > 0 && (
           <div className={`card ${needOos ? 'warnblock2' : ''}`}>
@@ -193,6 +247,17 @@ export const ReportScreen: React.FC<{ ws: Workspace; c: SupervisorController; lo
           </div>
         )}
         {blocks}
+        {L.supComment && (
+          <div className="card"><h3>Supervisor comments</h3><p style={{ margin: '6px 0 0', whiteSpace: 'pre-wrap' }}>{L.supComment}</p></div>
+        )}
+        <div className="card signoff">
+          <table className="vt"><tbody>
+            <tr><th>Checked by</th><td>{shortName(L.op?.by?.name) || '—'} <span className="sub">Operator, {protoTime(L.op?.at)}</span></td></tr>
+            <tr><th>Approved by</th><td>{readOnly && L.sup
+              ? <>{shortName(L.sup.by?.name)} <span className="sub">Supervisor, {protoTime(L.sup.at)}</span></>
+              : <>{me} <span className="sub">Supervisor, on saving</span></>}</td></tr>
+          </tbody></table>
+        </div>
         {actionbar}
       </section>
     </div>

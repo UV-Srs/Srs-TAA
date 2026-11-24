@@ -20,20 +20,3 @@
 
 /* Dimension tiles for readings the operator owns (agreed rule): visible, not editable */
 .sv-root .dtile[title] { cursor: default; }
-
-/* Lot review on one page: "Operator's checks" then "Your review" for the open item. */
-.sv-root .svsec { font-size: 18px; font-weight: 600; margin: 22px 0 8px; padding-top: 16px; border-top: 1px solid var(--line); }
-.sv-root .ckhead + .svsec { border-top: 0; padding-top: 0; margin-top: 8px; }
-.sv-root .svopline { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 4px; }
-.sv-root .svsampline { margin: 0 0 4px; }
-.sv-root .svnote { background: var(--surface2); color: var(--muted); border-radius: 14px; padding: 14px 16px; font-size: 14px; }
-.sv-root .fcard.pass .fx { background: var(--ok); border-color: var(--ok); color: var(--surface); }
-.sv-root .fcard.na { border-style: dashed; border-color: var(--line2); }
-.sv-root .fcard.na .fx { color: var(--muted); }
-
-/* Dimension readings are typed into the tile (no on-screen keypad). */
-.sv-root .dtile.dfield { cursor: text; }
-.sv-root .dtile.dfield:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px var(--accent-soft); }
-.sv-root .dinput { width: 100%; min-width: 0; background: transparent; border: 0; border-bottom: 1.5px dashed var(--line2); border-radius: 0; padding: 0; color: inherit; font-family: inherit; outline: none; }
-.sv-root .dinput:focus { border-bottom-style: solid; border-bottom-color: var(--primary); }
-.sv-root .dinput::placeholder { color: var(--muted); opacity: 1; }

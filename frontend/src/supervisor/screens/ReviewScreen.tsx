@@ -1,98 +1,35 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { DimensionParam, Disposition, Lot, Workspace } from '../data';
-import { protoTime, shortName } from '../logic/format';
+import React, { useEffect, useLayoutEffect } from 'react';
+import { SPOT_CHECKS, type Disposition, type Lot, type Workspace } from '../data';
 import {
-  DEC, dimValue, fmt, isTodo, nItems, nSamples, paramsOf, sampleCount, sampleDone, sampleParams, st,
-  svNextTodo, svProgress, templateOf,
+  DEC, badIdx, checkValue, dimValue, fmt, nItems, nSamples, paramsOf, sampleChecks, sampleCount, sampleOwnDone,
+  sampleParams, sampleTotal, spotsOf, st, svProgress, templateOf,
 } from '../logic/rules';
 import type { SupervisorController } from '../hooks/useSupervisorController';
 import { LotBar } from '../components/LotBar';
 
-const READING = /^\d{0,4}(\.\d{0,3})?$/;
+const DECISIONS: [Disposition, string][] = [['Approved', '✓'], ['On hold', '‖'], ['Rejected', '✕']];
 
 /**
- * One dimension reading as a field (replaces the prototype keypad). Typing is kept locally and
- * saved on Enter or when the field loses focus; Enter also moves to the next field.
- */
-const DimField: React.FC<{ d: DimensionParam; v: number | null; onSave: (v: number | null) => void }> = ({ d, v, onSave }) => {
-  const shown = v != null ? fmt(v) : '';
-  const [txt, setTxt] = useState(shown);
-  const [editing, setEditing] = useState(false);
-  useEffect(() => { if (!editing) setTxt(shown); }, [shown, editing]);
-
-  const typed = txt.trim() === '' ? null : parseFloat(txt);
-  const cur = typed != null && !Number.isNaN(typed) ? typed : null;
-  const cls = st(d, d.editable ? cur : v);
-
-  const commit = () => {
-    setEditing(false);
-    if (cur === v) { setTxt(shown); return; }
-    onSave(cur);
-    setTxt(cur != null ? fmt(cur) : '');
-  };
-
-  return (
-    <label className={`dtile dfield ${cls}`} title={d.editable ? undefined : 'Entered by the operator'}>
-      <span className="dt-top"><b>{d.t}</b>{v != null && !editing && <span className="dt-ok" aria-label="Saved">✓</span>}</span>
-      {d.editable ? (
-        <input
-          className="dv dinput"
-          data-dim=""
-          inputMode="decimal"
-          autoComplete="off"
-          placeholder="—"
-          aria-label={`${d.t} reading`}
-          value={txt}
-          onFocus={(e) => { setEditing(true); e.currentTarget.select(); }}
-          onChange={(e) => { if (READING.test(e.target.value)) setTxt(e.target.value); }}
-          onBlur={commit}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              const all = Array.from(document.querySelectorAll<HTMLInputElement>('input[data-dim]'));
-              const next = all[all.indexOf(e.currentTarget) + 1];
-              if (next) next.focus(); else e.currentTarget.blur();
-            } else if (e.key === 'Escape') {
-              setTxt(shown);
-              e.currentTarget.blur();
-            }
-          }}
-        />
-      ) : (
-        <span className="dv">{v != null ? fmt(v) : '—'}</span>
-      )}
-      <span className="dl2">
-        Min {d.min != null ? d.min.toFixed(2) : '—'} · Max {d.max != null ? d.max.toFixed(2) : '—'}
-        {cls === 'warn' ? ', near limit' : cls === 'bad' ? ', out of spec' : ''}
-        {!d.editable && (v == null ? ', not entered by the operator' : ', by the operator')}
-      </span>
-    </label>
-  );
-};
-
-/**
- * Prototype svReview(L), on one scrolling page per item: the item sidebar, then
- * "Operator's checks" (every check, ✓ / ✕) and "Your review" (decision if bad, dimension
- * fields if a sample, both when both apply), with Previous / Next / Next to do.
+ * Prototype svReview(L): the item list on the left; on the right the open item's card (its checks
+ * as chips, a spot check for good items), the bad items to decide, the 3 spot checks, the sample
+ * dimensions (tiles with a keypad popup) and comments. Preview is enabled once everything is done.
  */
 export const ReviewScreen: React.FC<{ ws: Workspace; c: SupervisorController; lot: Lot }> = ({ ws, c, lot: L }) => {
   const tpl = templateOf(ws, L);
   const ITEMS = tpl?.items ?? [];
-  const GROUPS = tpl?.groups ?? [];
   const PARAMS = paramsOf(ws, L);
   const S = nSamples(ws, L);
   const N = nItems(ws, L);
   const pr = svProgress(ws, L);
-  const done = pr.dec === pr.bad && pr.samp === S;
-  const total = pr.bad + S;
-  const dn = pr.dec + pr.samp;
-  const lotChecks = L.lotChecks ?? {};
+  const sp = spotsOf(L);
+  const done = pr.ready;
+  const total = pr.bad + S + pr.spotNeed;
+  const dn = pr.dec + pr.samp + Math.min(pr.spot, pr.spotNeed);
+  const titleOf = (id: string) => ITEMS.find((x) => x.id === id)?.t ?? id;
 
   const i = c.svItem != null && c.svItem < N ? c.svItem : 0;
   const p = L.parts[i] ?? null;
-  const isBad = !!p && p.r === 'NG';
-  const isSample = i < S;
-  const nextTodo = svNextTodo(ws, L, i);
+  const it = c.sel.s < S ? c.sel.s : 0;
 
   // Prototype render(): keep the current item visible in the sidebar list.
   useLayoutEffect(() => {
@@ -103,16 +40,28 @@ export const ReviewScreen: React.FC<{ ws: Workspace; c: SupervisorController; lo
     if (t < ul.scrollTop || t > ul.scrollTop + ul.clientHeight - 50) ul.scrollTop = t - ul.clientHeight / 2;
   });
 
-  // A new item starts at the top of the page.
-  const mainRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { mainRef.current?.scrollTo?.({ top: 0 }); }, [i, L.id]);
+  // Prototype keydown: with the keypad open, digits / . / Backspace / Enter / Tab / Escape drive it.
+  useEffect(() => {
+    if (!c.kpOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT') return;
+      if (e.key === 'Escape') c.kpclose();
+      else if (/^[0-9.]$/.test(e.key)) c.key(e.key);
+      else if (e.key === 'Backspace') c.bksp();
+      else if (e.key === 'Enter' || e.key === 'Tab') c.advance();
+      else return;
+      e.preventDefault();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 
   // ---------------- sidebar ----------------
 
   const rows = Array.from({ length: N }, (_, k) => {
     const q = L.parts[k] ?? null;
     const bad = !!q && q.r === 'NG';
-    const samp = k < S;
     const cls = k === i ? 'now' : bad ? 'bad' : q ? 'good' : '';
     const right = q && q.r === 'NG'
       ? (q.disp ? <span className={`pill ${DEC[q.disp]} sm`}>{q.disp}</span> : <span className="ist">✕ Decide</span>)
@@ -120,7 +69,11 @@ export const ReviewScreen: React.FC<{ ws: Workspace; c: SupervisorController; lo
     return (
       <li key={k} className={`irow ${cls}`}>
         <button className="ilabel" onClick={() => c.svitem(k)}>
-          <span>Item {k + 1}{samp && <> <span className={`sc ${sampleDone(ws, L, k) ? 'done' : ''}`}>▤ {sampleCount(ws, L, k)}/{sampleParams(ws, L, k).length}</span></>}</span>
+          <span>
+            Item {k + 1}
+            {k < S && <> <span className={`sc ${sampleOwnDone(ws, L, k) ? 'done' : ''}`}>▤ {sampleCount(ws, L, k)}/{sampleTotal(ws, L, k)}</span></>}
+            {L.spot?.[String(k)] && <> <span className="sc spot">★</span></>}
+          </span>
           {right}
         </button>
       </li>
@@ -131,135 +84,247 @@ export const ReviewScreen: React.FC<{ ws: Workspace; c: SupervisorController; lo
     <aside className="side opside">
       <div className="sub">Review progress</div>
       <div className="bignum">{dn}<span> / {total}</span></div>
-      <div className="progress"><i style={{ width: `${total ? (dn / total) * 100 : 0}%` }}></i></div>
+      <div className="progress"><i style={{ width: `${total ? (dn / total) * 100 : 100}%` }}></i></div>
       <div className="counts">
         <span className={`pill ${pr.dec === pr.bad ? 'ok' : 'ng'}`}>{pr.dec}/{pr.bad} decided</span>
-        <span className={`pill ${pr.samp === S ? 'ok' : 'neutral'}`}>{pr.samp}/{S} measured</span>
+        <span className={`pill ${pr.spot >= pr.spotNeed ? 'ok' : 'neutral'}`}>{pr.spot}/{pr.spotNeed} spot</span>
+        {S > 0 && <span className={`pill ${pr.samp === S ? 'ok' : 'neutral'}`}>{pr.samp}/{S} measured</span>}
       </div>
-      <p className="sub sideleg">▤ = sample to measure</p>
+      <p className="sub sideleg">▤ sample to measure · ★ your spot check</p>
       <ul className="ilist" id="ilist">{rows}</ul>
     </aside>
   );
 
-  // ---------------- Operator's checks ----------------
+  // ---------------- selected item ----------------
 
-  // The item's own results, plus whole-lot checks (one result for the whole lot) that apply to it.
-  const res: Record<string, { r: 'OK' | 'NG'; lot: boolean }> = {};
-  Object.entries(lotChecks).forEach(([id, x]) => { res[id] = { r: x.r, lot: true }; });
-  if (p) Object.entries(p.res ?? {}).forEach(([id, r]) => { res[id] = { r, lot: false }; });
-  const checked = Object.keys(res).length > 0;
-  const lotNg = Object.values(lotChecks).filter((x) => x.r === 'NG');
-  const overallBad = isBad || (!p && lotNg.length > 0);
-  const nProblems = Object.values(res).filter((x) => x.r === 'NG').length;
+  const marks = new Set(p && p.r === 'NG' ? p.ng.map((n) => n.id) : []);
+  const spot = L.spot?.[String(i)];
+  const opRes = !p ? 'Not checked by the operator' : p.r === 'NG' ? 'Operator: bad' : 'Operator: good';
 
-  const latestLot = Object.values(lotChecks).sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''))[0];
-  const byId = p?.by ?? latestLot?.by ?? null;
-  const checker = byId != null ? ws.users.find((u) => u.id === byId)?.name : null;
-  const opName = shortName(checker ?? L.op?.by?.name) || 'the operator';
-  const opAt = p?.at ?? latestLot?.at ?? L.op?.at ?? null;
+  const chips = ITEMS.map((x, n) => (
+    <span
+      key={x.id}
+      className={`mchip ${marks.has(x.id) ? 'bad' : ''} ${spot && spot.r === 'NG' && spot.ng.includes(x.id) ? 'sbad' : ''}`}
+      title={x.t}
+    >
+      {n + 1}. {x.t}
+    </span>
+  ));
 
-  const operatorChecks = !checked ? (
-    <div className="svnote">Not checked by the operator.</div>
-  ) : (
-    <>
-      <p className="sub svopline">
-        <span className={`pill ${overallBad ? 'ng' : 'ok'}`}>{overallBad ? '✕ Bad' : '✓ Good'}</span>
-        <span>Checked by <b>{opName}</b>{opAt && <>, {protoTime(opAt)}</>}</span>
-        {nProblems > 0 && <b style={{ color: 'var(--ng)' }}>{nProblems} problem{nProblems > 1 ? 's' : ''}</b>}
+  let action: React.ReactNode = null;
+  if (p && p.r === 'NG') {
+    action = (
+      <p className="sub" style={{ margin: '10px 0 0' }}>
+        {p.disp ? <>Your decision: <b className={`pill ${DEC[p.disp]}`}>{p.disp}</b></> : 'Decide this item in the list below.'}
       </p>
-      {GROUPS.map((g) => {
-        const xs = ITEMS.filter((x) => x.g === g);
-        if (!xs.length) return null;
-        return (
-          <React.Fragment key={g}>
-            <div className="fsec">{g}</div>
-            <div className="fgrid ro">
-              {xs.map((x) => {
-                const r = res[x.id];
-                return (
-                  <div key={x.id} className={`fcard ${r?.r === 'NG' ? 'bad' : r ? 'pass' : 'na'}`}>
-                    <span className="fn">{ITEMS.indexOf(x) + 1}</span>
-                    <span className="fb">
-                      <b>{x.t}</b><span>{x.desc}</span>
-                      <small>{r ? `${x.method}${r.lot ? ' · checked once for the whole lot' : ''}` : 'Not checked'}</small>
-                    </span>
-                    <span className="fx" aria-label={r?.r === 'NG' ? 'Rejected' : r ? 'Accepted' : 'Not checked'}>{r?.r === 'NG' ? '✕' : r ? '✓' : '—'}</span>
-                  </div>
-                );
-              })}
+    );
+  } else if (p) {
+    const full = !spot && sp.length >= SPOT_CHECKS;
+    action = (
+      <div className="rv-row">
+        <span className="lbl2">Spot check this item {spot ? '' : `(${sp.length}/${SPOT_CHECKS} used)`}</span>
+        <div className="seg3 two">
+          <button className={`ok ${spot && spot.r === 'OK' ? 'on' : ''}`} onClick={() => c.svspot('OK')} disabled={full}>✓ Agree, good</button>
+          <button className={`ng ${spot && spot.r === 'NG' ? 'on' : ''}`} onClick={() => c.svspot('NG')} disabled={full}>✕ Found a problem</button>
+        </div>
+        {spot && spot.r === 'NG' && (
+          <>
+            <p className="sub" style={{ margin: '8px 0 4px' }}>Tap what’s wrong:</p>
+            <div className="fchips">
+              {ITEMS.map((x) => (
+                <button key={x.id} className={`fchip ${spot.ng.includes(x.id) ? 'on' : ''}`} onClick={() => c.svspotf(x.id)}>{x.t}</button>
+              ))}
             </div>
-          </React.Fragment>
-        );
-      })}
+          </>
+        )}
+        {spot && <button className="linkbtn" onClick={() => c.svspotdel(i)}>Remove spot check</button>}
+      </div>
+    );
+  }
+
+  const itemCard = (
+    <section className="rv-card">
+      <div className="rv-head">
+        <div>
+          <h3>Item {i + 1} <span className="of">of {N}</span></h3>
+          <p className={`sub ${p && p.r === 'NG' ? 'ngt' : ''}`}>
+            {opRes}{p && p.r === 'NG' && `: ${p.ng.map((n) => titleOf(n.id)).join(', ')}`}
+          </p>
+        </div>
+      </div>
+      <div className="mchips">{chips}</div>
+      {action}
+    </section>
+  );
+
+  // ---------------- bad items ----------------
+
+  const bl = badIdx(L);
+  const badSec = (
+    <>
+      <div className="fsec">Bad items from the operator ({pr.dec}/{bl.length} decided)</div>
+      {bl.length ? (
+        <div className="rv-list">
+          {bl.map((k) => {
+            const q = L.parts[k];
+            if (!q || q.r !== 'NG') return null;
+            return (
+              <div key={k} className={`rv-li ${k === i ? 'cur' : ''}`}>
+                <button className="rv-open" onClick={() => c.svitem(k)}>
+                  <b>Item {k + 1}</b>
+                  <span>{q.ng.map((n) => titleOf(n.id)).join(', ')}</span>
+                </button>
+                <div className="seg3 sm">
+                  {DECISIONS.map(([v, t]) => (
+                    <button key={v} className={`${DEC[v]} ${q.disp === v ? 'on' : ''}`} title={v} onClick={() => c.svdec(k, v)}>{t} {v}</button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : <p className="sub">No bad items in this lot.</p>}
     </>
   );
 
-  // ---------------- Your review ----------------
+  // ---------------- spot checks ----------------
 
-  let decision: React.ReactNode = null;
-  if (p && p.r === 'NG') {
-    decision = (
-      <>
-        <div className="fsec">Your decision</div>
-        <div className="decbtns">
-          {([['Approved', '✓ Approve'], ['On hold', '‖ On hold'], ['Rejected', '✕ Reject']] as [Disposition, string][]).map(([v, t]) => (
-            <button key={v} className={`dec ${DEC[v]} ${p.disp === v ? 'on' : ''}`} onClick={() => c.svdec(i, v)}><b>{t}</b></button>
-          ))}
+  const spotSec = (
+    <>
+      <div className="fsec">Your spot checks ({sp.length}/{pr.spotNeed})</div>
+      <p className="sub" style={{ margin: '-2px 0 8px' }}>
+        Pick {pr.spotNeed} item{pr.spotNeed === 1 ? '' : 's'} at random from the lot, check them yourself, and record the result. They appear in the right-side columns of the report.
+      </p>
+      {sp.length > 0 && (
+        <div className="rv-list">
+          {sp.map((k) => {
+            const s2 = L.spot[String(k)];
+            return (
+              <div key={k} className="rv-li">
+                <button className="rv-open" onClick={() => c.svitem(k)}>
+                  <b>Item {k + 1}</b>
+                  <span>{s2.r === 'OK' ? 'Agree, good' : `Problem: ${s2.ng.map(titleOf).join(', ') || 'choose what’s wrong'}`}</span>
+                </button>
+                <span className={`pill ${s2.r === 'OK' ? 'ok' : 'ng'}`}>{s2.r === 'OK' ? '✓ Good' : '✕ Bad'}</span>
+              </div>
+            );
+          })}
         </div>
-      </>
-    );
-  }
-
-  // A failed whole-lot check is decided once, on the item that holds it.
-  const holders = [...new Set(lotNg.map((x) => x.item))].filter((k) => k !== i);
-  const lotNote = holders.length > 0 && (
-    <div className="svnote">
-      A check for the whole lot failed. It’s decided once for the lot, on{' '}
-      {holders.map((k, n) => (
-        <React.Fragment key={k}>{n > 0 && ', '}<button className="linkbtn" onClick={() => c.svitem(k)}>Item {k + 1}</button></React.Fragment>
-      ))}.
-    </div>
+      )}
+      {sp.length < pr.spotNeed && <button className="btn" onClick={c.svspotrand}>Pick a random item</button>}
+    </>
   );
 
-  let dims: React.ReactNode = null;
-  if (isSample) {
-    const groups: { g: string; ds: DimensionParam[] }[] = [];
-    PARAMS.forEach((d) => {
-      if (i >= d.samples.length) return;
-      let grp = groups.find((x) => x.g === d.grp);
-      if (!grp) groups.push((grp = { g: d.grp, ds: [] }));
-      grp.ds.push(d);
-    });
-    dims = (
-      <>
-        <p className="sub svsampline">Sample {i + 1} of {S}: {sampleCount(ws, L, i)} of {sampleParams(ws, L, i).length} dimensions measured. Type each reading and press Enter.</p>
-        {groups.map(({ g, ds }) => (
-          <React.Fragment key={g}>
-            <div className="fsec">{g}</div>
-            <div className="dtiles">
-              {ds.map((d) => (
-                <DimField
-                  key={`${L.id}-${i}-${d.id}`}
-                  d={d}
-                  v={dimValue(L, d, i)}
-                  onSave={(v) => c.svreading(i, PARAMS.indexOf(d), v)}
-                />
-              ))}
-            </div>
-          </React.Fragment>
+  // ---------------- sample dimensions ----------------
+
+  const tiles = sampleParams(ws, L, it);
+  const checksHere = sampleChecks(ws, L, it);
+  const hasDims = PARAMS.length > 0;
+  const hasChecks = (tpl?.supChecks ?? []).length > 0;
+  const secTitle = hasDims && hasChecks ? 'Sample dimensions and checks' : hasChecks ? 'Sample checks' : 'Sample dimensions';
+  const dimSec = S > 0 && (
+    <>
+      <div className="fsec">{secTitle} ({pr.samp}/{S} items done)</div>
+      <div className="samplechips" style={{ gridTemplateColumns: `repeat(${Math.min(S, 10)},minmax(0,1fr))` }}>
+        {Array.from({ length: S }, (_, k) => (
+          <button key={k} className={`${k === it ? 'on' : ''} ${sampleOwnDone(ws, L, k) ? 'done' : ''}`} onClick={() => c.svsample(k)}>
+            Item {k + 1}<small>{sampleCount(ws, L, k)}/{sampleTotal(ws, L, k)}</small>
+          </button>
         ))}
-      </>
-    );
-  }
-
-  const review = decision || dims || lotNote ? <>{decision}{lotNote}{dims}</> : (
-    <div className="svnote">Nothing to review on this item: it isn’t marked bad and isn’t a sample to measure.</div>
+      </div>
+      {tiles.length > 0 && <div className="dtiles six">
+        {tiles.map((d) => {
+          const pi = PARAMS.indexOf(d);
+          const v = dimValue(L, d, it);
+          const on = c.kpOpen && c.sel.p === pi;
+          const typ = on && !!c.buf;
+          const cls = typ ? '' : st(d, v);
+          return (
+            <button
+              key={d.id}
+              className={`dtile ${cls} ${on ? 'on' : ''}`}
+              onClick={() => c.svdim(pi)}
+              title={d.editable ? undefined : 'Entered by the operator'}
+            >
+              <span className="dt-top"><small>{d.grp.split(',')[0]}</small>{v != null && !typ && <span className="dt-ok" aria-label="Saved">✓</span>}</span>
+              <b>{d.t}</b>
+              <span className="dv">{typ ? c.buf : v != null ? fmt(v) : '—'}</span>
+              <span className="dl2">
+                Min {d.min != null ? d.min.toFixed(2) : '—'} · Max {d.max != null ? d.max.toFixed(2) : '—'}
+                {!d.editable && ' · by the operator'}
+              </span>
+            </button>
+          );
+        })}
+      </div>}
+      {tiles.length > 0 && <p className="sub" style={{ margin: '6px 0 0' }}>Tap a box to enter its reading.</p>}
+      {checksHere.length > 0 && (
+        <div className="fgrid" style={{ marginTop: tiles.length ? 14 : 0 }}>
+          {checksHere.map((x) => {
+            const v = checkValue(L, x, it);
+            return (
+              <div key={x.id} className={`fcard yn ${v === 'NG' ? 'bad' : v === 'OK' ? 'good' : ''}`}>
+                <span className="fb"><b>{x.t}</b><span>{x.desc}</span>{x.method && <small>{x.method}</small>}</span>
+                <span className="ynb">
+                  <button className={`yb ${v === 'OK' ? 'on' : ''}`} aria-pressed={v === 'OK'} onClick={() => c.svcheck(it, x.id, 'OK')}>✓ Good</button>
+                  <button className={`nb2 ${v === 'NG' ? 'on' : ''}`} aria-pressed={v === 'NG'} onClick={() => c.svcheck(it, x.id, 'NG')}>✕ Bad</button>
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </>
   );
 
+  // ---------------- comments ----------------
+
+  const comment = (
+    <>
+      <div className="fsec">Comments</div>
+      <textarea
+        id="svcomment"
+        placeholder="Anything the report should note about this lot (optional)"
+        value={L.supComment ?? ''}
+        onChange={(e) => c.setComment(e.target.value)}
+      />
+    </>
+  );
+
+  // ---------------- keypad popup ----------------
+
+  const q = PARAMS[c.sel.p];
+  const qv = q ? dimValue(L, q, it) : null;
+  const pop = c.kpOpen && q && (
+    <>
+      <div className="kpop-bg" onClick={c.kpclose}></div>
+      <div className="kpop" role="dialog" aria-label="Enter reading">
+        <div className="kpop-h">
+          <div><b>{q.t}</b><span className="sub">Item {it + 1} · Min {q.min != null ? q.min.toFixed(2) : '—'} · Max {q.max != null ? q.max.toFixed(2) : '—'}</span></div>
+          <button className="ghost" onClick={c.kpclose} aria-label="Close">✕</button>
+        </div>
+        <div className={`kpop-v ${c.buf ? '' : st(q, qv)}`}>{c.buf ? c.buf : fmt(qv) || '—'}</div>
+        <div className="kp-grid">
+          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => <button key={n} className="key" onClick={() => c.key(String(n))}>{n}</button>)}
+          <button className="key" onClick={() => c.key('.')} aria-label="Decimal point">.</button>
+          <button className="key" onClick={() => c.key('0')}>0</button>
+          <button className="key small" onClick={c.bksp} aria-label="Delete">⌫</button>
+        </div>
+        <button className="btn big primary" onClick={c.kpclose} style={{ width: '100%', marginTop: 10 }}>Done</button>
+      </div>
+    </>
+  );
+
+  // ---------------- action bar ----------------
+
+  const todo: string[] = [];
+  if (pr.bad - pr.dec) todo.push(`${pr.bad - pr.dec} to decide`);
+  if (pr.spotNeed - pr.spot > 0) todo.push(`${pr.spotNeed - pr.spot} spot check${pr.spotNeed - pr.spot > 1 ? 's' : ''}`);
+  if (S - pr.samp) todo.push(`${S - pr.samp} sample${S - pr.samp > 1 ? 's' : ''} to ${hasDims ? 'measure' : 'check'}`);
   let hint: React.ReactNode;
-  if (done) hint = <><b>All done.</b> Preview the report.</>;
-  else if (pr.ready) hint = `${pr.opMissing} reading${pr.opMissing > 1 ? 's' : ''} not entered by the operator. You can still preview the report.`;
-  else hint = `${pr.bad - pr.dec} to decide, ${S - pr.samp} sample${S - pr.samp === 1 ? '' : 's'} to measure.`;
+  if (!done) hint = `Still to do: ${todo.join(', ')}.`;
+  else if (pr.opMissing) hint = <><b>All done.</b> {pr.opMissing} reading{pr.opMissing > 1 ? 's' : ''} not entered by the operator. Preview the report.</>;
+  else hint = <><b>All done.</b> Preview the report.</>;
 
   return (
     <div className="opshell">
@@ -269,32 +334,20 @@ export const ReviewScreen: React.FC<{ ws: Workspace; c: SupervisorController; lo
       {L.returnNote && <div className="banner sv-ban"><b>Reopened by admin</b>{L.returnNote}</div>}
       <section className="layout svlayout">
         {side}
-        <div className="main" ref={mainRef}>
-          <div className="ckhead"><div>
-            <h2>Item {i + 1} <span className="of">of {N}</span></h2>
-            <p className="sub">
-              {overallBad ? 'Marked bad' : checked ? 'Marked good' : 'Not checked'}
-              {isSample && ' · Sample to measure'}
-              {isTodo(ws, L, i) && ' · Still to do'}
-            </p>
-          </div></div>
-
-          <h3 className="svsec">Operator’s checks</h3>
-          {operatorChecks}
-
-          <h3 className="svsec">Your review</h3>
-          {review}
-
+        <div className="main">
+          {itemCard}
+          {badSec}
+          {spotSec}
+          {dimSec}
+          {comment}
           <div className="grow"></div>
           <div className="actionbar">
             <span className="hint">{hint}</span>
-            <button className="btn big" onClick={() => c.svstep(-1)} disabled={i === 0}>‹ Previous</button>
-            <button className="btn big" onClick={() => c.svstep(1)} disabled={i >= N - 1}>Next ›</button>
-            {!pr.ready && <button className="btn big primary" onClick={c.svnexttodo} disabled={nextTodo < 0 || nextTodo === i}>Next to do ›</button>}
-            {pr.ready && <button className="btn big primary" onClick={c.svpreview}>Preview report ›</button>}
+            <button className="btn big primary" onClick={c.svpreview} disabled={!done}>Preview report ›</button>
           </div>
         </div>
       </section>
+      {pop}
     </div>
   );
 };

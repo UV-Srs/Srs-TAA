@@ -239,6 +239,10 @@ class SupervisorLotReview(Base):
     locked_at = Column(DateTime, nullable=True)
     # 'Re-measured, confirmed' | 'Lot put on hold' | 'Process adjusted'
     oos_action = Column(String(50), nullable=True)
+    # Supervisor spot checks (prototype L.spot): {item column key: {"r": "OK"|"NG", "ng": [check ids]}}
+    spot_checks = Column(JSON, nullable=True)
+    # Supervisor comments for the report (prototype L.supComment)
+    comment = Column(Text, nullable=True)
     reopen_note = Column(Text, nullable=True)
     reopened_by = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
     reopened_at = Column(DateTime, nullable=True)

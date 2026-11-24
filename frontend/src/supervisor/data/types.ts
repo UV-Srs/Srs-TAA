@@ -42,6 +42,18 @@ export interface DimensionParam {
   editable: boolean;
 }
 
+/** A pass/fail check assigned to the supervisor: Good / Bad per sample column. */
+export interface SupervisorCheck {
+  id: string;
+  g: string;
+  t: string;
+  desc: string;
+  method: string;
+  samples: string[]; // sample column keys, e.g. ["S1".."S5"]
+}
+
+export type CheckResult = 'OK' | 'NG';
+
 export interface SheetInfo {
   part: string | null;
   partName: string | null;
@@ -55,6 +67,8 @@ export interface TemplateRef {
   items: CheckItem[];
   groups: string[];
   params: DimensionParam[];
+  /** Supervisor-assigned pass/fail checks (items holds only the operator's checks). */
+  supChecks: SupervisorCheck[];
 }
 
 /** Who checked an item and when, and the operator's result for each check (CheckItem.id). */
@@ -69,6 +83,12 @@ export type Part =
   | null
   | ({ r: 'OK' } & PartCheck)
   | ({ r: 'NG'; ng: { id: string }[]; disp: Disposition | null } & PartCheck);
+
+/** Prototype L.spot[k]: the supervisor's own check of a good item; ng = CheckItem ids found wrong. */
+export interface SpotCheck {
+  r: 'OK' | 'NG';
+  ng: string[];
+}
 
 export interface Lot {
   id: number;
@@ -87,12 +107,13 @@ export interface Lot {
   clearance: { d: string; note: string } | null;
   columns: string[];
   parts: Part[];
-  /**
-   * Whole-lot checks (one result for the lot, column "val"), by CheckItem.id. They apply to every
-   * item; a failed one is decided once, on parts[item].
-   */
-  lotChecks: Record<string, { r: 'OK' | 'NG'; by: number | null; at: string | null; item: number }>;
+  /** Supervisor check results by SupervisorCheck.id, one per sample column (null = not done). */
+  supChecks: Record<string, (CheckResult | null)[]>;
   dims: Record<string, (number | null)[]>;
+  /** Supervisor spot checks, keyed by item index (0-based, as a string). At most 3. */
+  spot: Record<string, SpotCheck>;
+  /** Supervisor comments printed on the report. */
+  supComment: string;
   oos: string | null;
   sup: { by: PersonRef | null; at: string | null } | null;
   rev: number;
@@ -107,6 +128,9 @@ export interface Workspace {
   lots: Lot[];
   serverTime: string;
 }
+
+/** Prototype: the supervisor spot checks 3 good items per lot. */
+export const SPOT_CHECKS = 3;
 
 export const OOS_ACTIONS = ['Re-measured, confirmed', 'Lot put on hold', 'Process adjusted'] as const;
 

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { onBatchCreated, onBatchUpdated, onCellUpdated } from '../../liveSync';
-import { supervisorService, type Disposition, type Lot, type Workspace } from '../data';
+import { SPOT_CHECKS, supervisorService, type CheckResult, type Disposition, type Lot, type SpotCheck, type Workspace } from '../data';
 import { shortName } from '../logic/format';
 import {
-  REVIEWABLE_STATUSES, STATUS_TXT, SUPERVISOR_STATUSES, badIdx, lotTs, nItems, nSamples, paramsOf,
-  sampleOwnDone, supLots, svNextTodo,
+  REVIEWABLE_STATUSES, STATUS_TXT, SUPERVISOR_STATUSES, badIdx, dimValue, lotTs, nItems, nSamples, paramsOf,
+  spotsOf, supChecksOf, supLots,
 } from '../logic/rules';
 
 /** Prototype svView, plus 'scan' (the supervisor Scan screen). */
@@ -19,6 +19,11 @@ export const reviewedByMsg = (code: string, name: string) => {
 };
 
 const RELOAD_DEBOUNCE_MS = 250;
+const READING_SEND_MS = 600;
+const COMMENT_SEND_MS = 700;
+
+/** Prototype `sel`: the dimension tile (p = index into the template's params) of sample s. */
+export interface DimSel { p: number; s: number }
 
 /**
  * The prototype's supervisor UI state and ACT handlers (svnav, svgo, svclearpre, svopen, svlots,
@@ -34,8 +39,12 @@ export function useSupervisorController() {
   const [supQ, setSupQ] = useState('');
   const [supMsg, setSupMsg] = useState('');
   const [supId, setSupId] = useState<number | null>(null);
-  /** The item open in the Lot review: its operator's checks and the supervisor's review are on one page. */
+  /** Prototype svSel: the item open in the item card. */
   const [svItem, setSvItemState] = useState<number | null>(null);
+  /** Prototype sel / kpOpen / buf: selected dimension tile, keypad open, digits typed. */
+  const [sel, setSelState] = useState<DimSel>({ p: 0, s: 0 });
+  const [kpOpen, setKpState] = useState(false);
+  const [buf, setBufState] = useState('');
   const [saving, setSaving] = useState(false);
   /** Errors from saving review changes (not in the prototype, which saved to localStorage). */
   const [errMsg, setErrMsg] = useState('');
@@ -43,11 +52,17 @@ export function useSupervisorController() {
   // Refs mirror state for the keyboard handler and chained writes.
   const wsRef = useRef<Workspace | null>(null);
   const svItemRef = useRef<number | null>(svItem);
+  const selRef = useRef<DimSel>(sel);
+  const kpRef = useRef(false);
+  const bufRef = useRef('');
   const loadSeq = useRef(0);
   const reloadTimer = useRef<number | undefined>();
   const writeQueue = useRef<Promise<unknown>>(Promise.resolve());
   const setSvItem = (v: number | null) => { svItemRef.current = v; setSvItemState(v); };
   const setWsBoth = (v: Workspace) => { wsRef.current = v; setWs(v); };
+  const setSelBoth = (v: DimSel) => { selRef.current = v; setSelState(v); };
+  const setKp = (v: boolean) => { kpRef.current = v; setKpState(v); };
+  const setBuf = (v: string) => { bufRef.current = v; setBufState(v); };
 
   const reload = useCallback(async () => {
     const seq = ++loadSeq.current;
@@ -108,9 +123,9 @@ export function useSupervisorController() {
   // ---------------- navigation ----------------
 
   /** ACT.svnav (Dashboard / Scan / Lots) */
-  const svnav = (v: 'dash' | 'scan' | 'lots') => { setSvView(v); setSupMsg(''); setErrMsg(''); };
+  const svnav = (v: 'dash' | 'scan' | 'lots') => { flushAll(); setKp(false); setSvView(v); setSupMsg(''); setErrMsg(''); };
   /** ACT.svlots (back link in the lot bar) */
-  const svlots = () => setSvView('lots');
+  const svlots = () => { flushAll(); setKp(false); setSvView('lots'); };
   /** ACT.svgo (dashboard attention cards) */
   const svgo = (v: 'pending' | 'onhold' | 'returned' | 'oos') => {
     setSvView('lots');
@@ -124,10 +139,14 @@ export function useSupervisorController() {
   const enterReview = (lot: Lot) => {
     setErrMsg('');
     setSupId(lot.id);
-    // Start on the first item still to do, else the first bad item, else item 1.
+    // Prototype: start on the first undecided bad item, else item 1; dimensions on sample 1.
+    const b = badIdx(lot).find((k) => { const p = lot.parts[k]; return !!p && p.r === 'NG' && !p.disp; });
+    setSvItem(b ?? 0);
+    setKp(false);
+    setBuf('');
     const w = wsRef.current;
-    const first = w ? svNextTodo(w, lot, -1) : -1;
-    setSvItem(first >= 0 ? first : (badIdx(lot)[0] ?? 0));
+    const own = w ? paramsOf(w, lot).findIndex((p) => p.editable && p.samples.length > 0) : -1;
+    setSelBoth({ p: own < 0 ? 0 : own, s: 0 });
     setSvView('review');
   };
 
@@ -178,72 +197,231 @@ export function useSupervisorController() {
 
   // ---------------- items ----------------
 
-  /** ACT.svitem (sidebar row) */
+  /** ACT.svitem (sidebar row, bad-item row, spot-check row). A sample item also selects its sample for the dimension tiles. */
   const svitem = (k: number) => {
     const L = lotOf(supId);
     const w = wsRef.current;
     if (!L || !w || k < 0 || k >= nItems(w, L)) return;
     setSvItem(k);
+    if (k < nSamples(w, L) && !kpRef.current) setSelBoth({ p: selRef.current.p, s: k });
   };
 
-  /** ACT.svprev / Next item: step through every item of the lot. */
-  const svstep = (dir: 1 | -1) => {
-    const L = lotOf(supId);
-    const w = wsRef.current;
-    const i = svItemRef.current;
-    if (!L || !w || i == null) return;
-    const k = i + dir;
-    if (k >= 0 && k < nItems(w, L)) setSvItem(k);
+  /** ACT.svdec: decide one bad item; tapping the current decision again clears it. */
+  const svdec = (k: number, v: Disposition) => {
+    const L = supLotNow();
+    if (!L) return;
+    const cur = L.parts[k];
+    if (!cur || cur.r !== 'NG') return;
+    const next = cur.disp === v ? null : v;
+    patchLot(L.id, (l) => ({ ...l, parts: l.parts.map((p, i) => (i === k && p && p.r === 'NG' ? { ...p, disp: next } : p)) }));
+    void enqueue(() => supervisorService.setDisposition(L.id, L.columns[k], next));
   };
 
-  /** ACT.svnext: Next to do (undecided bad item or unmeasured sample). */
-  const svnexttodo = () => {
-    const L = lotOf(supId);
-    const w = wsRef.current;
-    if (!L || !w) return;
-    const k = svNextTodo(w, L, svItemRef.current ?? -1);
-    if (k >= 0) setSvItem(k);
+  // ---------------- spot checks ----------------
+
+  const writeSpot = (L: Lot, k: number, spot: SpotCheck | null) => {
+    patchLot(L.id, (l) => {
+      const all = { ...(l.spot ?? {}) };
+      if (spot) all[String(k)] = spot; else delete all[String(k)];
+      return { ...l, spot: all };
+    });
+    void enqueue(() => supervisorService.setSpot(L.id, L.columns[k], spot));
   };
 
-  /** ACT.svdec: decide the open bad item, then go to the next item to do (unless this one is a sample still to measure). */
-  const svdec = (current: number, v: Disposition) => {
+  /** ACT.svspot: spot check the open item ("Agree, good" / "Found a problem"). */
+  const svspot = (r: 'OK' | 'NG') => {
+    const L = supLotNow();
+    const k = svItemRef.current;
+    if (!L || k == null) return;
+    const p = L.parts[k];
+    if (!p || p.r !== 'OK') return;
+    const cur = L.spot?.[String(k)];
+    if (!cur && spotsOf(L).length >= SPOT_CHECKS) return;
+    writeSpot(L, k, r === 'OK' ? { r: 'OK', ng: [] } : { r: 'NG', ng: cur && cur.r === 'NG' ? cur.ng : [] });
+  };
+
+  /** ACT.svspotf: toggle one check as wrong on the open item's spot check. */
+  const svspotf = (checkId: string) => {
+    const L = supLotNow();
+    const k = svItemRef.current;
+    if (!L || k == null) return;
+    const cur = L.spot?.[String(k)];
+    if (!cur || cur.r !== 'NG') return;
+    writeSpot(L, k, { r: 'NG', ng: cur.ng.includes(checkId) ? cur.ng.filter((x) => x !== checkId) : [...cur.ng, checkId] });
+  };
+
+  /** ACT.svspotdel */
+  const svspotdel = (k: number) => {
+    const L = supLotNow();
+    if (L && L.spot?.[String(k)]) writeSpot(L, k, null);
+  };
+
+  /** ACT.svspotrand: open a random good item (not a sample, not already spot checked). */
+  const svspotrand = () => {
     const L = supLotNow();
     const w = wsRef.current;
     if (!L || !w) return;
-    const col = L.columns[current];
-    const updated: Lot = { ...L, parts: L.parts.map((p, i) => (i === current && p && p.r === 'NG' ? { ...p, disp: v } : p)) };
-    patchLot(L.id, () => updated);
-    void enqueue(() => supervisorService.setDisposition(L.id, col, v));
-    if (current < nSamples(w, updated) && !sampleOwnDone(w, updated, current)) return;
-    const n = svNextTodo(w, updated, current);
-    if (n >= 0 && n !== current) setSvItem(n);
+    const used = new Set(spotsOf(L));
+    const good = L.parts.map((p, k) => (p && p.r === 'OK' && !used.has(k) ? k : -1)).filter((k) => k >= 0);
+    const S = nSamples(w, L);
+    const pool = good.filter((k) => k >= S).length ? good.filter((k) => k >= S) : good;
+    if (pool.length) svitem(pool[Math.floor(Math.random() * pool.length)]);
   };
 
-  // ---------------- dimension check ----------------
+  // ---------------- dimension check (sample chips, tiles, keypad) ----------------
 
-  /**
-   * A reading typed into a dimension field (replaces the prototype keypad). Only dimensions
-   * assigned to the supervisor can be written (agreed rule; the server enforces it too).
-   */
-  const svreading = (item: number, pi: number, v: number | null) => {
+  /** Readings typed on the keypad are shown at once and sent after a short pause (or on Done / next tile). */
+  const pendingReadings = useRef(new Map<string, () => Promise<unknown>>());
+  const readingTimer = useRef<number | undefined>();
+  const flushReadings = () => {
+    window.clearTimeout(readingTimer.current);
+    const sends = [...pendingReadings.current.values()];
+    pendingReadings.current.clear();
+    sends.forEach((send) => void enqueue(send));
+  };
+
+  const pendingComment = useRef<(() => Promise<unknown>) | null>(null);
+  const commentTimer = useRef<number | undefined>();
+  const flushComment = () => {
+    window.clearTimeout(commentTimer.current);
+    const send = pendingComment.current;
+    pendingComment.current = null;
+    if (send) void enqueue(send);
+  };
+
+  const flushAll = () => { flushReadings(); flushComment(); };
+
+  /** Supervisor-entered dimensions of sample s (operator readings can't be typed here). */
+  const ownParams = (w: Workspace, L: Lot, s: number) => paramsOf(w, L).map((p, pi) => ({ p, pi })).filter(({ p }) => p.editable && s < p.samples.length);
+
+  const setReadingLocal = (L: Lot, pi: number, s: number, v: number | null) => {
+    const w = wsRef.current;
+    const p = w ? paramsOf(w, L)[pi] : undefined;
+    if (!p || !p.editable || s >= p.samples.length) return;
+    patchLot(L.id, (l) => {
+      const vals = [...(l.dims[p.id] || [])];
+      vals[s] = v;
+      return { ...l, dims: { ...l.dims, [p.id]: vals } };
+    });
+    pendingReadings.current.set(`${L.id}|${p.id}|${s}`, () => supervisorService.setReading(L.id, p.id, p.samples[s], v));
+    window.clearTimeout(readingTimer.current);
+    readingTimer.current = window.setTimeout(flushReadings, READING_SEND_MS);
+  };
+
+  /** Prototype advance(): next empty reading in this sample, else the next sample's first empty one. */
+  const advance = () => {
+    setBuf('');
+    flushReadings();
+    const L = lotOf(supId);
+    const w = wsRef.current;
+    if (!L || !w) return;
+    const { p, s } = selRef.current;
+    const S = nSamples(w, L);
+    const empty = (it: number, after: number) => ownParams(w, L, it).find(({ p: q, pi }) => pi > after && dimValue(L, q, it) == null);
+    const here = empty(s, p);
+    if (here) { setSelBoth({ p: here.pi, s }); return; }
+    for (let it = s + 1; it < S; it++) {
+      const e = empty(it, -1) ?? ownParams(w, L, it)[0];
+      if (e) { setSelBoth({ p: e.pi, s: it }); return; }
+    }
+    const later = ownParams(w, L, s).find(({ pi }) => pi > p);
+    if (later) setSelBoth({ p: later.pi, s });
+  };
+
+  /** Prototype keyDigit: type a digit or the decimal point into the open tile. Two decimals moves on. */
+  const key = (d: string) => {
+    const L = supLotNow();
+    if (!L || !kpRef.current) return;
+    let b = bufRef.current;
+    if (d === '.') {
+      if (b.includes('.')) return;
+      b = b ? `${b}.` : '0.';
+    } else {
+      if (b.length >= 6) return;
+      b += d;
+    }
+    setBuf(b);
+    const v = parseFloat(b);
+    setReadingLocal(L, selRef.current.p, selRef.current.s, Number.isNaN(v) ? null : v);
+    if (/^\d+\.\d{2}$/.test(b)) advance();
+  };
+
+  /** Prototype bksp */
+  const bksp = () => {
+    const L = supLotNow();
+    if (!L || !kpRef.current) return;
+    const { p, s } = selRef.current;
+    const b = bufRef.current;
+    if (!b) { setReadingLocal(L, p, s, null); return; }
+    const nb = b.slice(0, -1);
+    setBuf(nb);
+    const v = parseFloat(nb);
+    setReadingLocal(L, p, s, nb && !Number.isNaN(v) ? v : null);
+  };
+
+  /** ACT.svsample: choose a sample; selects its first empty reading. */
+  const svsample = (s: number) => {
+    const L = lotOf(supId);
+    const w = wsRef.current;
+    if (!L || !w) return;
+    flushReadings();
+    const own = ownParams(w, L, s);
+    const e = own.find(({ p }) => dimValue(L, p, s) == null) ?? own[0];
+    setSelBoth({ p: e ? e.pi : 0, s });
+    setBuf('');
+  };
+
+  /** ACT.svdim: open the keypad on one tile (only readings assigned to the supervisor). */
+  const svdim = (pi: number) => {
     const L = supLotNow();
     const w = wsRef.current;
     if (!L || !w) return;
     const p = paramsOf(w, L)[pi];
-    if (!p || !p.editable || item >= p.samples.length) return;
-    if (((L.dims[p.id] || [])[item] ?? null) === v) return;
+    if (!p || !p.editable) return;
+    flushReadings();
+    setSelBoth({ p: pi, s: selRef.current.s });
+    setBuf('');
+    setKp(true);
+  };
+
+  /** ACT.kpclose */
+  const kpclose = () => { flushReadings(); setKp(false); setBuf(''); };
+
+  /** A supervisor check for sample s: Good / Bad; tapping the current result again clears it. */
+  const svcheck = (s: number, checkId: string, v: CheckResult) => {
+    const L = supLotNow();
+    const w = wsRef.current;
+    if (!L || !w) return;
+    const chk = supChecksOf(w, L).find((x) => x.id === checkId);
+    if (!chk || s >= chk.samples.length) return;
+    const next = (L.supChecks?.[checkId] || [])[s] === v ? null : v;
     patchLot(L.id, (l) => {
-      const vals = [...(l.dims[p.id] || [])];
-      vals[item] = v;
-      return { ...l, dims: { ...l.dims, [p.id]: vals } };
+      const vals = [...(l.supChecks?.[checkId] || Array(chk.samples.length).fill(null))];
+      vals[s] = next;
+      return { ...l, supChecks: { ...(l.supChecks ?? {}), [checkId]: vals } };
     });
-    void enqueue(() => supervisorService.setReading(L.id, p.id, p.samples[item], v));
+    void enqueue(() => supervisorService.setCheck(L.id, checkId, chk.samples[s], next));
+  };
+
+  // ---------------- comments ----------------
+
+  /** #svcomment input */
+  const setComment = (text: string) => {
+    const L = supLotNow();
+    if (!L) return;
+    patchLot(L.id, (l) => ({ ...l, supComment: text }));
+    pendingComment.current = () => supervisorService.setComment(L.id, text);
+    window.clearTimeout(commentTimer.current);
+    commentTimer.current = window.setTimeout(flushComment, COMMENT_SEND_MS);
   };
 
   // ---------------- report ----------------
 
   /** ACT.svpreview */
-  const svpreview = () => setSvView('preview');
+  const svpreview = () => { flushAll(); setKp(false); setBuf(''); setSvView('preview'); };
+
+  /** Report preview: back to the review. */
+  const svback = () => setSvView('review');
 
   /** ACT.oos */
   const oos = (v: string) => {
@@ -253,12 +431,31 @@ export function useSupervisorController() {
     void enqueue(() => supervisorService.setOos(L.id, v));
   };
 
+  /** Prototype svDownload: the report as a PDF, after every pending change has been saved. */
+  const [downloading, setDownloading] = useState(false);
+  const download = async () => {
+    const L = lotOf(supId);
+    if (!L || downloading) return;
+    setDownloading(true);
+    setErrMsg('');
+    try {
+      flushAll();
+      await writeQueue.current;
+      await supervisorService.downloadReportPdf(L.id, L.code);
+    } catch (err) {
+      setErrMsg(`Couldn’t download the report: ${err instanceof Error ? err.message : 'please try again.'}`);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   /** ACT.sign (Save) */
   const sign = async () => {
     const L = supLotNow();
     if (!L || saving) return;
     setSaving(true);
     try {
+      flushAll();
       await writeQueue.current; // make sure every reading and decision reached the server first
       const res = await supervisorService.sign(L.id);
       const fresh = (await reload()) ?? wsRef.current;
@@ -288,10 +485,13 @@ export function useSupervisorController() {
   return {
     ws, loadError, reload, saving, errMsg,
     svView, svPre, svOp, setSvOp, supQ, setSupQ, supMsg, setSupMsg, supId, supLot, reviewable,
-    svItem,
+    svItem, sel, kpOpen, buf,
     svnav, svlots, svgo, svclearpre, svopen, openFromList, openFromSearch, scan,
-    svitem, svstep, svnexttodo, svdec, svreading,
-    svpreview, oos, sign,
+    svitem, svdec,
+    svspot, svspotf, svspotdel, svspotrand,
+    svsample, svdim, kpclose, key, bksp, advance, svcheck,
+    setComment,
+    svpreview, svback, oos, sign, download, downloading,
   };
 }
 

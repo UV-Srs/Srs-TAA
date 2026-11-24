@@ -1,4 +1,4 @@
-import type { Disposition, OpenLotResult, ProtoStatus, Workspace } from './types';
+import type { CheckResult, Disposition, OpenLotResult, ProtoStatus, SpotCheck, Workspace } from './types';
 
 /**
  * Everything the supervisor screens read or write goes through this interface
@@ -16,8 +16,16 @@ export interface SupervisorDataService {
   setDisposition(lotId: number, columnKey: string, disposition: Disposition | null): Promise<void>;
   /** Prototype keypad: one dimension reading; null clears it. */
   setReading(lotId: number, paramId: string, sampleKey: string, value: number | null): Promise<void>;
+  /** A supervisor-assigned check for one sample: Good (OK) / Bad (NG); null clears it. */
+  setCheck(lotId: number, checkId: string, sampleKey: string, value: CheckResult | null): Promise<void>;
   /** Prototype ACT.oos: action taken for out-of-spec readings. */
   setOos(lotId: number, action: string | null): Promise<void>;
+  /** Prototype ACT.svspot / svspotf / svspotdel: spot check of one good item (column key); null removes it. */
+  setSpot(lotId: number, columnKey: string, spot: SpotCheck | null): Promise<void>;
+  /** Prototype #svcomment: supervisor comments for the report. */
+  setComment(lotId: number, comment: string): Promise<void>;
+  /** Prototype svDownload: the lot report as a PDF file. */
+  downloadReportPdf(lotId: number, code: string): Promise<void>;
   /** Prototype ACT.sign (Save): returns the lot's new status. */
   sign(lotId: number): Promise<{ status: ProtoStatus }>;
 }

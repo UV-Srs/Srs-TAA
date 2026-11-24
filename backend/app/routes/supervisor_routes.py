@@ -1,5 +1,9 @@
 from datetime import datetime, timedelta
+import re
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from backend.app.database import get_db
@@ -9,6 +13,7 @@ from backend.app.models import (
 from backend.app.schemas import (
     SupervisorReviewRequest, SupervisorFieldReviewRequest,
     SupervisorDispositionRequest, SupervisorReadingRequest, SupervisorOosRequest,
+    SupervisorSpotRequest, SupervisorCommentRequest, SupervisorCheckRequest,
 )
 from backend.app.auth import require_supervisor
 from backend.app.audit import log_audit
@@ -16,9 +21,10 @@ from backend.app.notifications import send_notification
 from backend.app.live_sync import notify_live
 from backend.app import supervisor_locks
 from backend.app.supervisor_workspace import (
-    COMPLETED, PROTO_STATUS, REVIEWABLE, build_workspace, get_review, is_dimension, lot_items,
-    reading_status, short_name,
+    COMPLETED, PROTO_STATUS, REVIEWABLE, SPOT_CHECKS, build_workspace, get_review, is_dimension, is_visual,
+    lot_items, reading_status, serialize_lot, serialize_template, short_name, spots_needed,
 )
+from backend.app.supervisor_report_pdf import generate_supervisor_report_pdf
 
 router = APIRouter(prefix="/api/supervisor", tags=["Supervisor Workflow"])
 
@@ -261,6 +267,30 @@ def get_supervisor_workspace(
     return build_workspace(db, current_user)
 
 
+@router.get("/lots/{batch_id}/report.pdf")
+def download_supervisor_report_pdf(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_supervisor),
+):
+    """The supervisor lot report (prototype svDownload) as a PDF: the preview while the lot is
+    under review, the saved report once it is completed."""
+    batch = db.query(InspectionBatch).filter(InspectionBatch.batch_id == batch_id).first()
+    if not batch or not batch.template:
+        raise HTTPException(status_code=404, detail="Lot not found")
+    if batch.status not in REVIEWABLE | COMPLETED:
+        raise HTTPException(status_code=422, detail={"message": "This lot has no supervisor report yet.", "status": batch.status})
+    users = {u.user_id: u for u in db.query(User).all()}
+    lot = serialize_lot(db, batch, users)
+    pdf = generate_supervisor_report_pdf(lot, serialize_template(batch.template), current_user.full_name,
+                                         read_only=batch.status in COMPLETED)
+    full = f"{batch.lot_number}-lot-report.pdf"
+    ascii_name = re.sub(r"[^A-Za-z0-9._-]+", "_", full)
+    return Response(content=pdf, media_type="application/pdf", headers={
+        "Content-Disposition": f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(full, safe='')}",
+    })
+
+
 @router.post("/lots/{batch_id}/open")
 def open_supervisor_lot(
     batch_id: int,
@@ -376,6 +406,51 @@ def set_supervisor_reading(
     return {"status": "success", "value": payload.value}
 
 
+@router.put("/lots/{batch_id}/checks")
+def set_supervisor_check(
+    batch_id: int,
+    payload: SupervisorCheckRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_supervisor),
+):
+    """A supervisor-assigned pass/fail check for one sample: Good (OK) / Bad (NG); None clears it."""
+    batch, review = _reviewing(db, batch_id, current_user)
+    item = db.query(TemplateControlItem).filter(
+        TemplateControlItem.item_id == payload.item_id, TemplateControlItem.sheet_id == batch.sheet_id,
+    ).first()
+    if not item or not is_visual(item):
+        raise HTTPException(status_code=404, detail="Check not found in this lot")
+    if item.assigned_role != "supervisor":
+        raise HTTPException(status_code=403, detail="Forbidden: this check is assigned to the operator.")
+    if payload.sample not in [str(c) for c in (item.sample_columns or [])]:
+        raise HTTPException(status_code=422, detail="Unknown sample for this check")
+    if payload.value not in (None, "OK", "NG"):
+        raise HTTPException(status_code=422, detail="Result must be OK or NG.")
+
+    resp = db.query(BatchCellResponse).filter(
+        BatchCellResponse.batch_id == batch.batch_id,
+        BatchCellResponse.item_id == item.item_id,
+        BatchCellResponse.column_key == payload.sample,
+    ).first()
+    cell_value = None if payload.value is None else ("Pass" if payload.value == "OK" else "Fail")
+    if cell_value is None:
+        if resp:
+            db.delete(resp)
+    else:
+        if resp is None:
+            resp = BatchCellResponse(batch_id=batch.batch_id, item_id=item.item_id, column_key=payload.sample)
+            db.add(resp)
+        resp.cell_value = cell_value
+        resp.is_within_spec = payload.value == "OK"
+        resp.entered_by = current_user.user_id
+    db.commit()
+    notify_live("CELL_UPDATED", {
+        "batch_id": batch.batch_id, "item_id": item.item_id, "column_key": payload.sample,
+        "cell_value": cell_value, "is_within_spec": payload.value != "NG", "updated_at": str(datetime.utcnow()),
+    })
+    return {"status": "success", "value": payload.value}
+
+
 @router.put("/lots/{batch_id}/oos")
 def set_supervisor_oos_action(
     batch_id: int,
@@ -391,6 +466,56 @@ def set_supervisor_oos_action(
     db.commit()
     notify_live("BATCH_UPDATED", {"batch_id": batch.batch_id, "status": batch.status, "round": batch.round})
     return {"status": "success", "oos": review.oos_action}
+
+
+@router.put("/lots/{batch_id}/spot/{column_key}")
+def set_supervisor_spot_check(
+    batch_id: int,
+    column_key: str,
+    payload: SupervisorSpotRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_supervisor),
+):
+    """
+    Prototype ACT.svspot / svspotf / svspotdel: the supervisor's own check of an item the
+    operator marked good. At most 3 per lot; r=None removes it.
+    """
+    batch, review = _reviewing(db, batch_id, current_user)
+    li = lot_items(batch, review)
+    if column_key not in li["columns"]:
+        raise HTTPException(status_code=404, detail="Item not found in this lot")
+    spots = dict(review.spot_checks or {})
+    if payload.r is None:
+        spots.pop(column_key, None)
+    else:
+        if payload.r not in ("OK", "NG"):
+            raise HTTPException(status_code=422, detail="Spot check result must be OK or NG.")
+        part = li["parts"][li["columns"].index(column_key)]
+        if not part or part["r"] != "OK":
+            raise HTTPException(status_code=422, detail="Spot checks are for items the operator marked good.")
+        if column_key not in spots and len([c for c in spots if c in li["columns"]]) >= SPOT_CHECKS:
+            raise HTTPException(status_code=422, detail=f"Only {SPOT_CHECKS} spot checks per lot.")
+        check_ids = {str(i.item_id) for i in li["visual"]}
+        ng = [x for x in dict.fromkeys(payload.ng) if x in check_ids] if payload.r == "NG" else []
+        spots[column_key] = {"r": payload.r, "ng": ng}
+    review.spot_checks = spots
+    db.commit()
+    notify_live("BATCH_UPDATED", {"batch_id": batch.batch_id, "status": batch.status, "round": batch.round})
+    return {"status": "success", "spot": spots}
+
+
+@router.put("/lots/{batch_id}/comment")
+def set_supervisor_comment(
+    batch_id: int,
+    payload: SupervisorCommentRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_supervisor),
+):
+    """Prototype #svcomment: the supervisor's comments printed on the report."""
+    batch, review = _reviewing(db, batch_id, current_user)
+    review.comment = (payload.comment or "")[:4000] or None
+    db.commit()
+    return {"status": "success"}
 
 
 @router.post("/lots/{batch_id}/sign")
@@ -413,12 +538,16 @@ def sign_supervisor_lot(
     undecided = [c for c, p in bad if p.get("disp") not in DISPOSITIONS]
     missing = sum(1 for it in li["dims_items"] if it.assigned_role == "supervisor"
                   for v in li["dims"][str(it.item_id)] if v is None)
+    missing += sum(1 for vals in li["sup_checks"].values() for v in vals if v is None)
     out_of_spec = [(it, v) for it in li["dims_items"] for v in li["dims"][str(it.item_id)]
                    if reading_status(it, v) == "bad"]
+    spots = {c: v for c, v in (review.spot_checks or {}).items() if c in columns}
     if undecided:
         raise HTTPException(status_code=422, detail=f"{len(undecided)} bad item(s) still need a decision.")
+    if len(spots) < spots_needed(parts):
+        raise HTTPException(status_code=422, detail=f"{spots_needed(parts) - len(spots)} spot check(s) still to do.")
     if missing:
-        raise HTTPException(status_code=422, detail=f"{missing} reading(s) still to measure.")
+        raise HTTPException(status_code=422, detail=f"{missing} reading(s) or check(s) still to do.")
     if out_of_spec and not review.oos_action:
         raise HTTPException(status_code=422, detail="Say what was done about the out-of-spec readings.")
 
@@ -452,8 +581,14 @@ def sign_supervisor_lot(
 
     remarks = [x for x in [
         f"Out-of-spec action: {review.oos_action}" if review.oos_action else "",
+        "Supervisor checks failed: " + ", ".join(
+            f"{i.control_item_name} [{c}]" for i in li["sup_visual"]
+            for c, v in zip([str(x) for x in (i.sample_columns or [])], li["sup_checks"][str(i.item_id)]) if v == "NG"
+        ) if any(v == "NG" for vals in li["sup_checks"].values() for v in vals) else "",
         f"Rejected items: {', '.join(rejected)}" if rejected else "",
         f"Held items: {', '.join(held)}" if held else "",
+        "Spot checks: " + ", ".join(f"{c} {v.get('r')}" for c, v in spots.items()) if spots else "",
+        f"Comment: {review.comment}" if review.comment else "",
     ] if x]
     db.add(InspectionDecision(
         batch_id=batch.batch_id, round=batch.round or 1, stage=stage, decided_by=current_user.user_id,

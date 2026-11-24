@@ -25,8 +25,25 @@ from backend.app.routes import (
     notification_routes,
 )
 
+def _add_missing_columns():
+    """create_all() never alters existing tables; add the columns introduced after a table was
+    first created (supervisor spot checks and comments). Idempotent."""
+    from sqlalchemy import inspect, text
+    added = {"supervisor_lot_reviews": {"spot_checks": "JSON", "comment": "TEXT"}}
+    insp = inspect(engine)
+    with engine.begin() as conn:
+        for table, cols in added.items():
+            if not insp.has_table(table):
+                continue
+            have = {c["name"] for c in insp.get_columns(table)}
+            for name, sql_type in cols.items():
+                if name not in have:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}"))
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
+    _add_missing_columns()
     db = SessionLocal()
     try:
         seed_database(db)

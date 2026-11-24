@@ -1,4 +1,4 @@
-import type { CheckItem, DimensionParam, Lot, Part, ProtoStatus, TemplateRef, Workspace } from '../data/types';
+import { SPOT_CHECKS, type CheckItem, type CheckResult, type DimensionParam, type Lot, type Part, type ProtoStatus, type SupervisorCheck, type TemplateRef, type Workspace } from '../data/types';
 import { lotTsMs } from './format';
 
 /**
@@ -17,6 +17,8 @@ export const REVIEWABLE_STATUSES: ProtoStatus[] = ['supervisor', 'onhold'];
 
 export const templateOf = (ws: Workspace, l: Lot): TemplateRef | undefined => ws.templates[l.sheetId];
 export const paramsOf = (ws: Workspace, l: Lot): DimensionParam[] => templateOf(ws, l)?.params ?? [];
+/** Supervisor-assigned pass/fail checks of the lot's template. */
+export const supChecksOf = (ws: Workspace, l: Lot): SupervisorCheck[] => templateOf(ws, l)?.supChecks ?? [];
 
 /** Prototype itemById, across all templates (item ids are unique). */
 export function itemById(ws: Workspace, id: string): CheckItem | undefined {
@@ -81,9 +83,9 @@ export const DEC: Record<string, 'ok' | 'warn' | 'ng'> = { Approved: 'ok', 'On h
 export const badIdx = (l: Lot): number[] =>
   l.parts.map((p, i) => (p && p.r === 'NG' ? i : -1)).filter((i) => i >= 0);
 
-/** Number of dimension samples (prototype: 10). */
+/** Number of samples (prototype: 10): dimensions and supervisor checks share sample 1..n. */
 export const nSamples = (ws: Workspace, l: Lot): number =>
-  paramsOf(ws, l).reduce((m, p) => Math.max(m, p.samples.length), 0);
+  [...paramsOf(ws, l), ...supChecksOf(ws, l)].reduce((m, p) => Math.max(m, p.samples.length), 0);
 
 /** Number of items in the lot (prototype: L.qty). Items past parts.length are not checked. */
 export const nItems = (ws: Workspace, l: Lot): number => Math.max(l.qty || 0, l.parts.length, nSamples(ws, l));
@@ -94,17 +96,30 @@ export const sampleParams = (ws: Workspace, l: Lot, j: number): DimensionParam[]
 
 export const dimValue = (l: Lot, p: DimensionParam, j: number): number | null => (l.dims[p.id] || [])[j] ?? null;
 
-/** Prototype sampleDone: every dimension of sample j measured. */
+/** Supervisor checks that have a sample j. */
+export const sampleChecks = (ws: Workspace, l: Lot, j: number): SupervisorCheck[] =>
+  supChecksOf(ws, l).filter((c) => j < c.samples.length);
+
+export const checkValue = (l: Lot, c: SupervisorCheck, j: number): CheckResult | null => (l.supChecks?.[c.id] || [])[j] ?? null;
+
+/** Prototype sampleDone: every dimension and supervisor check of sample j done. */
 export const sampleDone = (ws: Workspace, l: Lot, j: number): boolean =>
-  sampleParams(ws, l, j).every((p) => dimValue(l, p, j) != null);
+  sampleParams(ws, l, j).every((p) => dimValue(l, p, j) != null)
+  && sampleChecks(ws, l, j).every((c) => checkValue(l, c, j) != null);
 
-/** Sample j has every reading the supervisor enters (the operator's own readings can't be typed here). */
+/** Sample j has everything the supervisor enters (the operator's own readings can't be typed here). */
 export const sampleOwnDone = (ws: Workspace, l: Lot, j: number): boolean =>
-  sampleParams(ws, l, j).every((p) => !p.editable || dimValue(l, p, j) != null);
+  sampleParams(ws, l, j).every((p) => !p.editable || dimValue(l, p, j) != null)
+  && sampleChecks(ws, l, j).every((c) => checkValue(l, c, j) != null);
 
-/** Prototype sampleCount */
+/** Prototype sampleCount: readings and checks done in sample j. */
 export const sampleCount = (ws: Workspace, l: Lot, j: number): number =>
-  sampleParams(ws, l, j).filter((p) => dimValue(l, p, j) != null).length;
+  sampleParams(ws, l, j).filter((p) => dimValue(l, p, j) != null).length
+  + sampleChecks(ws, l, j).filter((c) => checkValue(l, c, j) != null).length;
+
+/** Readings + checks in sample j (the denominator next to sampleCount). */
+export const sampleTotal = (ws: Workspace, l: Lot, j: number): number =>
+  sampleParams(ws, l, j).length + sampleChecks(ws, l, j).length;
 
 /** Item still to do: a bad item without a decision, or a sample with readings the supervisor still has to enter. */
 export const isTodo = (ws: Workspace, l: Lot, k: number): boolean => {
@@ -122,6 +137,14 @@ export function svNextTodo(ws: Workspace, l: Lot, from: number): number {
   return -1;
 }
 
+/** Prototype spotsOf: item indexes with a supervisor spot check, in item order. */
+export const spotsOf = (l: Lot): number[] =>
+  Object.keys(l.spot ?? {}).map(Number).filter((k) => !Number.isNaN(k)).sort((a, b) => a - b);
+
+/** Spot checks needed: 3, or fewer when the lot has fewer good items (same rule as the server). */
+export const spotsNeeded = (l: Lot): number =>
+  Math.min(SPOT_CHECKS, l.parts.filter((p) => p && p.r === 'OK').length);
+
 /** Prototype svProgress */
 export function svProgress(ws: Workspace, l: Lot) {
   const b = badIdx(l);
@@ -130,18 +153,22 @@ export function svProgress(ws: Workspace, l: Lot) {
   let opMissing = 0;
   let ownMissing = 0;
   for (let s = 0; s < n; s++) {
-    if (sampleDone(ws, l, s)) samp++;
+    // A sample counts as measured once every reading the supervisor enters is in.
+    if (sampleOwnDone(ws, l, s)) samp++;
     sampleParams(ws, l, s).forEach((p) => {
       if (dimValue(l, p, s) == null) { if (p.editable) ownMissing++; else opMissing++; }
     });
+    sampleChecks(ws, l, s).forEach((c) => { if (checkValue(l, c, s) == null) ownMissing++; });
   }
   const dec = b.filter((i) => (l.parts[i] as { disp: unknown }).disp).length;
+  const spot = spotsOf(l).length;
+  const spotNeed = spotsNeeded(l);
   return {
-    bad: b.length, dec, samp, nSamples: n,
+    bad: b.length, dec, samp, nSamples: n, spot, spotNeed,
     /** Readings the operator didn't enter (the supervisor can't enter them). */
     opMissing,
     /** Everything the supervisor can do is done (what Save requires). */
-    ready: dec === b.length && ownMissing === 0,
+    ready: dec === b.length && ownMissing === 0 && spot >= spotNeed,
   };
 }
 

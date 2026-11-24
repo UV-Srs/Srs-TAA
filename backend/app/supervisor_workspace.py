@@ -41,6 +41,19 @@ PROTO_STATUS = {
 }
 REVIEWABLE = {"OPERATOR_APPROVED", "OPERATOR_REJECTED", "SUPERVISOR_IN_PROGRESS", "ON_HOLD"}
 COMPLETED = {"APPROVED", "REJECTED"}
+# Prototype: the supervisor spot checks 3 items the operator marked good.
+SPOT_CHECKS = 3
+
+
+def spots_needed(parts: List[Optional[Dict[str, Any]]]) -> int:
+    """3 spot checks, or fewer when the lot has fewer good items to pick from."""
+    return min(SPOT_CHECKS, sum(1 for p in parts if p and p["r"] == "OK"))
+
+
+def lot_spots(columns: List[str], review: Optional["SupervisorLotReview"]) -> Dict[str, Dict[str, Any]]:
+    """Spot checks keyed by item index (prototype L.spot), dropping keys no longer in the lot."""
+    raw = (review.spot_checks or {}) if review else {}
+    return {str(columns.index(c)): v for c, v in raw.items() if c in columns}
 
 
 def iso(dt: Optional[datetime]) -> Optional[str]:
@@ -54,6 +67,16 @@ def is_visual(item: TemplateControlItem) -> bool:
 
 def is_dimension(item: TemplateControlItem) -> bool:
     return item.row_mode == "NUMERIC_SAMPLE" or item.html_input_type == "number"
+
+
+def is_operator_item(item: TemplateControlItem) -> bool:
+    """Same rule as the operator inspection screen (isOperatorItem in OperatorInspection.tsx)."""
+    return ((item.assigned_role or "operator") not in ("supervisor", "admin")
+            and item.editable_by_operator is not False and item.visible_to_operator is not False)
+
+
+def is_supervisor_item(item: TemplateControlItem) -> bool:
+    return item.assigned_role == "supervisor"
 
 
 def _columns(item: TemplateControlItem) -> List[str]:
@@ -80,18 +103,22 @@ def short_name(full_name: Optional[str]) -> str:
     return f"{parts[0]} {parts[-1][0]}." if len(parts) > 1 else parts[0]
 
 
-def reading_status(item: TemplateControlItem, v: Optional[float]) -> str:
-    """Prototype st(p, v): '' | 'bad' | 'warn' | 'good'."""
+def reading_status_values(lo: Optional[float], hi: Optional[float], v: Optional[float]) -> str:
+    """Prototype st(p, v): '' | 'bad' | 'warn' (within 10% of the range from a limit) | 'good'."""
     if v is None:
         return ""
-    if item.min_val is None or item.max_val is None:
+    if lo is None or hi is None:
         return "good"
-    b, e = (item.max_val - item.min_val) * 0.1, 1e-9
-    if v < item.min_val - e or v > item.max_val + e:
+    b, e = (hi - lo) * 0.1, 1e-9
+    if v < lo - e or v > hi + e:
         return "bad"
-    if v < item.min_val + b - e or v > item.max_val - b + e:
+    if v < lo + b - e or v > hi - b + e:
         return "warn"
     return "good"
+
+
+def reading_status(item: TemplateControlItem, v: Optional[float]) -> str:
+    return reading_status_values(item.min_val, item.max_val, v)
 
 
 def _to_float(value: Optional[str]) -> Optional[float]:
@@ -115,7 +142,8 @@ def get_review(db: Session, batch: InspectionBatch, create: bool = False) -> Opt
 
 def serialize_template(t: SheetTemplate) -> Dict[str, Any]:
     items = sorted(t.control_items, key=lambda i: (i.display_order or 0, i.serial_no or 0))
-    visual = [i for i in items if is_visual(i)]
+    visual = [i for i in items if is_visual(i) and is_operator_item(i)]
+    sup_checks = [i for i in items if is_visual(i) and is_supervisor_item(i)]
     groups: List[str] = []
     for i in visual:
         if i.stage_name not in groups:
@@ -136,7 +164,12 @@ def serialize_template(t: SheetTemplate) -> Dict[str, Any]:
             "unit": i.unit, "samples": _columns(i), "method": i.application_method or "",
             # Agreed rule: supervisors enter readings only for dimensions assigned to them.
             "editable": i.assigned_role == "supervisor",
-        } for i in items if is_dimension(i)],
+        } for i in items if is_dimension(i) and (is_operator_item(i) or is_supervisor_item(i))],
+        # Supervisor-assigned pass/fail checks: the supervisor records Good / Bad per sample column.
+        "supChecks": [{
+            "id": str(i.item_id), "g": i.stage_name, "t": i.control_item_name,
+            "desc": i.specification_content, "method": i.application_method or "", "samples": _columns(i),
+        } for i in sup_checks],
     }
 
 
@@ -144,30 +177,12 @@ def _person(user: Optional[User]) -> Optional[Dict[str, Any]]:
     return {"id": user.user_id, "name": user.full_name} if user else None
 
 
-def item_keys(visual: List[TemplateControlItem], qty: Optional[int]) -> List[str]:
-    """
-    The column key of each item of the lot, 1..lot_quantity. A numeric column "k" is item k;
-    other columns ("val", "S1"...) take the first free items in template order. Items with no
-    column get the key str(k), which has no cells, so they show as not checked.
-    """
-    columns: List[str] = []
-    for i in visual:
-        for c in _columns(i):
-            if c not in columns:
-                columns.append(c)
-    n = max(qty or 0, len(columns))
-    keys: List[Optional[str]] = [None] * n
-    rest: List[str] = []
-    for c in columns:
-        k = int(c) if c.isdigit() else 0
-        if 1 <= k <= n and keys[k - 1] is None:
-            keys[k - 1] = c
-        else:
-            rest.append(c)
-    free = iter([k for k in range(n) if keys[k] is None])
-    for c in rest:
-        keys[next(free)] = c
-    return [c if c is not None else str(k + 1) for k, c in enumerate(keys)]
+def piece_count(visual: List[TemplateControlItem], qty: Optional[int]) -> int:
+    """Items in the lot: lot_quantity, else the highest numbered column of the operator's checks."""
+    if qty:
+        return qty
+    nums = [int(c) for i in visual for c in _columns(i) if c.isdigit()]
+    return max(nums, default=0)
 
 
 def lot_items(b: InspectionBatch, review: Optional[SupervisorLotReview]) -> Dict[str, Any]:
@@ -175,17 +190,21 @@ def lot_items(b: InspectionBatch, review: Optional[SupervisorLotReview]) -> Dict
     workspace and the save endpoint so both apply the same rules."""
     t = b.template
     items = sorted(t.control_items, key=lambda i: (i.display_order or 0, i.serial_no or 0)) if t else []
-    visual = [i for i in items if is_visual(i)]
-    dims_items = [i for i in items if is_dimension(i)]
+    # Only operator-assigned checks are the operator's results; supervisor checks are filled in review.
+    visual = [i for i in items if is_visual(i) and is_operator_item(i)]
+    sup_visual = [i for i in items if is_visual(i) and is_supervisor_item(i)]
+    dims_items = [i for i in items if is_dimension(i) and (is_operator_item(i) or is_supervisor_item(i))]
     cells = {(c.item_id, str(c.column_key)): c for c in b.cell_responses}
     dispositions = (review.dispositions or {}) if review else {}
 
-    # Items = every item of the lot (1..lot_quantity); item k is the visual checks' column "k".
-    columns = item_keys(visual, b.lot_quantity)
+    # Items = every piece of the lot, 1..lot_quantity. The operator screen saves one cell per piece
+    # and check with column_key = piece number ("1".."N"), whatever the template's sample_columns
+    # say (those are often just "1".."5"), so piece k is read from column "k" of every check.
+    columns = [str(k) for k in range(1, piece_count(visual, b.lot_quantity) + 1)]
 
     parts: List[Optional[Dict[str, Any]]] = []
     for col in columns:
-        found = [(i, cells.get((i.item_id, col))) for i in visual if col in _columns(i)]
+        found = [(i, cells.get((i.item_id, col))) for i in visual]
         results = [(i, c, _cell_result(c)) for i, c in found]
         if all(r is None for _, _, r in results):
             parts.append(None)
@@ -201,35 +220,33 @@ def lot_items(b: InspectionBatch, review: Optional[SupervisorLotReview]) -> Dict
             part["r"] = "OK"
         parts.append(part)
 
-    # Whole-lot checks: a check with one non-item column ("val") records one result for the
-    # whole lot, so it applies to every item. Its bad-item decision stays on the item that holds
-    # the column (`item`), so the lot needs one decision, not one per item.
-    lot_checks: Dict[str, Dict[str, Any]] = {}
-    for i in visual:
-        cols = _columns(i)
-        if len(cols) != 1 or cols[0].isdigit():
-            continue
-        cell = cells.get((i.item_id, cols[0]))
-        r = _cell_result(cell)
-        if r is not None:
-            lot_checks[str(i.item_id)] = {
-                "r": r, "by": cell.entered_by, "at": iso(cell.updated_at), "item": columns.index(cols[0]),
-            }
-
     dims = {
         str(i.item_id): [_to_float(cells[(i.item_id, c)].cell_value) if (i.item_id, c) in cells else None
                          for c in _columns(i)]
         for i in dims_items
     }
+    # Supervisor checks: 'OK' | 'NG' | None per sample column.
+    sup_checks = {str(i.item_id): [_cell_result(cells.get((i.item_id, c))) for c in _columns(i)] for i in sup_visual}
     return {"columns": columns, "parts": parts, "dims": dims, "visual": visual, "dims_items": dims_items,
-            "lot_checks": lot_checks}
+            "sup_visual": sup_visual, "sup_checks": sup_checks}
+
+
+def clearance_text(decision: Optional[str], parts: List[Optional[Dict[str, Any]]]) -> str:
+    """Prototype clearance wording from the operator's stored decision ('Approved' | 'Rejected'):
+    bad items found -> they were tagged and kept aside; none -> cleared, unless the operator
+    rejected the lot for out-of-spec readings alone."""
+    if any(p and p["r"] == "NG" for p in parts):
+        return "Cleared, NG items segregated"
+    if decision == "Rejected":
+        return "Not cleared, out-of-spec readings"
+    return "Lot cleared"
 
 
 def serialize_lot(db: Session, b: InspectionBatch, users: Dict[int, User]) -> Dict[str, Any]:
     t = b.template
     review = get_review(db, b)
     li = lot_items(b, review)
-    columns, parts, dims, lot_checks = li["columns"], li["parts"], li["dims"], li["lot_checks"]
+    columns, parts, dims = li["columns"], li["parts"], li["dims"]
 
     status = b.status
     proto = PROTO_STATUS.get(status, "registered")
@@ -287,11 +304,13 @@ def serialize_lot(db: Session, b: InspectionBatch, users: Dict[int, User]) -> Di
         "ts": iso(ts),
         "op": op,
         "opBy": op_by,
-        "clearance": {"d": b.operator_decision, "note": ""} if b.operator_decision else None,
+        "clearance": {"d": clearance_text(b.operator_decision, parts), "note": ""} if b.operator_decision else None,
         "columns": columns,
         "parts": parts,
-        "lotChecks": lot_checks,
+        "supChecks": li["sup_checks"],
         "dims": dims,
+        "spot": lot_spots(columns, review),
+        "supComment": (review.comment or "") if review else "",
         "oos": review.oos_action if review else None,
         "sup": sup,
         "rev": rev,

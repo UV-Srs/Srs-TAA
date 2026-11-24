@@ -1,4 +1,4 @@
-import { apiRequest } from '../../api';
+import { apiRequest, downloadAuthenticatedFile } from '../../api';
 import type { SupervisorDataService } from './SupervisorDataService';
 import type { OpenLotResult, PersonRef, ProtoStatus, Workspace } from './types';
 
@@ -39,8 +39,24 @@ export const apiSupervisorService: SupervisorDataService = {
     return put(`/api/supervisor/lots/${lotId}/readings`, { item_id: Number(paramId), sample: sampleKey, value });
   },
 
+  setCheck(lotId, checkId, sampleKey, value) {
+    return put(`/api/supervisor/lots/${lotId}/checks`, { item_id: Number(checkId), sample: sampleKey, value });
+  },
+
   setOos(lotId, action) {
     return put(`/api/supervisor/lots/${lotId}/oos`, { action });
+  },
+
+  setSpot(lotId, columnKey, spot) {
+    return put(`/api/supervisor/lots/${lotId}/spot/${encodeURIComponent(columnKey)}`, spot ?? { r: null, ng: [] });
+  },
+
+  setComment(lotId, comment) {
+    return put(`/api/supervisor/lots/${lotId}/comment`, { comment });
+  },
+
+  downloadReportPdf(lotId, code) {
+    return downloadAuthenticatedFile(`/api/supervisor/lots/${lotId}/report.pdf`, `${code}-lot-report.pdf`);
   },
 
   sign(lotId) {
