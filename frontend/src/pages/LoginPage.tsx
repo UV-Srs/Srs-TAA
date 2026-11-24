@@ -40,7 +40,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           <img src="/srs-logo.png" alt="SRS Consulting" className="w-14 h-14 object-contain mx-auto" />
           <div>
             <h1 className="text-xl font-semibold text-[var(--ink)] tracking-tight">
-              TAA Inspection
+              AI-Smart Scan
             </h1>
             <p className="sub text-xs mt-0.5">
               Lot inspection made simple

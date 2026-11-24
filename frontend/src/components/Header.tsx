@@ -15,6 +15,13 @@ interface HeaderProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   onSelectBatchByCode?: (batchCode: string) => void;
+  /**
+   * Which left sidebar the brand lines up with. The header is full width and the logo sits at the
+   * same left offset as that sidebar's items: admin Sidebar (12px, 18px from lg) or the supervisor
+   * nav (8px, 12px from 1100px, as in supervisor.css). The operator screens have no sidebar and use
+   * the admin offset.
+   */
+  sidebar?: 'admin' | 'supervisor';
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -23,6 +30,7 @@ export const Header: React.FC<HeaderProps> = ({
   activeTab,
   setActiveTab,
   onSelectBatchByCode,
+  sidebar = 'admin',
 }) => {
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
   const [pendingSyncCount, setPendingSyncCount] = useState<number>(0);
@@ -176,13 +184,13 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <header className="bg-white border-b border-[var(--line)] sticky top-0 z-40 no-print select-none shadow-[var(--shadow)]">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-2.5 flex items-center justify-between gap-4">
+      <div className={`${sidebar === 'supervisor' ? 'pl-2 min-[1100px]:pl-3' : 'pl-3 lg:pl-[18px]'} pr-4 sm:pr-6 py-2.5 flex items-center justify-between gap-4`}>
         {/* Left: LotSure Brand */}
         <div className="flex items-center gap-6 min-w-0">
           <div className="flex items-center gap-2.5 shrink-0">
             <img src="/srs-logo.png" alt="SRS Consulting" className="w-[34px] h-[34px] object-contain rounded-[10px]" />
             <div>
-              <h1 className="text-[16px] font-semibold text-[var(--ink)] leading-tight tracking-tight">TAA Inspection</h1>
+              <h1 className="text-[16px] font-semibold text-[var(--ink)] leading-tight tracking-tight">AI-Smart Scan</h1>
               <span className="text-[13px] text-[var(--muted)] font-normal hidden sm:block leading-tight">Lot inspection made simple</span>
             </div>
           </div>

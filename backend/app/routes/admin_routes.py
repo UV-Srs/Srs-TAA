@@ -21,6 +21,8 @@ from backend.app.auth import require_admin, hash_password
 from backend.app.audit import log_audit, purge_user_audit_logs
 from backend.app.config import UPLOAD_DIR
 from backend.app.export_pdf import generate_pdf_report
+from backend.app.supervisor_report_pdf import generate_supervisor_report_pdf
+from backend.app.supervisor_workspace import COMPLETED, serialize_lot, serialize_template
 from backend.app.export_excel import generate_excel_report
 from backend.app.checksheet_report import generate_checksheet_csv
 from backend.app.report_people import resolve_report_people
@@ -513,7 +515,7 @@ def export_all_records_csv(db: Session = Depends(get_db), current_user: User = D
     return Response(
         content=csv_data,
         media_type="text/csv",
-        headers={"Content-Disposition": 'attachment; filename="taa-inspection-records.csv"'}
+        headers={"Content-Disposition": 'attachment; filename="ai-smart-scan-records.csv"'}
     )
 
 # --- Report Exports (FR-014, FR-051) ---
@@ -561,6 +563,20 @@ def export_batch_report(
             content=csv_bytes,
             media_type="text/csv; charset=utf-8",
             headers={"Content-Disposition": disposition("csv")}
+        )
+
+    if format == "pdf" and batch.status in COMPLETED:
+        # Completed lot: the admin's lot report (LotSure admin lot view), with the supervisor's
+        # review of the operator's work, spot checks, samples and the item grid.
+        users = {u.user_id: u for u in db.query(User).all()}
+        pdf_bytes = generate_supervisor_report_pdf(
+            serialize_lot(db, batch, users), serialize_template(template), current_user.full_name,
+            read_only=True, layout="admin",
+        )
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": disposition("pdf")}
         )
 
     if format == "pdf":

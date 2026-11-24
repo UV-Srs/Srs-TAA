@@ -76,6 +76,7 @@ export const SupervisorApp: React.FC<SupervisorAppProps> = ({ currentUser, onLog
           activeTab="sheet"
           setActiveTab={() => undefined}
           onSelectBatchByCode={openByCode}
+          sidebar="supervisor"
         />
       </div>
       <div className="sv-root" style={{ '--hdr': `${hdr}px` } as React.CSSProperties}>
