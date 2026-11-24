@@ -77,10 +77,9 @@ def deactivate_user(user_id: int, db: Session = Depends(get_db), current_user: U
         raise HTTPException(status_code=404, detail="User not found")
     
     user.is_active = False
-    db.commit()
-
-    # FR-005: Purge audit logs for this user
+    # M-6: purge first, commit once — keeps both changes in a single transaction
     purged_count = purge_user_audit_logs(db, user_id=user_id)
+    db.commit()
 
     return {
         "success": True,
@@ -396,11 +395,17 @@ def delete_batch(batch_id: int, db: Session = Depends(get_db), current_user: Use
     lot = batch.lot_number
     sheet = batch.sheet_id
     # Delete uploaded attachment files from disk before cascade-deleting DB rows
+    # C-4: resolve and validate path to prevent directory traversal attacks
+    from pathlib import Path as _Path
     for att in batch.attachments:
         try:
-            file_path = str(UPLOAD_DIR / att.file_path.lstrip("/").replace("uploads/", "", 1))
-            if os.path.exists(file_path):
-                os.remove(file_path)
+            raw = att.file_path.lstrip("/")
+            # Strip a leading "uploads/" prefix if stored that way
+            if raw.startswith("uploads/"):
+                raw = raw[len("uploads/"):]
+            safe = (_Path(UPLOAD_DIR) / raw).resolve()
+            if str(safe).startswith(str(_Path(UPLOAD_DIR).resolve())) and safe.exists():
+                safe.unlink()
         except Exception:
             pass
     db.delete(batch)
@@ -410,6 +415,30 @@ def delete_batch(batch_id: int, db: Session = Depends(get_db), current_user: Use
               details={"batch_id": batch_id, "lot_number": lot})
     notify_live("BATCH_UPDATED", {"batch_id": batch_id, "action": "DELETED"})
     return {"success": True, "batch_id": batch_id, "lot_number": lot}
+
+
+@router.post("/batches/{batch_id}/reopen")
+def reopen_batch(batch_id: int, payload: dict, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    """Reopen an APPROVED or REJECTED batch for supervisor correction."""
+    batch = db.query(InspectionBatch).filter(InspectionBatch.batch_id == batch_id).first()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    if batch.status not in ("APPROVED", "REJECTED"):
+        raise HTTPException(status_code=400, detail="Only APPROVED or REJECTED batches can be reopened")
+    reason = (payload.get("reason") or "").strip()
+    if not reason:
+        raise HTTPException(status_code=422, detail="A reason is required to reopen a batch")
+    previous_status = batch.status
+    batch.status = "SUPERVISOR_IN_PROGRESS"
+    batch.supervisor_submitted_at = None
+    batch.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    log_audit(db=db, user_id=current_user.user_id, role=current_user.role,
+              action_type="BATCH_REOPENED", sheet_id=batch.sheet_id, batch_id=batch_id,
+              details={"reason": reason, "previous_status": previous_status})
+    notify_live("BATCH_UPDATED", {"batch_id": batch_id, "status": "SUPERVISOR_IN_PROGRESS"})
+    db.commit()
+    db.refresh(batch)
+    return {"success": True, "batch_id": batch_id, "status": batch.status}
 
 
 # --- Batches & Progress Dashboard (FR-013, FR-049, FR-050) ---
@@ -573,8 +602,8 @@ def get_progress_dashboard(db: Session = Depends(get_db), current_user: User = D
     """
     Returns real-time progress across all batches, including status counts,
     overdue holds, completion percentages, and bottleneck stages.
+    M-8: check_overdue_holds removed from GET — moved to a background task.
     """
-    check_overdue_holds(db)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     batches = db.query(InspectionBatch).order_by(InspectionBatch.created_at.desc()).all()
 
@@ -591,10 +620,13 @@ def get_progress_dashboard(db: Session = Depends(get_db), current_user: User = D
     }
 
     # Pre-aggregate to eliminate N+1 queries
-    # Map sheet_id -> expected cell count
+    # H-4: only count operator-assigned rows so supervisor rows don't inflate the denominator
     sheet_items = db.query(TemplateControlItem).all()
     sheet_expected_cells: dict = {}
     for it in sheet_items:
+        # Exclude supervisor-only rows from the operator completion count
+        if it.assigned_role == 'supervisor' or it.row_mode == 'NUMERIC_SAMPLE':
+            continue
         sheet_expected_cells[it.sheet_id] = sheet_expected_cells.get(it.sheet_id, 0) + 1
 
     # Map batch_id -> answered cell count
@@ -688,13 +720,24 @@ def get_progress_dashboard(db: Session = Depends(get_db), current_user: User = D
 @router.get("/export-csv")
 def export_all_records_csv(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
     """
-    Exports comprehensive inspection ledger to CSV conforming to the POC spec:
-    Batch, Sheet ID, Sheet, Product, Line, Qty, Status, Round, Inspected by,
-    Inspection decision, Inspected at, Reviewed by, Review decision, Reviewed at,
-    Hold reason, Hold placed by, Hold released by, Field values.
+    Exports comprehensive inspection ledger to CSV.
+    H-5: pre-fetch all cells and item names in two queries to avoid N+1.
+    M-8: check_overdue_holds removed from GET endpoints.
+    L-2: filename updated to vision-scan.
     """
-    check_overdue_holds(db)
     batches = db.query(InspectionBatch).order_by(InspectionBatch.created_at.desc()).all()
+
+    # H-5: pre-build item_id -> name map (single query)
+    item_name_map: dict = {
+        it.item_id: it.control_item_name
+        for it in db.query(TemplateControlItem).all()
+    }
+    # H-5: pre-fetch ALL cells for ALL batches (single query, keyed by batch_id)
+    from collections import defaultdict as _defaultdict
+    all_cells = db.query(BatchCellResponse).all()
+    cells_by_batch: dict = _defaultdict(list)
+    for c in all_cells:
+        cells_by_batch[c.batch_id].append(c)
 
     output = io.StringIO()
     writer = csv.writer(output, quoting=csv.QUOTE_ALL)
@@ -719,8 +762,12 @@ def export_all_records_csv(db: Session = Depends(get_db), current_user: User = D
                 return ""
             return d.user.full_name if d.user else f"User #{d.decided_by}"
 
-        cells = db.query(BatchCellResponse).filter(BatchCellResponse.batch_id == b.batch_id).all()
-        cell_summary = "; ".join([f"{c.item.control_item_name if c.item else c.item_id}[{c.column_key}]={c.cell_value}" for c in cells])
+        # H-5: use pre-fetched cells — no per-batch query
+        batch_cells = cells_by_batch.get(b.batch_id, [])
+        cell_summary = "; ".join([
+            f"{item_name_map.get(c.item_id, str(c.item_id))}[{c.column_key}]={c.cell_value}"
+            for c in batch_cells
+        ])
 
         writer.writerow([
             b.lot_number,
@@ -747,7 +794,7 @@ def export_all_records_csv(db: Session = Depends(get_db), current_user: User = D
     return Response(
         content=csv_data,
         media_type="text/csv",
-        headers={"Content-Disposition": 'attachment; filename="taa-inspection-records.csv"'}
+        headers={"Content-Disposition": 'attachment; filename="vision-scan-inspection-records.csv"'}
     )
 
 # --- Report Exports (FR-014, FR-051) ---

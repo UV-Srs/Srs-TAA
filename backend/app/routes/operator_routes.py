@@ -9,7 +9,7 @@ from backend.app.models import (
     BatchCellResponse, InspectionDecision
 )
 from backend.app.schemas import OperatorSubmitRequest, InspectionBatchResponse
-from backend.app.auth import require_operator
+from backend.app.auth import require_roles
 from backend.app.audit import log_audit
 from backend.app.notifications import send_notification
 from backend.app.live_sync import notify_live
@@ -21,7 +21,7 @@ def submit_operator_inspection(
     batch_id: int,
     payload: OperatorSubmitRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_operator)
+    current_user: User = Depends(require_roles(["operator"]))
 ):
     """
     FR-025A, FR-026, FR-027, FR-028, FR-052, FR-054:
@@ -103,10 +103,17 @@ def submit_operator_inspection(
     bad_fields = []
 
     for item in required_items:
-        cols = item.sample_columns if isinstance(item.sample_columns, list) else []
-        if not cols:
+        # OperatorItemView always saves cells with column_key = piece number.
+        # Use piece-based cols for SERIAL_TICKBOX OR any item with no explicit sample_columns
+        # (visual check items like pf-type may have row_mode != SERIAL_TICKBOX but are still
+        # filled per piece by the operator view).
+        sample_cols = item.sample_columns if isinstance(item.sample_columns, list) else []
+        if batch.lot_quantity and batch.lot_quantity > 0 and (item.row_mode == "SERIAL_TICKBOX" or not sample_cols):
+            cols = [str(i) for i in range(1, batch.lot_quantity + 1)]
+        elif sample_cols:
+            cols = sample_cols
+        else:
             cols = ["val"]
-        # For SERIAL_TICKBOX, require at least all columns ticked (Pass)
         for col in cols:
             cell = resp_map.get((item.item_id, str(col)))
             if not cell or cell.cell_value is None or str(cell.cell_value).strip() == "":

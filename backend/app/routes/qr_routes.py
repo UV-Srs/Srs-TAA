@@ -1,5 +1,6 @@
 import json
 import re
+import threading
 from urllib.parse import urlparse, parse_qs
 from typing import Optional, Dict, Any, Tuple
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -20,20 +21,44 @@ router = APIRouter(prefix="/api/qr", tags=["QR & Barcode Engine"])
 import os, pathlib
 
 _PENDING_FILE = pathlib.Path(UPLOAD_DIR) / "pending_scans.json"
+_pending_lock = threading.Lock()  # C-5: serialize concurrent read-modify-write
+
 
 def _load_pending() -> dict:
     try:
         if _PENDING_FILE.exists():
-            return json.loads(_PENDING_FILE.read_text())
+            data = json.loads(_PENDING_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+            _PENDING_FILE.write_text("{}", encoding="utf-8")
     except Exception:
         pass
     return {}
 
+
 def _save_pending(data: dict):
     try:
-        _PENDING_FILE.write_text(json.dumps(data))
+        _PENDING_FILE.write_text(json.dumps(data), encoding="utf-8")
     except Exception:
         pass
+
+
+def _update_pending(user_id: int | str, payload: dict) -> None:
+    """Atomically set one user's pending entry (C-5: protected by _pending_lock)."""
+    with _pending_lock:
+        store = _load_pending()
+        store[str(user_id)] = payload
+        _save_pending(store)
+
+
+def _pop_pending(user_id: int | str) -> dict | None:
+    """Atomically pop and return one user's pending entry."""
+    with _pending_lock:
+        store = _load_pending()
+        payload = store.pop(str(user_id), None)
+        if payload is not None:
+            _save_pending(store)
+    return payload
 
 def parse_scan_code(raw: str) -> Tuple[str, str]:
     """
@@ -141,8 +166,8 @@ def resolve_code(
             (SheetTemplate.external_barcode == clean_code)
         ).first()
 
-    # Query by batch_id directly (int) — only for short numeric codes that could be a real batch_id
-    if not batch and not template and clean_code.isdigit() and len(clean_code) <= 9:
+    # Query by batch_id directly (int) — ADMIN ONLY to prevent batch enumeration (C-2)
+    if not batch and not template and current_user.role == 'admin' and clean_code.isdigit() and len(clean_code) <= 9:
         try:
             batch = db.query(InspectionBatch).filter(InspectionBatch.batch_id == int(clean_code)).first()
         except (ValueError, OverflowError):
@@ -152,14 +177,14 @@ def resolve_code(
     if not batch and not template:
         template = db.query(SheetTemplate).filter(SheetTemplate.sheet_id == clean_code).first()
 
-    # Query by part_no — physical part barcode often IS the part number
-    if not batch and not template:
+    # Query by part_no — ADMIN ONLY to prevent cross-lot data exposure (C-3)
+    if not batch and not template and current_user.role == 'admin':
         template = db.query(SheetTemplate).filter(
             SheetTemplate.part_no.ilike(clean_code)
         ).first()
 
-    # Case-insensitive lot_number fallback
-    if not batch and not template:
+    # Case-insensitive lot_number fallback — ADMIN ONLY (C-3)
+    if not batch and not template and current_user.role == 'admin':
         batch = db.query(InspectionBatch).filter(
             InspectionBatch.lot_number.ilike(clean_code)
         ).first()
@@ -205,9 +230,7 @@ def resolve_code(
             "user_id":    current_user.user_id,
             "role":       current_user.role,
         }
-        store = _load_pending()
-        store[str(current_user.user_id)] = _not_found_payload
-        _save_pending(store)
+        _update_pending(current_user.user_id, _not_found_payload)
         notify_live("SCAN_NOT_FOUND", _not_found_payload)
         log_audit(db, current_user.user_id, current_user.role, "SCAN_NOT_FOUND",
                   details={"scanned_code": clean_code, "format": format_detected,
@@ -240,10 +263,10 @@ def resolve_code(
             "status": batch.status,
             "user_id": current_user.user_id,
             "role": current_user.role,
+            "part_name": batch.template.part_name if batch.template else None,
+            "part_no": batch.template.part_no if batch.template else None,
         }
-        store = _load_pending()
-        store[str(current_user.user_id)] = _scan_resolved
-        _save_pending(store)
+        _update_pending(current_user.user_id, _scan_resolved)
         notify_live("SCAN_RESOLVED", _scan_resolved)
         log_audit(db, current_user.user_id, current_user.role, "SCAN_RESOLVED",
                   batch_id=batch.batch_id, sheet_id=batch.sheet_id,
@@ -291,12 +314,7 @@ def get_pending_scan(
     (from their phone) and immediately clears it so it only fires once.
     Returns null when nothing is pending.
     """
-    store = _load_pending()
-    key = str(current_user.user_id)
-    payload = store.pop(key, None)
-    if payload is not None:
-        _save_pending(store)
-    return payload  # None → frontend gets null
+    return _pop_pending(current_user.user_id)  # None → frontend gets null
 
 
 def _parse_gs1(raw: str) -> dict:

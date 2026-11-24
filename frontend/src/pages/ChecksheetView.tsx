@@ -24,6 +24,7 @@ interface ChecksheetViewProps {
   currentUser: User;
   onBatchUpdated?: () => void;
   onEditTemplate?: (sheetId: string) => void;
+  onBack?: () => void;
 }
 
 const HOLD_REASONS = [
@@ -47,6 +48,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
   currentUser,
   onBatchUpdated,
   onEditTemplate,
+  onBack,
 }) => {
   const [batch, setBatch] = useState<InspectionBatch | null>(null);
   const batchRef = React.useRef<InspectionBatch | null>(null);
@@ -80,6 +82,10 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
   const [isAssignMode, setIsAssignMode] = useState<boolean>(false);
   const [savingRoles, setSavingRoles] = useState<Set<number>>(new Set());
   const [localRoles, setLocalRoles] = useState<Record<number, 'operator' | 'supervisor'>>({});
+
+  // Supervisor sample inspection
+  const [supSamplePieces, setSupSamplePieces] = useState<Set<number>>(new Set());
+  const [supSampleInput, setSupSampleInput] = useState<string>('');
 
   useEffect(() => {
     loadBatch();
@@ -127,7 +133,9 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
     try {
       setIsLoading(true);
       setErrorMsg(null);
-      setCellsMap({});  // clear stale cells before fetch so previous batch's data never flashes
+      // M-7: do NOT clear cellsMap before the fetch — a live onCellUpdated event
+      // that fires during the fetch window would otherwise be lost. We overwrite
+      // atomically after the fetch succeeds.
 
       let bData: InspectionBatch;
       try {
@@ -145,6 +153,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
       setBatch(bData);
       batchRef.current = bData;
 
+      // Build the map from server data, then merge offline mutations on top
       const map: Record<string, CellResponse> = {};
       if (bData.cell_responses) {
         bData.cell_responses.forEach((c) => {
@@ -157,7 +166,23 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
         map[`${c.item_id}_${c.column_key}`] = c;
       });
 
-      setCellsMap(map);
+      // Merge: keep any live-updated cells that arrived while the fetch was in flight
+      setCellsMap(prev => ({ ...map, ...prev }));
+
+      // L-3: Pre-populate supervisor sample only from OPERATOR-assigned cells
+      const operatorItemIds = new Set(
+        (bData.template?.control_items || [])
+          .filter(i => i.assigned_role === 'operator' || (i.assigned_role !== 'supervisor' && i.row_mode !== 'NUMERIC_SAMPLE'))
+          .map(i => i.item_id)
+      );
+      const flagged = new Set<number>();
+      (bData.cell_responses || []).forEach(cell => {
+        const p = parseInt(cell.column_key);
+        if (!isNaN(p) && p >= 1 && cell.cell_value === 'Fail' && operatorItemIds.has(cell.item_id)) {
+          flagged.add(p);
+        }
+      });
+      if (flagged.size > 0) setSupSamplePieces(flagged);
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to load checksheet details.');
     } finally {
@@ -275,11 +300,30 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
       if (currentUser.role === 'operator' && !isOpItem) return;
       if (currentUser.role === 'supervisor' && !isSupItem) return;
 
-      const sampleCols = Array.isArray(item.sample_columns) ? item.sample_columns : ['val'];
+      // H-3: mirror backend column-key logic — OperatorItemView saves per piece number,
+      // not per sample_columns[0], for items without explicit sample_columns.
+      const explicitCols = Array.isArray(item.sample_columns) && item.sample_columns.length > 0
+        ? item.sample_columns
+        : [];
+
+      let colsToCheck: string[];
+      if (item.row_mode === 'SERIAL_TICKBOX') {
+        // SERIAL_TICKBOX: each piece is a column
+        const qty = batch?.lot_quantity;
+        colsToCheck = qty && qty > 0
+          ? Array.from({ length: qty }, (_, i) => String(i + 1))
+          : explicitCols.length > 0 ? explicitCols : ['1'];
+      } else if (explicitCols.length > 0) {
+        colsToCheck = [explicitCols[0]];
+      } else {
+        // pf / checkbox items with no explicit sample_columns: OperatorItemView saves
+        // one entry per piece, so validate piece 1 as a proxy (backend validates all pieces)
+        const qty = batch?.lot_quantity;
+        colsToCheck = qty && qty > 0 ? ['1'] : ['val'];
+      }
 
       if (item.row_mode === 'SERIAL_TICKBOX') {
-        // All 100 items must have Pass or Fail before operator can submit
-        const emptyCols = sampleCols.filter((col) => {
+        const emptyCols = colsToCheck.filter((col) => {
           const cell = cellsMap[`${item.item_id}_${col}`];
           return !cell || cell.cell_value === null || cell.cell_value === undefined || cell.cell_value === '';
         });
@@ -290,7 +334,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
           );
         }
       } else {
-        const col = sampleCols[0];
+        const col = colsToCheck[0];
         const key = `${item.item_id}_${col}`;
         const cell = cellsMap[key];
         if (!cell || cell.cell_value === null || cell.cell_value === undefined || cell.cell_value === '') {
@@ -368,18 +412,26 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
           (role === 'supervisor' && isSupItem && isSupervisorTurn);
         if (!isEditable) continue;
 
-        const sampleCols = Array.isArray(item.sample_columns) && item.sample_columns.length > 0
+        const explicitSampleCols = Array.isArray(item.sample_columns) && item.sample_columns.length > 0
           ? item.sample_columns
-          : ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'];
+          : [];
+
+        // M-2: generate piece-number columns for pf/checkbox items that have no explicit
+        // sample_columns — OperatorItemView saves per piece number, not "val"
+        const pieceCols = batch.lot_quantity && batch.lot_quantity > 0
+          ? Array.from({ length: batch.lot_quantity }, (_, i) => String(i + 1))
+          : ['1'];
 
         let colsToPass: string[] = [];
         if (item.row_mode === 'SERIAL_TICKBOX') {
-          colsToPass = sampleCols;
+          colsToPass = explicitSampleCols.length > 0 ? explicitSampleCols : pieceCols;
         } else if (item.html_input_type === 'pf' || item.html_input_type === 'checkbox') {
-          colsToPass = [sampleCols[0]];
+          // M-2: use piece columns (not "val") to match what OperatorItemView saves
+          colsToPass = explicitSampleCols.length > 0 ? [explicitSampleCols[0]] : [pieceCols[0]];
         } else if (item.row_mode === 'NUMERIC_SAMPLE') {
-          // Tick all verification checkboxes (the ${col}c keys) — doesn't touch number values
-          colsToPass = sampleCols.map(c => `${c}c`);
+          // Tick verification checkboxes only — don't overwrite number inputs
+          const baseCols = explicitSampleCols.length > 0 ? explicitSampleCols : pieceCols.slice(0, 10);
+          colsToPass = baseCols.map(c => `${c}c`);
         }
 
         for (const col of colsToPass) {
@@ -633,8 +685,61 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
   const opRejectedList = batch.operator_rejected_fields || [];
   const pendingRejectionsCount = opRejectedList.filter((f) => !supRevs[String(f)]).length;
 
+  // Operator-flagged pieces (numeric column_key with Fail value)
+  const operatorFlaggedPieces = useMemo(() => {
+    const s = new Set<number>();
+    Object.entries(cellsMap).forEach(([key, cell]) => {
+      const col = key.split('_').pop() || '';
+      const p = parseInt(col);
+      if (!isNaN(p) && p >= 1 && cell.cell_value === 'Fail') s.add(p);
+    });
+    return s;
+  }, [cellsMap]);
+
+  const toggleSupPiece = (p: number) => {
+    setSupSamplePieces(prev => {
+      const next = new Set(prev);
+      if (next.has(p)) next.delete(p); else next.add(p);
+      return next;
+    });
+  };
+
+  const handleSetSample = () => {
+    const n = parseInt(supSampleInput);
+    if (isNaN(n) || n < 1) return;
+    const lotQtyVal = batch.lot_quantity || 0;
+    const size = Math.min(n, lotQtyVal);
+    // Start with flagged pieces, fill rest with sequential pieces
+    const result = new Set<number>(operatorFlaggedPieces);
+    for (let i = 1; i <= lotQtyVal && result.size < size; i++) {
+      result.add(i);
+    }
+    setSupSamplePieces(result);
+    setSupSampleInput('');
+  };
+
+  // Whether the template has any supervisor-specific measurement rows
+  const hasSupervisorRows = template.control_items.some(
+    i => i.assigned_role === 'supervisor' || i.row_mode === 'NUMERIC_SAMPLE'
+  );
+
   return (
     <div className="space-y-4 text-xs pb-12">
+      {/* Back button — shown when onBack prop is provided */}
+      {onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors mb-1"
+          style={{ background: 'var(--surface2)', color: 'var(--muted)', border: '1px solid var(--line)' }}
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          </svg>
+          Back
+        </button>
+      )}
+
       {/* Globally locked — APPROVED or REJECTED */}
       {isReadOnly && (
         <div className="px-5 py-3 rounded-lg flex items-center justify-between text-xs font-bold tracking-widest uppercase mb-2"
@@ -663,7 +768,99 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
         <div className="px-4 py-3 rounded-lg flex items-center gap-2.5 text-xs font-semibold"
           style={{ background: 'var(--accent-soft)', border: '1px solid var(--accent)', color: 'var(--accent)' }}>
           <ShieldCheck className="w-4 h-4 shrink-0" style={{ color: 'var(--accent)' }} />
-          <span>Operator data is locked. Fill in supervisor checkpoint fields below, then approve, reject, or hold.</span>
+          <span>Operator data is locked. Review the sample below, then approve, reject, or hold.</span>
+        </div>
+      )}
+
+      {/* Supervisor Sample Inspector Panel */}
+      {currentUser.role === 'supervisor' && isSupervisorTurn && batch.lot_quantity && batch.lot_quantity > 1 && (
+        <div className="p-4 rounded-xl" style={{ background: 'var(--surface)', border: '1px solid var(--line2)' }}>
+          <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+            <div>
+              <h3 className="font-semibold text-sm" style={{ color: 'var(--ink)' }}>
+                Sample Inspection
+                {supSamplePieces.size > 0 && (
+                  <span className="ml-2 px-2 py-0.5 rounded-full text-[11px] font-bold"
+                    style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}>
+                    {supSamplePieces.size} piece{supSamplePieces.size !== 1 ? 's' : ''} selected
+                  </span>
+                )}
+              </h3>
+              <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
+                Operator inspected {batch.lot_quantity} pieces.{' '}
+                {operatorFlaggedPieces.size > 0
+                  ? <><span className="font-semibold" style={{ color: 'var(--ng)' }}>{operatorFlaggedPieces.size} flagged defective</span> (shown in red).</>
+                  : 'No pieces flagged defective.'}
+                {' '}Select the pieces you will physically verify.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-xs" style={{ color: 'var(--muted)' }}>Set sample size:</span>
+              <input
+                type="number"
+                min="1"
+                max={batch.lot_quantity}
+                value={supSampleInput}
+                onChange={e => setSupSampleInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleSetSample(); }}
+                placeholder={String(Math.max(operatorFlaggedPieces.size, 5))}
+                className="w-16 h-8 px-2 text-xs rounded-lg text-center focus:outline-none"
+                style={{ border: '1px solid var(--line2)', background: 'var(--surface)', color: 'var(--ink)' }}
+              />
+              <button
+                type="button"
+                onClick={handleSetSample}
+                className="px-3 h-8 rounded-lg text-xs font-semibold transition-colors"
+                style={{ background: 'var(--primary)', color: '#fff' }}
+              >
+                Apply
+              </button>
+              {supSamplePieces.size > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSupSamplePieces(new Set())}
+                  className="px-3 h-8 rounded-lg text-xs font-semibold transition-colors"
+                  style={{ background: 'var(--surface2)', color: 'var(--muted)', border: '1px solid var(--line)' }}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Piece chips grid */}
+          <div className="flex flex-wrap gap-1.5">
+            {Array.from({ length: batch.lot_quantity }, (_, i) => i + 1).map(p => {
+              const inSample = supSamplePieces.has(p);
+              const isFlagged = operatorFlaggedPieces.has(p);
+              return (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => toggleSupPiece(p)}
+                  title={`Piece ${p}${isFlagged ? ' — flagged defective by operator' : ''}`}
+                  className="w-8 h-8 rounded-lg text-xs font-bold transition-all"
+                  style={
+                    inSample && isFlagged
+                      ? { background: 'var(--ng)', color: '#fff', border: '2px solid var(--ng)' }
+                      : inSample
+                      ? { background: 'var(--primary)', color: '#fff', border: '2px solid var(--primary)' }
+                      : isFlagged
+                      ? { background: 'var(--ng-bg)', color: 'var(--ng)', border: '1.5px solid var(--ng)' }
+                      : { background: 'var(--surface2)', color: 'var(--muted)', border: '1px solid var(--line)' }
+                  }
+                >
+                  {p}
+                </button>
+              );
+            })}
+          </div>
+
+          {supSamplePieces.size > 0 && (
+            <p className="text-[11px] mt-2" style={{ color: 'var(--muted)' }}>
+              Click a piece chip to add/remove from your sample. Blue = your sample · Red = operator flagged.
+            </p>
+          )}
         </div>
       )}
 
@@ -723,7 +920,7 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                 <span style={{ color: 'var(--line2)' }}>|</span>
                 <span>{batch.line_name || 'Line 1'}</span>
                 <span style={{ color: 'var(--line2)' }}>|</span>
-                <span>Qty {batch.lot_quantity || 100} pcs</span>
+                <span>Qty {batch.lot_quantity ?? '—'} pcs</span>
                 {batch.round > 1 && (
                   <>
                     <span style={{ color: 'var(--line2)' }}>|</span>
@@ -985,7 +1182,18 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
               </tr>
             </thead>
             <tbody>
-              {template.control_items.map((item, idx) => {
+              {template.control_items.filter((item) => {
+                // For supervisor in their turn: if the template has supervisor-specific
+                // measurement rows, hide the operator's visual-check rows so the supervisor
+                // focuses on entering numeric measurements. If NO supervisor rows exist in
+                // the template, show everything so the supervisor can still review and decide.
+                if (currentUser.role === 'supervisor' && isSupervisorTurn && hasSupervisorRows) {
+                  if (item.assigned_role === 'supervisor' || item.row_mode === 'NUMERIC_SAMPLE') return true;
+                  if (item.html_input_type === 'pf' || item.html_input_type === 'checkbox' || item.row_mode === 'SERIAL_TICKBOX') return false;
+                  return true;
+                }
+                return true;
+              }).map((item, idx) => {
                 const isOpRole = currentUser.role === 'operator';
                 const isSupRole = currentUser.role === 'supervisor';
                 // Which role owns this row — strict assignment, no crossover

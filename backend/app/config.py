@@ -15,7 +15,12 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 # Read individual parameters or direct connection string
 DB_TYPE = os.getenv("DB_TYPE", "sqlite").lower()
 DB_USER = os.getenv("DB_USER", "postgres")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "postgres")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+if DB_PASSWORD is None and (os.getenv("DB_TYPE", "sqlite").lower() in ("postgresql", "postgres") or os.getenv("DATABASE_URL")):
+    raise RuntimeError(
+        "DB_PASSWORD environment variable is not set. "
+        "Add it to your .env file."
+    )
 DB_HOST = os.getenv("DB_HOST", "localhost")
 DB_PORT = os.getenv("DB_PORT", "5432")
 DB_NAME = os.getenv("DB_NAME", "taa_inspection")
@@ -41,4 +46,4 @@ if ALGORITHM not in _ALLOWED_ALGORITHMS:
     raise RuntimeError(
         f"ALGORITHM '{ALGORITHM}' is not allowed. Use one of: {', '.join(sorted(_ALLOWED_ALGORITHMS))}"
     )
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60 * 24))
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60 * 8))  # 8 h = one shift

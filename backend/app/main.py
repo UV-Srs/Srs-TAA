@@ -14,7 +14,6 @@ from backend.app.seed_data import seed_database
 from backend.app.live_sync import live_manager
 
 from backend.app.auth import get_current_user
-from backend.app.database import SessionLocal
 
 from backend.app.routes import (
     auth_routes,
@@ -57,11 +56,10 @@ def init_db():
     finally:
         db.close()
 
-# Initialize DB synchronously on import
-init_db()
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Initialize DB on startup (not at import time so unit tests can import safely)
+    init_db()
     # Set running event loop for live WebSocket broadcasts
     loop = asyncio.get_running_loop()
     live_manager.set_event_loop(loop)
@@ -69,7 +67,7 @@ async def lifespan(app: FastAPI):
 
 # Initialize FastAPI application
 app = FastAPI(
-    title="TAA – Inspection Management System",
+    title="Smart Scan – Inspection Management System",
     description="IFM Checksheet & Batch Quality Platform (Version 2.0)",
     version="2.0.0",
     lifespan=lifespan
@@ -89,23 +87,47 @@ app.add_middleware(
 # WebSocket Endpoint for Live Real-Time Collaboration
 @app.websocket("/ws/live")
 async def websocket_live_endpoint(websocket: WebSocket, token: str = ""):
-    # Authenticate before accepting the connection
-    if not token:
+    """
+    Auth strategy: token may arrive via query param (legacy) OR as the first
+    message payload {"type":"auth","token":"..."} (preferred — keeps JWT out of
+    server logs and browser history). Both paths are accepted so the client can
+    migrate incrementally; query-param support can be dropped once liveSync.ts
+    is updated to send the auth message.
+    """
+    await websocket.accept()
+
+    auth_token = token  # may be empty if client uses first-message auth
+
+    if not auth_token:
+        # Wait up to 5 seconds for the client to send {"type":"auth","token":"..."}
+        try:
+            first = await asyncio.wait_for(websocket.receive_text(), timeout=5.0)
+            import json as _json
+            msg = _json.loads(first)
+            if msg.get("type") == "auth":
+                auth_token = msg.get("token", "")
+            elif first == "ping":
+                auth_token = ""  # fall through to reject below
+        except Exception:
+            await websocket.close(code=4001)
+            return
+
+    if not auth_token:
         await websocket.close(code=4001)
         return
+
     db = SessionLocal()
     try:
-        get_current_user(token=token, db=db)
+        get_current_user(token=auth_token, db=db)
     except Exception:
         await websocket.close(code=4001)
         db.close()
         return
     db.close()
 
-    await live_manager.connect(websocket)
+    await live_manager.connect(websocket, already_accepted=True)
     try:
         while True:
-            # Keepalive receiver
             data = await websocket.receive_text()
             if data == "ping":
                 await websocket.send_text('{"type":"pong"}')
@@ -131,7 +153,7 @@ app.include_router(notification_routes.router)
 def health_check():
     return {
         "status": "healthy",
-        "service": "TAA Inspection Management System",
+        "service": "Smart Scan – Inspection Management System",
         "version": "2.0.0",
         "theme": "High-Contrast Monochrome"
     }
@@ -150,7 +172,7 @@ def serve_frontend(full_path: str):
     if index_file.exists():
         return FileResponse(index_file)
     return {
-        "app": "TAA – Inspection Management System",
+        "app": "Smart Scan – Inspection Management System",
         "version": "2.0.0",
         "docs": "/docs"
     }

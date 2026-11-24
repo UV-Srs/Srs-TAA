@@ -138,7 +138,7 @@ export const MobileScannerPage: React.FC<MobileScannerPageProps> = ({ currentUse
         </button>
 
         <p className="text-xs text-slate-500 text-center max-w-xs leading-relaxed">
-          Scan the <span className="text-slate-300 font-semibold">TAA QR code</span> or <span className="text-slate-300 font-semibold">lot barcode</span> from the printed inspection label — not the vendor barcode on the box
+          Scan the <span className="text-slate-300 font-semibold">Smart Scan QR code</span> or <span className="text-slate-300 font-semibold">lot barcode</span> from the printed inspection label — not the vendor barcode on the box
         </p>
       </div>
 
@@ -190,7 +190,7 @@ export const MobileScannerPage: React.FC<MobileScannerPageProps> = ({ currentUse
                 status: 'not_found',
                 message: currentUser.role === 'admin'
                   ? 'Not registered — laptop will prompt to create a new sheet'
-                  : 'Not registered. Scan the TAA QR code or lot barcode from the printed inspection label.',
+                  : 'Not registered. Scan the Smart Scan QR code or lot barcode from the printed inspection label.',
                 time: new Date().toLocaleTimeString(),
               };
               setLastResult(entry);

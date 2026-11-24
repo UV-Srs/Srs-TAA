@@ -14,8 +14,9 @@ class LiveConnectionManager:
     def set_event_loop(self, loop: asyncio.AbstractEventLoop):
         self._loop = loop
 
-    async def connect(self, websocket: WebSocket):
-        await websocket.accept()
+    async def connect(self, websocket: WebSocket, already_accepted: bool = False):
+        if not already_accepted:
+            await websocket.accept()
         self.active_connections.append(websocket)
         logger.info(f"[LiveSync] Client connected. Total active: {len(self.active_connections)}")
 

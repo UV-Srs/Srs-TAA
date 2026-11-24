@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { loginUser } from '../api';
 import { User } from '../types';
 import { LogIn, Key, UserCheck, AlertCircle } from 'lucide-react';
+import { SRSLogo } from '../components/SRSLogo';
 
 interface LoginPageProps {
   onLoginSuccess: (user: User) => void;
@@ -48,15 +49,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
       >
         {/* Brand */}
         <div className="text-center space-y-3">
-          <div
-            className="w-11 h-11 text-white font-black text-base flex items-center justify-center mx-auto tracking-tight select-none"
-            style={{ background: 'var(--primary)', borderRadius: 12 }}
-          >
-            TAA
+          <div className="flex justify-center">
+            <SRSLogo size={44} />
           </div>
           <div>
             <h1 className="text-[22px] font-semibold leading-tight" style={{ color: 'var(--ink)' }}>
-              TAA Inspection System
+              Smart Scan
             </h1>
             <p className="text-[14px] mt-1" style={{ color: 'var(--muted)' }}>
               Sign in with your role account
@@ -84,7 +82,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                 }}
                 onFocus={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.boxShadow = '0 0 0 3px var(--accent-soft)'; }}
                 onBlur={e => { e.currentTarget.style.borderColor = 'var(--line2)'; e.currentTarget.style.boxShadow = 'none'; }}
-                placeholder="e.g. operator, supervisor, admin"
+                placeholder="Username"
               />
               <UserCheck className="w-4 h-4 absolute right-3 top-3 pointer-events-none" style={{ color: 'var(--muted)' }} />
             </div>
@@ -143,7 +141,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           className="pt-3 text-center text-[12px]"
           style={{ color: 'var(--muted)', borderTop: '1px solid var(--line)' }}
         >
-          Powered by SRS Consulting
+          <span className="inline-flex items-center gap-1.5">
+            Powered by <SRSLogo size={16} />
+          </span>
         </div>
       </div>
     </div>

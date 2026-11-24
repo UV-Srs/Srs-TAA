@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, InspectionBatch } from './types';
-import { getCurrentStoredUser, logoutUser, fetchBatches, fetchProgressDashboard, openBatchWorkflow, fetchPendingScan, onAuthError } from './api';
+import { getCurrentStoredUser, logoutUser, fetchBatches, fetchProgressDashboard, openBatchWorkflow, fetchPendingScan, onAuthError, resolveQR } from './api';
 import { onBatchCreated, onBatchUpdated, onSheetUpdated, onScanResolved, onScanNotFound, liveSync } from './liveSync';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
@@ -8,13 +8,20 @@ import { UniversalScanBar } from './components/UniversalScanBar';
 import { BatchSidebar } from './components/BatchSidebar';
 import { LoginPage } from './pages/LoginPage';
 import { ChecksheetView } from './pages/ChecksheetView';
+import { OperatorItemView } from './pages/OperatorItemView';
+import { OperatorLandingView } from './pages/OperatorLandingView';
 import { AdminDashboard } from './pages/AdminDashboard';
+import { AdminLotsPage } from './pages/AdminLotsPage';
+import { AdminLotDetail } from './pages/AdminLotDetail';
 import { AdminSheetBuilder } from './pages/AdminSheetBuilder';
 import { AdminUserManagement } from './pages/AdminUserManagement';
 import { AuditLogsView } from './pages/AuditLogsView';
 import { MobileScannerPage } from './pages/MobileScannerPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { SupervisorDashboard } from './pages/SupervisorDashboard';
+import { SupervisorLandingView } from './pages/SupervisorLandingView';
+import { SupervisorLotsPage } from './pages/SupervisorLotsPage';
+import { SupervisorLotItem } from './types/supervisorData';
 import { CreateBatchModal } from './components/CreateBatchModal';
 import { PanelLeft } from 'lucide-react';
 
@@ -24,7 +31,13 @@ const isMobileDevice = () =>
 
 export const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(getCurrentStoredUser());
-  const [activeTab, setActiveTab] = useState<string>('sheet');
+  const [activeTab, setActiveTab] = useState<string>(
+    getCurrentStoredUser()?.role === 'admin'
+      ? 'lots'
+      : getCurrentStoredUser()?.role === 'supervisor'
+      ? 'sup-dashboard'
+      : 'sheet'
+  );
   const [currentBatchId, setCurrentBatchId] = useState<number | null>(null);
   const [batches, setBatches] = useState<InspectionBatch[]>([]);
   const [progressSummary, setProgressSummary] = useState<any>(null);
@@ -34,11 +47,37 @@ export const App: React.FC = () => {
   const [createBatchSheetId, setCreateBatchSheetId] = useState<string>('');
   const [createBatchLinkBarcode, setCreateBatchLinkBarcode] = useState<string>('');
   const [builderSheetId, setBuilderSheetId] = useState<string | null>(null);
+  const [adminLotDetailId, setAdminLotDetailId] = useState<number | null>(null);
+
+  // Supervisor state — populated from real batches in loadBatches()
+  const [supervisorLots, setSupervisorLots] = useState<SupervisorLotItem[]>([]);
+  const [supervisorPreFilter, setSupervisorPreFilter] = useState<'all' | 'onhold' | 'reopened' | 'oos'>('all');
+  const [supervisorBannerMsg, setSupervisorBannerMsg] = useState<string | null>(null);
+
+  const waitingLotsCount = React.useMemo(() => {
+    if (currentUser?.role !== 'supervisor') return 0;
+    return batches.filter(b =>
+      ['OPERATOR_APPROVED', 'SUPERVISOR_IN_PROGRESS', 'ON_HOLD'].includes(b.status)
+    ).length;
+  }, [batches, currentUser]);
 
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState<boolean>(false);
+  const [desktopSidebarOpen, setDesktopSidebarOpen] = useState<boolean>(() => {
+    return currentUser?.role !== 'supervisor';
+  });
+
+  useEffect(() => {
+    if (currentUser?.role === 'supervisor') {
+      setDesktopSidebarOpen(false);
+    } else {
+      setDesktopSidebarOpen(true);
+    }
+  }, [currentUser]);
+
   const [batchPanelOpen, setBatchPanelOpen] = useState<boolean>(true);
   const currentBatchIdRef = useRef<number | null>(currentBatchId);
   useEffect(() => { currentBatchIdRef.current = currentBatchId; }, [currentBatchId]);
+  const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const handleOpenCreateBatch = (code = '', sheetId = '', linkBarcode = '') => {
     setCreateBatchCode(code);
@@ -54,8 +93,13 @@ export const App: React.FC = () => {
   };
 
   // Global 401 handler — log out automatically when token expires or is revoked
+  // M-9: also clear the polling interval immediately to avoid a spurious extra request
   useEffect(() => {
     return onAuthError(() => {
+      if (pollingIntervalRef.current !== null) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
       setCurrentUser(null);
     });
   }, []);
@@ -69,10 +113,12 @@ export const App: React.FC = () => {
 
     const unsub4 = onScanResolved(async (data) => {
       if (!currentUser) return;
+      // Only process scan events that belong to this user
       if (data.user_id !== currentUser.user_id) return;
       try { await openBatchWorkflow(data.batch_id); } catch { /* already open */ }
       setCurrentBatchId(data.batch_id);
       setActiveTab('sheet');
+      setPendingScan(null);
       loadBatches();
     });
 
@@ -88,21 +134,41 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     if (!currentUser || isMobileDevice()) return;
-    const interval = setInterval(async () => {
+    // M-9: store interval in ref so the 401 handler can cancel it immediately
+    pollingIntervalRef.current = setInterval(async () => {
       try {
         const scan = await fetchPendingScan();
         if (!scan) return;
         if (scan.type === 'SCAN_RESOLVED') {
-          setPendingScan(scan);
+          if (currentUser.role === 'operator' || currentUser.role === 'supervisor') {
+            try { await openBatchWorkflow(scan.batch_id); } catch { /* already open */ }
+            setCurrentBatchId(scan.batch_id);
+            setActiveTab('sheet');
+            setPendingScan(null);
+            loadBatches();
+          } else if (currentUser.role === 'admin') {
+            if (scan.batch_id === currentBatchIdRef.current) {
+              setPendingScan(null);
+            } else {
+              setPendingScan(scan);
+            }
+          }
         } else if (scan.type === 'SCAN_NOT_FOUND' && currentUser.role === 'admin') {
           handleOpenCreateBatch(scan.raw_code, '', scan.raw_code);
         }
-      } catch { /* silently ignore */ }
+      } catch (err) { console.warn('Polling error:', err); }
     }, 2000);
-    return () => clearInterval(interval);
+    return () => {
+      if (pollingIntervalRef.current !== null) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    };
   }, [currentUser]);
 
   const loadBatches = async () => {
+    // H-2: abort if user has logged out between event dispatch and this callback
+    if (!currentUser) return;
     try {
       const bList = await fetchBatches();
       setBatches(bList);
@@ -114,6 +180,35 @@ export const App: React.FC = () => {
         const prog = await fetchProgressDashboard();
         setProgressSummary(prog?.summary || null);
       }
+      // Populate supervisor lots view from real batches
+      if (currentUser?.role === 'supervisor') {
+        const supervisorStatuses = ['OPERATOR_APPROVED', 'SUPERVISOR_IN_PROGRESS', 'ON_HOLD', 'APPROVED', 'REJECTED'];
+        const statusToSup: Record<string, 'With supervisor' | 'On hold' | 'Completed'> = {
+          'OPERATOR_APPROVED': 'With supervisor',
+          'SUPERVISOR_IN_PROGRESS': 'With supervisor',
+          'ON_HOLD': 'On hold',
+          'APPROVED': 'Completed',
+          'REJECTED': 'Completed',
+        };
+        const lots: SupervisorLotItem[] = bList
+          .filter(b => supervisorStatuses.includes(b.status))
+          .map(b => ({
+            batch_id: b.batch_id,
+            lot_barcode: b.lot_number,
+            lot_name: b.template?.part_name || b.lot_number,
+            operator_name: b.prepared_user_name || '—',
+            items_qty: b.lot_quantity || 0,
+            bad_count: 0,
+            bad_item_numbers: [],
+            status: statusToSup[b.status] || 'With supervisor',
+            is_new: b.status === 'OPERATOR_APPROVED',
+            submitted_at: b.operator_submitted_at || b.created_at || new Date().toISOString(),
+            operator_clearance: '—',
+            visual_decisions: {},
+            dimension_readings: {},
+          }));
+        setSupervisorLots(lots);
+      }
     } catch (err) {
       console.warn('Failed to load batch list:', err);
     }
@@ -124,19 +219,64 @@ export const App: React.FC = () => {
     setCurrentUser(null);
   };
 
-  const handleSelectBatchByCode = (batchCode: string) => {
-    const found = batches.find(b => b.lot_number === batchCode || b.lot_number === `TAA-${batchCode}`);
+  const handleSelectBatchByCode = async (batchCode: string) => {
+    const clean = (batchCode || '').trim();
+    if (!clean) return;
+
+    // 1. Check loaded batches
+    const found = batches.find(b =>
+      b.lot_number === clean ||
+      b.lot_number === `TAA-${clean}` ||
+      b.lot_number.toLowerCase() === clean.toLowerCase()
+    );
     if (found) {
+      // M-1: call openBatchWorkflow so status transitions and audit log are written
+      try { await openBatchWorkflow(found.batch_id); } catch { /* already open */ }
       setCurrentBatchId(found.batch_id);
       setActiveTab('sheet');
+      loadBatches();
+      return;
     }
+
+    // 2. Try resolving via QR / Barcode API
+    try {
+      const res = await resolveQR(clean);
+      if (res && res.batch_id) {
+        try { await openBatchWorkflow(res.batch_id); } catch { /* already open */ }
+        setCurrentBatchId(res.batch_id);
+        setActiveTab('sheet');
+        loadBatches();
+        return;
+      }
+    } catch {
+      // not in DB
+    }
+
+    // Barcode not found in the system
+    console.warn('Barcode not found:', clean);
+  };
+
+  const handleTabChange = (tab: string) => {
+    if (tab === 'lots') {
+      setAdminLotDetailId(null);
+    }
+    if (tab === 'sup-lots') {
+      setSupervisorPreFilter('all');
+      setSupervisorBannerMsg(null);
+    }
+    setActiveTab(tab);
   };
 
   if (!currentUser) return <LoginPage onLoginSuccess={u => {
-  setActiveTab(u.role === 'supervisor' ? 'sup-dashboard' : 'sheet');
-  setCurrentUser(u);
-  liveSync.reconnect();
-}} />;
+    // H-1: clear all previous-session state so a re-login starts fresh
+    setCurrentBatchId(null);
+    setBatches([]);
+    setProgressSummary(null);
+    setSupervisorLots([]);
+    setActiveTab(u.role === 'admin' ? 'lots' : u.role === 'supervisor' ? 'sup-dashboard' : 'sheet');
+    setCurrentUser(u);
+    liveSync.reconnect();
+  }} />;
 
   if (isMobileDevice()) {
     return <MobileScannerPage currentUser={currentUser} onLogout={() => setCurrentUser(null)} />;
@@ -144,15 +284,20 @@ export const App: React.FC = () => {
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
-      {/* ── Left nav sidebar ──────────────────────────────────────── */}
-      <Sidebar
-        user={currentUser}
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        onLogout={handleLogout}
-        mobileOpen={mobileSidebarOpen}
-        onCloseMobile={() => setMobileSidebarOpen(false)}
-      />
+      {/* ── Left nav sidebar (Admin & Supervisor) ────────────────── */}
+      {currentUser.role !== 'operator' && (
+        <Sidebar
+          user={currentUser}
+          activeTab={activeTab}
+          setActiveTab={handleTabChange}
+          onLogout={handleLogout}
+          mobileOpen={mobileSidebarOpen}
+          onCloseMobile={() => setMobileSidebarOpen(false)}
+          waitingLotsCount={currentUser.role === 'supervisor' ? waitingLotsCount : undefined}
+          desktopOpen={desktopSidebarOpen}
+          onToggleDesktop={() => setDesktopSidebarOpen((prev) => !prev)}
+        />
+      )}
 
       {/* ── Right column: topbar + content ────────────────────────── */}
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
@@ -161,125 +306,150 @@ export const App: React.FC = () => {
         <Header
           user={currentUser}
           activeTab={activeTab}
-          setActiveTab={setActiveTab}
+          setActiveTab={handleTabChange}
           onSelectBatchByCode={handleSelectBatchByCode}
-          onToggleSidebar={() => setMobileSidebarOpen(o => !o)}
+          onToggleSidebar={() => {
+            if (window.innerWidth >= 1024) {
+              setDesktopSidebarOpen((prev) => !prev);
+            } else {
+              setMobileSidebarOpen((prev) => !prev);
+            }
+          }}
+          onLogout={handleLogout}
+          desktopSidebarOpen={desktopSidebarOpen}
         />
 
         {/* ── Scrollable main content ──────────────────────────────── */}
-        <main className="flex-1 overflow-auto">
+        <main
+          className="flex-1 overflow-auto"
+        >
 
-          {/* Inspection tab: scan bar + 2-column layout (batch queue | checksheet) */}
+          {/* Inspection tab */}
           {activeTab === 'sheet' && (
-            <div className="flex flex-col h-full">
-              {/* Scan bar — only on inspection tab */}
-              <div className="px-3 py-2 shrink-0 flex items-center gap-2" style={{ background: 'var(--surface)', borderBottom: '1px solid var(--line)' }}>
-                <button
-                  type="button"
-                  onClick={() => setBatchPanelOpen(o => !o)}
-                  className="p-2 rounded-lg shrink-0 transition-colors"
-                  style={{
-                    color: batchPanelOpen ? 'var(--primary)' : 'var(--muted)',
-                    background: batchPanelOpen ? 'var(--accent-soft)' : 'var(--surface2)',
-                    border: '1px solid var(--line)',
-                  }}
-                  title={batchPanelOpen ? 'Hide batch queue' : 'Show batch queue'}
-                >
-                  <PanelLeft className="w-4 h-4" />
-                </button>
-                <div className="flex-1 min-w-0">
-                  <UniversalScanBar
-                    currentUser={currentUser}
-                    onBatchResolved={(bId) => {
-                      setCurrentBatchId(bId);
-                      setActiveTab('sheet');
-                      loadBatches();
-                    }}
-                    onTemplateResolved={(sheetId) => {
-                      if (currentUser.role === 'admin') handleOpenCreateBatch('', sheetId);
-                      else setActiveTab('builder');
-                    }}
-                    onRequestCreateBatch={handleOpenCreateBatch}
-                  />
-                </div>
-              </div>
-            <div className="flex flex-1 min-h-0">
-              {/* Batch queue panel — collapsible */}
-              <div
-                className={`batch-panel${batchPanelOpen ? ' open' : ' closed'}`}
-                style={{ background: 'var(--surface)', borderRight: batchPanelOpen ? '1px solid var(--line)' : 'none' }}
-              >
-                <BatchSidebar
-                  batches={batches}
-                  selectedBatchId={currentBatchId}
+            currentUser.role === 'operator' ? (
+              currentBatchId ? (
+                <OperatorItemView
+                  batchId={currentBatchId}
                   currentUser={currentUser}
-                  scanOnly={currentUser.role !== 'admin'}
-                  onSelectBatch={async (bId) => {
-                    if (currentUser.role !== 'admin') return; // must scan
+                  onBatchUpdated={loadBatches}
+                  onBack={() => setCurrentBatchId(null)}
+                />
+              ) : (
+                <OperatorLandingView
+                  currentUser={currentUser}
+                  batches={batches}
+                  onSelectBatch={(bId) => {
                     setCurrentBatchId(bId);
                   }}
-                  onBatchDeleted={(bId) => {
-                    if (currentBatchId === bId) setCurrentBatchId(null);
-                    loadBatches();
-                  }}
-                  onCreateBatch={() => handleOpenCreateBatch()}
-                  onSearch={async (query) => {
-                    try { setBatches(await fetchBatches(query || undefined)); } catch {}
-                  }}
-                  progressSummary={progressSummary}
+                  onScanBarcode={handleSelectBatchByCode}
                 />
-              </div>
-
-              {/* Checksheet panel */}
-              <div className="flex-1 min-w-0 overflow-y-auto p-4 md:p-6">
-                {currentBatchId ? (
+              )
+            ) : currentUser.role === 'supervisor' ? (
+              currentBatchId ? (
+                <div className="flex-1 min-w-0 overflow-y-auto p-4 md:p-6">
                   <ChecksheetView
                     batchId={currentBatchId}
                     currentUser={currentUser}
                     onBatchUpdated={loadBatches}
-                    onEditTemplate={currentUser.role === 'admin' ? (sheetId) => {
-                      setBuilderSheetId(sheetId);
-                      setActiveTab('builder');
-                    } : undefined}
+                    onBack={() => setCurrentBatchId(null)}
                   />
-                ) : currentUser.role !== 'admin' ? (
-                  <div className="flex flex-col items-center justify-center h-full min-h-80 gap-5 px-8">
-                    <div className="w-20 h-20 rounded-2xl flex items-center justify-center"
-                      style={{ background: 'var(--accent-soft)', border: '2px solid var(--accent)' }}>
-                      <svg className="w-10 h-10" style={{ color: 'var(--accent)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 6.75h.75v.75h-.75v-.75zM6.75 16.5h.75v.75h-.75v-.75zM16.5 6.75h.75v.75h-.75v-.75zM13.5 13.5h.75v.75h-.75v-.75zM13.5 18.75h.75v.75h-.75v-.75zM18.75 13.5h.75v.75h-.75v-.75zM18.75 18.75h.75v.75h-.75v-.75zM16.5 16.5h.75v.75h-.75v-.75z" />
-                      </svg>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-base font-semibold" style={{ color: 'var(--ink)' }}>Scan to open your sheet</p>
-                      <p className="text-sm mt-1.5 leading-relaxed" style={{ color: 'var(--muted)' }}>
-                        Point your scanner at the lot barcode or type the lot number in the scan bar above.
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium"
-                      style={{ background: 'var(--surface2)', border: '1px solid var(--line)', color: 'var(--muted)' }}>
-                      <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      {batches.length > 0
-                        ? `${batches.length} batch${batches.length > 1 ? 'es' : ''} assigned — scan any to begin`
-                        : 'No batches assigned yet — check back later'}
-                    </div>
+                </div>
+              ) : (
+                <SupervisorLandingView
+                  currentUser={currentUser}
+                  batches={batches}
+                  onSelectBatch={(bId) => {
+                    setCurrentBatchId(bId);
+                  }}
+                  onScanBarcode={handleSelectBatchByCode}
+                />
+              )
+            ) : (
+              <div className="flex flex-col h-full">
+                {/* Scan bar — only on inspection tab */}
+                <div className="px-3 py-2 shrink-0 flex items-center gap-2" style={{ background: 'var(--surface)', borderBottom: '1px solid var(--line)' }}>
+                  <button
+                    type="button"
+                    onClick={() => setBatchPanelOpen(o => !o)}
+                    className="p-2 rounded-lg shrink-0 transition-colors"
+                    style={{
+                      color: batchPanelOpen ? 'var(--primary)' : 'var(--muted)',
+                      background: batchPanelOpen ? 'var(--accent-soft)' : 'var(--surface2)',
+                      border: '1px solid var(--line)',
+                    }}
+                    title={batchPanelOpen ? 'Hide batch queue' : 'Show batch queue'}
+                  >
+                    <PanelLeft className="w-4 h-4" />
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <UniversalScanBar
+                      currentUser={currentUser}
+                      onBatchResolved={(bId) => {
+                        setCurrentBatchId(bId);
+                        setActiveTab('sheet');
+                        loadBatches();
+                      }}
+                      onTemplateResolved={(sheetId) => {
+                        if (currentUser.role === 'admin') handleOpenCreateBatch('', sheetId);
+                        else setActiveTab('builder');
+                      }}
+                      onRequestCreateBatch={handleOpenCreateBatch}
+                    />
                   </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center h-64 rounded-xl"
-                    style={{ border: '2px dashed var(--line2)', background: 'var(--surface)' }}>
-                    <svg className="w-10 h-10 mb-3" style={{ color: 'var(--line2)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                    </svg>
-                    <p className="text-sm font-medium" style={{ color: 'var(--muted)' }}>No batch selected</p>
-                    <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>Scan a barcode or pick a batch from the queue</p>
+                </div>
+                <div className="flex flex-1 min-h-0">
+                  {/* Batch queue panel — collapsible */}
+                  <div
+                    className={`batch-panel${batchPanelOpen ? ' open' : ' closed'}`}
+                    style={{ background: 'var(--surface)', borderRight: batchPanelOpen ? '1px solid var(--line)' : 'none' }}
+                  >
+                    <BatchSidebar
+                      batches={batches}
+                      selectedBatchId={currentBatchId}
+                      currentUser={currentUser}
+                      scanOnly={currentUser.role !== 'admin'}
+                      onSelectBatch={async (bId) => {
+                        if (currentUser.role !== 'admin') return; // must scan
+                        setCurrentBatchId(bId);
+                      }}
+                      onBatchDeleted={(bId) => {
+                        if (currentBatchId === bId) setCurrentBatchId(null);
+                        loadBatches();
+                      }}
+                      onCreateBatch={() => handleOpenCreateBatch()}
+                      onSearch={async (query) => {
+                        try { setBatches(await fetchBatches(query || undefined)); } catch {}
+                      }}
+                      progressSummary={progressSummary}
+                    />
                   </div>
-                )}
+
+                  {/* Checksheet panel */}
+                  <div className="flex-1 min-w-0 overflow-y-auto p-4 md:p-6">
+                    {currentBatchId ? (
+                      <ChecksheetView
+                        batchId={currentBatchId}
+                        currentUser={currentUser}
+                        onBatchUpdated={loadBatches}
+                        onEditTemplate={currentUser.role === 'admin' ? (sheetId) => {
+                          setBuilderSheetId(sheetId);
+                          setActiveTab('builder');
+                        } : undefined}
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center justify-center h-64 rounded-xl"
+                        style={{ border: '2px dashed var(--line2)', background: 'var(--surface)' }}>
+                        <svg className="w-10 h-10 mb-3" style={{ color: 'var(--line2)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                        </svg>
+                        <p className="text-sm font-medium" style={{ color: 'var(--muted)' }}>No batch selected</p>
+                        <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>Scan a barcode or pick a batch from the queue</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
-            </div>
+            )
           )}
 
           {activeTab === 'dashboard' && currentUser.role === 'admin' && (
@@ -305,6 +475,25 @@ export const App: React.FC = () => {
             </div>
           )}
 
+          {activeTab === 'lots' && currentUser.role === 'admin' && (
+            <div className="p-4 md:p-6">
+              {adminLotDetailId !== null ? (
+                <AdminLotDetail
+                  batchId={adminLotDetailId}
+                  onBack={() => setAdminLotDetailId(null)}
+                  onOpenLiveSheet={(bId) => {
+                    setCurrentBatchId(bId);
+                    setActiveTab('sheet');
+                  }}
+                />
+              ) : (
+                <AdminLotsPage
+                  onSelectLot={(id) => setAdminLotDetailId(id)}
+                />
+              )}
+            </div>
+          )}
+
           {activeTab === 'audit' && currentUser.role === 'admin' && (
             <div className="p-4 md:p-6">
               <AuditLogsView />
@@ -315,7 +504,31 @@ export const App: React.FC = () => {
             <div className="p-4 md:p-6">
               <SupervisorDashboard
                 currentUser={currentUser}
-                onGoToReviews={() => setActiveTab('sheet')}
+                lots={supervisorLots}
+                onOpenLotsWithFilter={(filter) => {
+                  setSupervisorPreFilter(filter);
+                  setActiveTab('sup-lots');
+                }}
+                onRefresh={loadBatches}
+              />
+            </div>
+          )}
+
+          {activeTab === 'sup-lots' && currentUser.role === 'supervisor' && (
+            <div className="p-4 md:p-6">
+              <SupervisorLotsPage
+                lots={supervisorLots}
+                preFilter={supervisorPreFilter}
+                onClearPreFilter={() => setSupervisorPreFilter('all')}
+                onOpenReview={(lotId) => {
+                  setCurrentBatchId(lotId);
+                  setActiveTab('sheet');
+                }}
+                onOpenSavedReport={(lotId) => {
+                  setCurrentBatchId(lotId);
+                  setActiveTab('sheet');
+                }}
+                onRefresh={loadBatches}
               />
             </div>
           )}
@@ -328,8 +541,8 @@ export const App: React.FC = () => {
         </main>
       </div>
 
-      {/* ── Phone scan popup ─────────────────────────────────────── */}
-      {pendingScan?.type === 'SCAN_RESOLVED' && (
+      {/* ── Phone scan popup — only for admin, and only when that batch isn't already open ── */}
+      {pendingScan?.type === 'SCAN_RESOLVED' && currentUser.role === 'admin' && currentBatchId !== pendingScan.batch_id && (
         <div className="fixed inset-0 z-50 flex items-center justify-center mx-4" style={{ background: 'rgba(27,37,51,0.4)', backdropFilter: 'blur(4px)' }}>
           <div className="w-full max-w-sm overflow-hidden shadow-2xl" style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 16 }}>
             <div className="p-5 flex items-center gap-3" style={{ background: 'var(--ok-bg)', borderBottom: '1px solid #b2dcc5' }}>
@@ -344,11 +557,12 @@ export const App: React.FC = () => {
               </div>
             </div>
             <div className="p-5 space-y-2">
-              {[
+              {([
+                ['Part Name', pendingScan.part_name],
+                ['Part No.', pendingScan.part_no],
                 ['Lot Number', pendingScan.lot_number],
-                ['Sheet', pendingScan.sheet_id],
                 ['Batch #', pendingScan.batch_id],
-              ].map(([label, val]) => (
+              ] as [string, string | number | null][]).filter(([, v]) => v).map(([label, val]) => (
                 <div key={label} className="flex justify-between text-sm">
                   <span style={{ color: 'var(--muted)' }}>{label}</span>
                   <span className="font-semibold" style={{ color: 'var(--ink)' }}>{val}</span>

@@ -32,15 +32,20 @@ class LiveSyncClient {
     this.isConnecting = true;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host || 'localhost:8000';
-    const wsUrl = `${protocol}//${host}/ws/live?token=${encodeURIComponent(token)}`;
+    // Connect without token in URL — send it as the first message so it stays
+    // out of server logs and browser history (H-6 fix).
+    const wsUrl = `${protocol}//${host}/ws/live`;
 
     try {
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
+        // Send auth as first message, not as URL query param
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({ type: 'auth', token }));
+        }
         this.isConnected = true;
         this.isConnecting = false;
-        // console.log('[LiveSync] Real-time live connection established.');
         this.startHeartbeat();
       };
 

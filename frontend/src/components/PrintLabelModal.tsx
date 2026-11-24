@@ -85,7 +85,7 @@ export const PrintLabelModal: React.FC<PrintLabelModalProps> = ({
 
                 {/* Company bar */}
                 <div className="text-center border-b border-slate-100 pb-2">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">TAA Inspection System</p>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Smart Scan</p>
                   <p className="text-xs font-bold text-slate-900 mt-0.5 leading-tight">Batch Traceability Label</p>
                 </div>
 

@@ -15,6 +15,10 @@ export const AdminUserManagement: React.FC = () => {
   const [role, setRole] = useState<UserRole>('operator');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
+  // Inline password reset state
+  const [resetTargetId, setResetTargetId] = useState<number | null>(null);
+  const [resetPwdValue, setResetPwdValue] = useState<string>('');
+
   useEffect(() => {
     loadUsers();
   }, []);
@@ -73,13 +77,18 @@ export const AdminUserManagement: React.FC = () => {
     }
   };
 
-  const handleResetPassword = async (u: User) => {
-    const newPwd = window.prompt(`Set a new password for '${u.username}' (min 6 characters):`);
-    if (!newPwd) return;
-    if (newPwd.length < 6) { setStatusMsg({ type: 'error', text: 'Password must be at least 6 characters.' }); return; }
+  const handleResetPassword = (u: User) => {
+    setResetTargetId(u.user_id);
+    setResetPwdValue('');
+  };
+
+  const handleResetPasswordSubmit = async (u: User) => {
+    if (resetPwdValue.length < 6) { setStatusMsg({ type: 'error', text: 'Password must be at least 6 characters.' }); return; }
     try {
-      await adminResetPassword(u.user_id, newPwd);
+      await adminResetPassword(u.user_id, resetPwdValue);
       setStatusMsg({ type: 'success', text: `Password reset for '${u.username}'. All existing sessions invalidated.` });
+      setResetTargetId(null);
+      setResetPwdValue('');
     } catch (err: any) {
       setStatusMsg({ type: 'error', text: err.message || 'Failed to reset password' });
     }
@@ -255,14 +264,16 @@ export const AdminUserManagement: React.FC = () => {
                           </button>
                         )}
 
-                        <button
-                          onClick={() => handleResetPassword(u)}
-                          className="p-1 rounded transition-colors"
-                          style={{ color: 'var(--muted)' }}
-                          title="Reset Password (invalidates all sessions)"
-                        >
-                          <KeyRound className="w-3.5 h-3.5" />
-                        </button>
+                        {resetTargetId !== u.user_id ? (
+                          <button
+                            onClick={() => handleResetPassword(u)}
+                            className="p-1 rounded transition-colors"
+                            style={{ color: 'var(--muted)' }}
+                            title="Reset Password"
+                          >
+                            <KeyRound className="w-3.5 h-3.5" />
+                          </button>
+                        ) : null}
 
                         <button
                           onClick={() => handleDelete(u)}
@@ -273,6 +284,29 @@ export const AdminUserManagement: React.FC = () => {
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
+                      {resetTargetId === u.user_id && (
+                        <div className="mt-2 flex items-center gap-2">
+                          <input
+                            type="password"
+                            value={resetPwdValue}
+                            onChange={e => setResetPwdValue(e.target.value)}
+                            placeholder="New password (min 6 chars)"
+                            className="flex-1 h-8 px-2 text-xs rounded border"
+                            style={{ borderColor: 'var(--line2)', background: 'var(--surface)' }}
+                            autoFocus
+                          />
+                          <button
+                            onClick={() => handleResetPasswordSubmit(u)}
+                            className="px-2 py-1 text-xs font-semibold rounded"
+                            style={{ background: 'var(--primary)', color: '#fff' }}
+                          >Save</button>
+                          <button
+                            onClick={() => { setResetTargetId(null); setResetPwdValue(''); }}
+                            className="px-2 py-1 text-xs rounded"
+                            style={{ background: 'var(--surface2)', color: 'var(--ink)' }}
+                          >Cancel</button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}

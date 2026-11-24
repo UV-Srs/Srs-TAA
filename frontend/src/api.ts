@@ -44,10 +44,15 @@ export async function apiRequest<T>(
     }
     let errorDetail = 'API request failed';
     try {
-      const errorJson = await response.json();
-      errorDetail = errorJson.detail?.message || errorJson.detail || JSON.stringify(errorJson);
+      const text = await response.text();
+      try {
+        const errorJson = JSON.parse(text);
+        errorDetail = errorJson.detail?.message || errorJson.detail || JSON.stringify(errorJson);
+      } catch {
+        if (text) errorDetail = text;
+      }
     } catch {
-      errorDetail = await response.text();
+      // body already consumed — keep default message
     }
     throw new Error(errorDetail);
   }
@@ -273,6 +278,13 @@ export async function releaseBatchHold(
   return apiRequest(`/api/batches/${batchId}/release-hold`, {
     method: 'POST',
     body: JSON.stringify(data),
+  });
+}
+
+export async function reopenBatch(batchId: number, reason: string): Promise<any> {
+  return apiRequest(`/api/admin/batches/${batchId}/reopen`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
   });
 }
 
