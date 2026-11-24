@@ -4,13 +4,21 @@ from sqlalchemy.orm import Session
 
 from backend.app.database import get_db
 from backend.app.models import (
-    User, InspectionBatch, InspectionDecision, SheetTemplate
+    User, InspectionBatch, InspectionDecision, SheetTemplate, BatchCellResponse, TemplateControlItem
 )
-from backend.app.schemas import SupervisorReviewRequest, SupervisorFieldReviewRequest
+from backend.app.schemas import (
+    SupervisorReviewRequest, SupervisorFieldReviewRequest,
+    SupervisorDispositionRequest, SupervisorReadingRequest, SupervisorOosRequest,
+)
 from backend.app.auth import require_supervisor
 from backend.app.audit import log_audit
 from backend.app.notifications import send_notification
 from backend.app.live_sync import notify_live
+from backend.app import supervisor_locks
+from backend.app.supervisor_workspace import (
+    COMPLETED, PROTO_STATUS, REVIEWABLE, build_workspace, get_review, is_dimension, lot_items,
+    reading_status, short_name,
+)
 
 router = APIRouter(prefix="/api/supervisor", tags=["Supervisor Workflow"])
 
@@ -207,3 +215,272 @@ def review_batch(
         "decision": decision_label,
         "round": batch.round
     }
+
+
+# ---------------------------------------------------------------------------
+# Supervisor UI (ported LotSure prototype screens)
+# Lock rules live in backend/app/supervisor_locks.py.
+# ---------------------------------------------------------------------------
+
+DISPOSITIONS = {"Approved", "On hold", "Rejected"}
+OOS_ACTIONS = {"Re-measured, confirmed", "Lot put on hold", "Process adjusted"}
+HOLD_DUE_HOURS = 4  # same default as the existing supervisor review endpoint
+
+
+def _lock_conflict(db: Session, review) -> HTTPException:
+    holder_id = supervisor_locks.lock_holder(review)
+    holder = db.query(User).filter(User.user_id == holder_id).first() if holder_id else None
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={"message": "Lot is being reviewed by another supervisor.",
+                "lockBy": {"id": holder_id, "name": holder.full_name if holder else None}},
+    )
+
+
+def _reviewing(db: Session, batch_id: int, user: User):
+    """A reviewable lot whose lock this supervisor holds (every review write goes through here)."""
+    batch = db.query(InspectionBatch).filter(InspectionBatch.batch_id == batch_id).first()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Lot not found")
+    if batch.status not in REVIEWABLE:
+        raise HTTPException(status_code=422, detail={"message": "This lot is not open for review.", "status": batch.status})
+    review = get_review(db, batch)
+    if not supervisor_locks.is_held_by(review, user):
+        if review and supervisor_locks.lock_holder(review):
+            raise _lock_conflict(db, review)
+        raise HTTPException(status_code=409, detail={"message": "Open the lot before reviewing it."})
+    return batch, review
+
+
+@router.get("/workspace")
+def get_supervisor_workspace(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_supervisor),
+):
+    """Users, templates and lots for the supervisor screens (replaces the prototype's seed() state)."""
+    return build_workspace(db, current_user)
+
+
+@router.post("/lots/{batch_id}/open")
+def open_supervisor_lot(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_supervisor),
+):
+    """
+    Prototype ACT.svopen: a reviewable lot (supervisor / onhold) is locked to this
+    supervisor and opens in review; a completed lot opens the read-only report.
+    Locked by another supervisor -> 409 with their name.
+    """
+    batch = db.query(InspectionBatch).filter(InspectionBatch.batch_id == batch_id).first()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Lot not found")
+
+    if batch.status in COMPLETED:
+        return {"view": "saved", "batch_id": batch.batch_id}
+    if batch.status not in REVIEWABLE:
+        raise HTTPException(status_code=422, detail={"message": "This lot is not ready for supervisor review.", "status": batch.status})
+
+    review = get_review(db, batch, create=True)
+    if not supervisor_locks.can_acquire(review, current_user):
+        raise _lock_conflict(db, review)
+
+    supervisor_locks.acquire(review, current_user)
+    if batch.status in ("OPERATOR_APPROVED", "OPERATOR_REJECTED"):
+        # Prototype supSeen=true: the lot moves from New to Pending.
+        batch.status = "SUPERVISOR_IN_PROGRESS"
+        log_audit(
+            db=db, user_id=current_user.user_id, role=current_user.role,
+            action_type="SUPERVISOR_OPENED_REVIEW", sheet_id=batch.sheet_id, batch_id=batch.batch_id,
+            details={"round": batch.round},
+        )
+    db.commit()
+    notify_live("BATCH_UPDATED", {"batch_id": batch.batch_id, "status": batch.status, "round": batch.round})
+    return {"view": "review", "batch_id": batch.batch_id}
+
+
+@router.put("/lots/{batch_id}/dispositions/{column_key}")
+def set_supervisor_disposition(
+    batch_id: int,
+    column_key: str,
+    payload: SupervisorDispositionRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_supervisor),
+):
+    """Prototype ACT.svdec: decision for one bad item (Approved / On hold / Rejected)."""
+    batch, review = _reviewing(db, batch_id, current_user)
+    if payload.disposition is not None and payload.disposition not in DISPOSITIONS:
+        raise HTTPException(status_code=422, detail="Decision must be Approved, On hold or Rejected.")
+    li = lot_items(batch, review)
+    if column_key not in li["columns"]:
+        raise HTTPException(status_code=404, detail="Item not found in this lot")
+    part = li["parts"][li["columns"].index(column_key)]
+    if not part or part["r"] != "NG":
+        raise HTTPException(status_code=422, detail="Only items marked bad by the operator need a decision.")
+    disp = dict(review.dispositions or {})
+    if payload.disposition is None:
+        disp.pop(column_key, None)
+    else:
+        disp[column_key] = payload.disposition
+    review.dispositions = disp
+    db.commit()
+    notify_live("BATCH_UPDATED", {"batch_id": batch.batch_id, "status": batch.status, "round": batch.round})
+    return {"status": "success", "dispositions": disp}
+
+
+@router.put("/lots/{batch_id}/readings")
+def set_supervisor_reading(
+    batch_id: int,
+    payload: SupervisorReadingRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_supervisor),
+):
+    """
+    Prototype keypad (keyDigit / bksp): one dimension reading. Agreed rule: supervisors may
+    write only dimension cells assigned to the supervisor role (operator cells stay locked).
+    """
+    batch, review = _reviewing(db, batch_id, current_user)
+    item = db.query(TemplateControlItem).filter(
+        TemplateControlItem.item_id == payload.item_id, TemplateControlItem.sheet_id == batch.sheet_id,
+    ).first()
+    if not item or not is_dimension(item):
+        raise HTTPException(status_code=404, detail="Dimension not found in this lot")
+    if item.assigned_role != "supervisor":
+        raise HTTPException(status_code=403, detail="Forbidden: this reading is assigned to the operator.")
+    if payload.sample not in [str(c) for c in (item.sample_columns or [])]:
+        raise HTTPException(status_code=422, detail="Unknown sample for this dimension")
+
+    resp = db.query(BatchCellResponse).filter(
+        BatchCellResponse.batch_id == batch.batch_id,
+        BatchCellResponse.item_id == item.item_id,
+        BatchCellResponse.column_key == payload.sample,
+    ).first()
+    if payload.value is None:
+        if resp:
+            db.delete(resp)
+        cell_value, within = None, True
+    else:
+        cell_value = f"{payload.value:g}"
+        within = reading_status(item, payload.value) != "bad"
+        if resp is None:
+            resp = BatchCellResponse(batch_id=batch.batch_id, item_id=item.item_id, column_key=payload.sample)
+            db.add(resp)
+        resp.cell_value = cell_value
+        resp.is_within_spec = within
+        resp.entered_by = current_user.user_id
+    db.commit()
+    notify_live("CELL_UPDATED", {
+        "batch_id": batch.batch_id, "item_id": item.item_id, "column_key": payload.sample,
+        "cell_value": cell_value, "is_within_spec": within, "updated_at": str(datetime.utcnow()),
+    })
+    return {"status": "success", "value": payload.value}
+
+
+@router.put("/lots/{batch_id}/oos")
+def set_supervisor_oos_action(
+    batch_id: int,
+    payload: SupervisorOosRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_supervisor),
+):
+    """Prototype ACT.oos: what was done about out-of-spec readings."""
+    batch, review = _reviewing(db, batch_id, current_user)
+    if payload.action is not None and payload.action not in OOS_ACTIONS:
+        raise HTTPException(status_code=422, detail="Unknown out-of-spec action")
+    review.oos_action = payload.action
+    db.commit()
+    notify_live("BATCH_UPDATED", {"batch_id": batch.batch_id, "status": batch.status, "round": batch.round})
+    return {"status": "success", "oos": review.oos_action}
+
+
+@router.post("/lots/{batch_id}/sign")
+def sign_supervisor_lot(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_supervisor),
+):
+    """
+    Prototype ACT.sign (Save). Any item On hold keeps the lot on hold; otherwise it is completed
+    and the revision increments. Records reviewer and time, clears the lock and the reopen
+    note, notifies the admin (and the operator when completed).
+    """
+    batch, review = _reviewing(db, batch_id, current_user)
+    li = lot_items(batch, review)
+    parts, columns = li["parts"], li["columns"]
+
+    # Same completeness rules the prototype enforces before Save is reachable.
+    bad = [(columns[i], p) for i, p in enumerate(parts) if p and p["r"] == "NG"]
+    undecided = [c for c, p in bad if p.get("disp") not in DISPOSITIONS]
+    missing = sum(1 for it in li["dims_items"] if it.assigned_role == "supervisor"
+                  for v in li["dims"][str(it.item_id)] if v is None)
+    out_of_spec = [(it, v) for it in li["dims_items"] for v in li["dims"][str(it.item_id)]
+                   if reading_status(it, v) == "bad"]
+    if undecided:
+        raise HTTPException(status_code=422, detail=f"{len(undecided)} bad item(s) still need a decision.")
+    if missing:
+        raise HTTPException(status_code=422, detail=f"{missing} reading(s) still to measure.")
+    if out_of_spec and not review.oos_action:
+        raise HTTPException(status_code=422, detail="Say what was done about the out-of-spec readings.")
+
+    now = datetime.utcnow()
+    held = [c for c, p in bad if p.get("disp") == "On hold"]
+    rejected = [c for c, p in bad if p.get("disp") == "Rejected"]
+    names = {str(i.item_id): i.control_item_name for i in li["visual"]}
+    rejected_checks = sorted({names.get(n["id"], n["id"]) for c, p in bad if p.get("disp") == "Rejected" for n in p["ng"]})
+    me = short_name(current_user.full_name)
+
+    batch.checked_by = current_user.user_id
+    batch.supervisor_submitted_at = now
+    batch.updated_at = now
+    if held:
+        batch.status = "ON_HOLD"
+        batch.hold_reason = "Items on hold"
+        batch.hold_note = f"{len(held)} item{'s' if len(held) > 1 else ''} held by {me} (supervisor review)."
+        batch.hold_by = current_user.user_id
+        batch.hold_at = now
+        batch.hold_due_at = now + timedelta(hours=HOLD_DUE_HOURS)
+        batch.hold_alerted = False
+        stage, decision = "Hold placed", "On hold"
+    else:
+        batch.status = "APPROVED"
+        batch.approved_by = current_user.user_id
+        batch.hold_reason = None
+        batch.hold_note = None
+        batch.hold_due_at = None
+        batch.hold_alerted = False
+        stage, decision = "Review", "Approved"
+
+    remarks = [x for x in [
+        f"Out-of-spec action: {review.oos_action}" if review.oos_action else "",
+        f"Rejected items: {', '.join(rejected)}" if rejected else "",
+        f"Held items: {', '.join(held)}" if held else "",
+    ] if x]
+    db.add(InspectionDecision(
+        batch_id=batch.batch_id, round=batch.round or 1, stage=stage, decided_by=current_user.user_id,
+        role=current_user.role, decision=decision, rejected_fields=rejected_checks,
+        rejected_item_ids=sorted({int(n["id"]) for c, p in bad if p.get("disp") == "Rejected" for n in p["ng"]}),
+        remarks="; ".join(remarks) or None, decided_at=now,
+    ))
+    supervisor_locks.release(review)
+    review.reopen_note = None
+
+    code = batch.lot_number
+    if held:
+        n = len(held)
+        send_notification(db, ["admin"], f"{code} kept on hold by {me}: {n} item{'s' if n > 1 else ''} held.",
+                          batch_id=batch.batch_id, batch_code=code)
+    else:
+        # Prototype: `${code} completed by ${sup.by}.` printed "Neha S.."; skip the second period.
+        send_notification(db, ["admin"], f"{code} completed by {me}{'' if me.endswith('.') else '.'}",
+                          batch_id=batch.batch_id, batch_code=code)
+        send_notification(db, [] if batch.prepared_by else ["operator"], f"{code} checked and completed.",
+                          batch_id=batch.batch_id, batch_code=code,
+                          user_ids=[batch.prepared_by] if batch.prepared_by else None)
+    db.commit()
+    log_audit(
+        db=db, user_id=current_user.user_id, role=current_user.role, action_type="SUPERVISOR_SAVED_REVIEW",
+        sheet_id=batch.sheet_id, batch_id=batch.batch_id,
+        details={"status": batch.status, "held": held, "rejected": rejected, "oos_action": review.oos_action},
+    )
+    notify_live("BATCH_UPDATED", {"batch_id": batch.batch_id, "status": batch.status, "round": batch.round})
+    return {"status": PROTO_STATUS[batch.status], "backendStatus": batch.status}
