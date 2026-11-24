@@ -176,23 +176,25 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-40 no-print select-none">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 sm:h-20 flex items-center justify-between gap-4">
         {/* Left: Brand & Main Navigation */}
         <div className="flex items-center gap-6 min-w-0">
-          <div className="flex items-center gap-2.5 shrink-0">
-            <div className="w-8 h-8 rounded-lg bg-black text-white flex items-center justify-center font-black text-sm tracking-tight shadow-sm">
-              TAA
+          <div className="flex items-center gap-3 shrink-0">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-brand text-white flex items-center justify-center font-semibold text-sm">
+              LS
             </div>
             <div>
-              <h1 className="text-sm font-bold text-slate-900 leading-none">Inspection System</h1>
-              <span className="text-[10px] text-slate-400 font-medium hidden sm:block">Shop Floor Quality</span>
+              <h1 className="text-base sm:text-lg font-semibold text-slate-900 leading-tight">LotSure</h1>
+              <span className="text-xs sm:text-sm text-slate-500 hidden sm:block">Lot inspection made simple</span>
             </div>
           </div>
 
           {/* Desktop Navigation Tabs (lg+). Below lg the tabs move to a second row. */}
-          <nav className="hidden lg:flex items-center gap-1 bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-xs">
-            {navTabs.map(renderTab)}
-          </nav>
+          {navTabs.length > 1 && (
+            <nav className="hidden lg:flex items-center gap-1 bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-xs">
+              {navTabs.map(renderTab)}
+            </nav>
+          )}
         </div>
 
         {/* Right: Actions, Notifications, & User Profile */}
@@ -213,10 +215,10 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               type="button"
               onClick={() => setIsNotifOpen(!isNotifOpen)}
-              className="relative p-2.5 sm:p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-colors"
+              className="relative p-2.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-colors"
               title="Notifications"
             >
-              <Bell className="w-4 h-4" />
+              <Bell className="w-5 h-5" />
               {unreadCount > 0 && (
                 <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-600 rounded-full animate-pulse ring-2 ring-white"></span>
               )}
@@ -279,20 +281,18 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               type="button"
               onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
-              className="flex items-center gap-2 pl-2 pr-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all text-xs"
+              className="flex items-center gap-1 p-1 bg-slate-100 hover:bg-slate-200/70 rounded-xl transition-colors"
+              aria-label="Account menu"
             >
-              <div className="w-6 h-6 rounded-lg bg-black text-white flex items-center justify-center font-bold text-xs uppercase">
-                {user.full_name.charAt(0)}
-              </div>
-              <div className="text-left hidden xl:block">
-                <span className="font-bold text-slate-900 block leading-tight truncate max-w-[120px]">
-                  {user.full_name}
-                </span>
-                <span className="text-[10px] text-slate-500 font-medium capitalize">
+              <span className="flex flex-col items-start px-3 sm:px-4 py-1 sm:py-1.5 bg-white rounded-lg shadow-sm text-left">
+                <span className="text-sm sm:text-base font-semibold text-slate-900 capitalize leading-tight">
                   {user.role}
                 </span>
-              </div>
-              <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+                <span className="text-[11px] sm:text-xs text-slate-500 leading-tight truncate max-w-[110px] sm:max-w-[140px]">
+                  {user.full_name}
+                </span>
+              </span>
+              <ChevronDown className="w-4 h-4 text-slate-500 mx-1" />
             </button>
 
             {isProfileMenuOpen && (
@@ -300,7 +300,7 @@ export const Header: React.FC<HeaderProps> = ({
                 {/* Account info */}
                 <div className="p-3.5 bg-slate-50 border-b border-slate-100">
                   <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-xl bg-black text-white flex items-center justify-center font-bold text-sm shadow-sm">
+                    <div className="w-9 h-9 rounded-xl bg-brand text-white flex items-center justify-center font-semibold text-sm">
                       {user.full_name.charAt(0)}
                     </div>
                     <div className="min-w-0">

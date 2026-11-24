@@ -185,7 +185,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch })
                       {b.part_no || 'N/A'} • {b.part_name || 'N/A'}
                     </div>
                   </td>
-                  <td className="font-semibold text-slate-800">{b.lot_number}</td>
+                  <td className="font-semibold text-slate-800 whitespace-nowrap">{b.lot_number}</td>
                   <td className="text-slate-600">{b.lot_quantity || '-'}</td>
                   <td className="font-medium text-slate-700">{b.inspection_mode}</td>
                   <td>
