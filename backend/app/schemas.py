@@ -276,3 +276,28 @@ class QRResolveResponse(BaseModel):
     status: Optional[str] = None
     format_detected: Optional[str] = "Plain code"
     data: Optional[Dict[str, Any]] = None
+
+
+# --- Supervisor UI (ported LotSure prototype) ---
+class SupervisorDispositionRequest(BaseModel):
+    disposition: Optional[str] = None  # 'Approved' | 'On hold' | 'Rejected' | None (clear)
+
+class SupervisorReadingRequest(BaseModel):
+    item_id: int
+    sample: str                     # sample column key, e.g. 'S1'
+    value: Optional[float] = None   # None clears the reading
+
+class SupervisorOosRequest(BaseModel):
+    action: Optional[str] = None    # 'Re-measured, confirmed' | 'Lot put on hold' | 'Process adjusted'
+
+class SupervisorCheckRequest(BaseModel):
+    item_id: int
+    sample: str                     # sample column key, e.g. 'S1'
+    value: Optional[str] = None     # 'OK' | 'NG' | None (clear)
+
+class SupervisorSpotRequest(BaseModel):
+    r: Optional[str] = None         # 'OK' | 'NG' | None (remove the spot check)
+    ng: List[str] = []              # check ids found wrong (r == 'NG')
+
+class SupervisorCommentRequest(BaseModel):
+    comment: Optional[str] = None

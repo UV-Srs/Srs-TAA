@@ -1,7 +1,7 @@
 from datetime import datetime
 from sqlalchemy import (
     Column, Integer, BigInteger, String, Text, Boolean, DateTime,
-    ForeignKey, Float, JSON
+    ForeignKey, Float, JSON, UniqueConstraint
 )
 from sqlalchemy.orm import relationship
 from backend.app.database import Base
@@ -219,3 +219,35 @@ class AuditLog(Base):
 
     # Relationships
     user = relationship("User", back_populates="audit_logs")
+
+class SupervisorLotReview(Base):
+    """
+    Supervisor review state for one lot and inspection round (supervisor UI).
+    Holds what inspection_batches has no field for: per-item decisions, the review
+    lock, the out-of-spec action and the admin's reopen note.
+    New table, so Base.metadata.create_all() creates it without a migration.
+    """
+    __tablename__ = "supervisor_lot_reviews"
+    __table_args__ = (UniqueConstraint("batch_id", "round", name="uq_supervisor_lot_review_round"),)
+
+    review_id = Column(Integer, primary_key=True, autoincrement=True)
+    batch_id = Column(Integer, ForeignKey("inspection_batches.batch_id", ondelete="CASCADE"), nullable=False, index=True)
+    round = Column(Integer, nullable=False, default=1)
+    # {sample column key: 'Approved' | 'On hold' | 'Rejected'} for the lot's bad items
+    dispositions = Column(JSON, nullable=False, default=dict)
+    locked_by = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
+    locked_at = Column(DateTime, nullable=True)
+    # 'Re-measured, confirmed' | 'Lot put on hold' | 'Process adjusted'
+    oos_action = Column(String(50), nullable=True)
+    # Supervisor spot checks (prototype L.spot): {item column key: {"r": "OK"|"NG", "ng": [check ids]}}
+    spot_checks = Column(JSON, nullable=True)
+    # Supervisor comments for the report (prototype L.supComment)
+    comment = Column(Text, nullable=True)
+    reopen_note = Column(Text, nullable=True)
+    reopened_by = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
+    reopened_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    batch = relationship("InspectionBatch")
+    locked_user = relationship("User", foreign_keys=[locked_by])

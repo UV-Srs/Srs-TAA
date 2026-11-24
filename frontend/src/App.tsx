@@ -14,6 +14,7 @@ import { AdminSheetBuilder } from './pages/AdminSheetBuilder';
 import { AdminUserManagement } from './pages/AdminUserManagement';
 import { AuditLogsView } from './pages/AuditLogsView';
 import { MobileScannerPage } from './pages/MobileScannerPage';
+import { SupervisorApp } from './supervisor/SupervisorApp';
 import { OperatorHome } from './pages/OperatorHome';
 import { OperatorInspection } from './pages/OperatorInspection';
 
@@ -174,6 +175,12 @@ export const App: React.FC = () => {
         }}
       />
     );
+  }
+
+  // Supervisors get their own app (scan → lots → review). Checked before the mobile
+  // check so supervisors on tablets (which match isMobileDevice) get it too.
+  if (currentUser.role === 'supervisor') {
+    return <SupervisorApp currentUser={currentUser} onLogout={handleLogout} />;
   }
 
   // Mobile phones get a simplified scanning interface

@@ -1,0 +1,22 @@
+/* Supervisor-only additions with no equivalent in the prototype CSS (supervisor.css is a
+ * generated copy and is not hand-edited). Uses the prototype's tokens. */
+
+/* The prototype was built on browser default styles; our app loads Tailwind's preflight reset,
+ * which removes them (paragraph margins, button/input padding, line-heights, inline SVGs, list
+ * styles, placeholder colour...). Restore the browser defaults inside the supervisor UI.
+ * :where() keeps these at the lowest specificity, so every prototype rule still wins. */
+.sv-root :where(p, ul, ol, dl, dd, h1, h2, h3, h4, h5, h6, blockquote, figure, pre, hr) { margin: revert; }
+.sv-root :where(h1, h2, h3, h4, h5, h6) { font-size: revert; font-weight: revert; }
+.sv-root :where(ul, ol) { list-style: revert; padding: revert; }
+.sv-root :where(button, input, select, textarea) { padding: revert; line-height: revert; }
+.sv-root :where(img, svg, video, canvas, audio, iframe, embed, object) { display: revert; vertical-align: revert; }
+.sv-root :where(img, video) { max-width: revert; height: revert; }
+.sv-root :where(table) { text-indent: revert; border-color: revert; }
+.sv-root :where(a) { color: revert; text-decoration: revert; }
+.sv-root :where(input, textarea)::placeholder { color: revert; opacity: revert; }
+
+/* Scan screen: camera / photo buttons (the prototype has the functions but no visible buttons) */
+.sv-root .sv-scanacts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+
+/* Dimension tiles for readings the operator owns (agreed rule): visible, not editable */
+.sv-root .dtile[title] { cursor: default; }
