@@ -341,7 +341,7 @@ export function downloadBatchReport(batchId: number, format: BatchReportFormat):
 }
 
 export function downloadCsvReport(): Promise<void> {
-  return downloadAuthenticatedFile(getCsvExportUrl(), 'taa-inspection-records.csv');
+  return downloadAuthenticatedFile(getCsvExportUrl(), 'ai-smart-scan-records.csv');
 }
 
 /** Click handler for existing report <a> links: keeps the markup, swaps in an authenticated download. */

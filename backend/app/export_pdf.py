@@ -391,7 +391,7 @@ def generate_pdf_report(batch, template, cell_responses, decisions, attachments,
     doc = SimpleDocTemplate(
         buffer, pagesize=pagesize, leftMargin=margin, rightMargin=margin,
         topMargin=7 * mm, bottomMargin=9 * mm,
-        title=f"IFM Checksheet {sheet.sheet_id} {sheet.lot_number}", author="TAA Inspection Management System",
+        title=f"IFM Checksheet {sheet.sheet_id} {sheet.lot_number}", author="AI-Smart Scan Inspection Management System",
     )
 
     story = []

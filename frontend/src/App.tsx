@@ -6,6 +6,7 @@ import { Header } from './components/Header';
 import { UniversalScanBar } from './components/UniversalScanBar';
 import { BatchSidebar } from './components/BatchSidebar';
 import { Sidebar } from './components/Sidebar';
+import { AdminScanPage } from './pages/AdminScanPage';
 import { CreateBatchModal } from './components/CreateBatchModal';
 import { LoginPage } from './pages/LoginPage';
 import { ChecksheetView } from './pages/ChecksheetView';
@@ -257,13 +258,17 @@ export const App: React.FC = () => {
         onSelectBatchByCode={handleSelectBatchByCode}
       />
 
-      {/* Universal Scan Adapter & Device Simulator Bar (FR-017, FR-018, FR-019) */}
-      <UniversalScanBar
-        currentUser={currentUser}
-        onBatchResolved={handleOpenBatch}
-        onTemplateResolved={handleTemplateResolved}
-        onRequestCreateBatch={(code) => handleOpenCreateBatch(code, '', code)}
-      />
+      {/* Search / scan lives in the admin Scan tab. On the other tabs a hardware scanner
+          (keyboard wedge) still opens the scanned lot, with no visible bar (FR-017 - FR-019). */}
+      {!(currentUser.role === 'admin' && activeTab === 'scan') && (
+        <UniversalScanBar
+          variant={currentUser.role === 'admin' ? 'listener' : 'bar'}
+          currentUser={currentUser}
+          onBatchResolved={handleOpenBatch}
+          onTemplateResolved={handleTemplateResolved}
+          onRequestCreateBatch={(code) => handleOpenCreateBatch(code, '', code)}
+        />
+      )}
 
       {/* Global Body: Sidebar (220px) + Main Content Area */}
       <div className="flex-1 flex min-h-[calc(100vh-115px)]">
@@ -302,6 +307,14 @@ export const App: React.FC = () => {
                 )}
               </div>
             </div>
+          )}
+
+          {activeTab === 'scan' && currentUser.role === 'admin' && (
+            <AdminScanPage
+              onBatchResolved={handleOpenBatch}
+              onTemplateResolved={handleTemplateResolved}
+              onUnregistered={(code) => handleOpenCreateBatch(code, '', code)}
+            />
           )}
 
           {activeTab === 'dashboard' && currentUser.role === 'admin' && (

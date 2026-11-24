@@ -68,7 +68,7 @@ export const PrintLabelModal: React.FC<PrintLabelModalProps> = ({
           ) : data ? (
             <div className="border border-slate-300 rounded-xl p-5 bg-white space-y-3.5 print:border-black print:m-0 shadow-sm">
               <div className="text-center pb-2 border-b border-slate-100">
-                <div className="text-xs font-bold text-slate-900 uppercase">TAA Inspection Checksheet</div>
+                <div className="text-xs font-bold text-slate-900 uppercase">AI-Smart Scan Checksheet</div>
                 <div className="text-[11px] text-slate-500 font-medium">{data.document_title}</div>
               </div>
 

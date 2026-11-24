@@ -62,7 +62,7 @@ async def lifespan(app: FastAPI):
 
 # Initialize FastAPI application
 app = FastAPI(
-    title="TAA – Inspection Management System",
+    title="AI-Smart Scan – Inspection Management System",
     description="IFM Checksheet & Batch Quality Platform (Version 2.0)",
     version="2.0.0",
     lifespan=lifespan
@@ -134,7 +134,7 @@ app.include_router(notification_routes.router)
 def health_check():
     return {
         "status": "healthy",
-        "service": "TAA Inspection Management System",
+        "service": "AI-Smart Scan Inspection Management System",
         "version": "2.0.0",
         "theme": "High-Contrast Monochrome"
     }
@@ -153,7 +153,7 @@ def serve_frontend(full_path: str):
     if index_file.exists():
         return FileResponse(index_file)
     return {
-        "app": "TAA – Inspection Management System",
+        "app": "AI-Smart Scan – Inspection Management System",
         "version": "2.0.0",
         "docs": "/docs"
     }

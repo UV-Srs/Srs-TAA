@@ -1,5 +1,5 @@
 """
-TAA Inspection Management System - Database Connection & Health Verification Script
+AI-Smart Scan Inspection Management System - Database Connection & Health Verification Script
 Run: python backend/check_db.py
 """
 import sys
@@ -18,7 +18,7 @@ from backend.app.models import User, SheetTemplate, InspectionBatch, AuditLog
 
 def check_database():
     print("=" * 65)
-    print(" TAA INSPECTION MANAGEMENT SYSTEM - POSTGRESQL VERIFICATION")
+    print(" AI-SMART SCAN INSPECTION MANAGEMENT SYSTEM - POSTGRESQL VERIFICATION")
     print("=" * 65)
     print(f"[*] Target Database: {DB_NAME}")
     print(f"[*] Host:            {DB_HOST}:{DB_PORT}")

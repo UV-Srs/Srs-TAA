@@ -1,7 +1,7 @@
 import React from 'react';
 import { User } from '../types';
 import {
-  LayoutGrid, Users, ClipboardList, PlusCircle, ShieldCheck
+  LayoutGrid, Users, ClipboardList, PlusCircle, ShieldCheck, ScanLine
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -23,6 +23,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     ...(isAdmin
       ? [
           { id: 'dashboard', label: 'Dashboard', icon: LayoutGrid },
+          { id: 'scan', label: 'Scan', icon: ScanLine },
           { id: 'users', label: 'Team', icon: Users },
           { id: 'sheet', label: 'Lots', icon: ClipboardList, badge: onHoldCount > 0 ? onHoldCount : null },
           { id: 'builder', label: 'Templates', icon: PlusCircle },

@@ -118,7 +118,7 @@ export const BatchSidebar: React.FC<BatchSidebarProps> = ({
           {currentUser.role === 'admin' && (
             <a
               href={getCsvExportUrl()}
-              download="taa-inspection-records.csv"
+              download="ai-smart-scan-records.csv"
               onClick={(e) => handleReportDownloadClick(e, downloadCsvReport)}
               className="text-[11px] font-medium text-slate-600 hover:text-slate-900 flex items-center gap-1 transition-colors"
               title="Download CSV"

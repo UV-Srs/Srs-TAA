@@ -1,4 +1,4 @@
-# TAA – Inspection Management System (IFM Checksheet & Batch Quality Platform)
+# AI-Smart Scan – Inspection Management System (IFM Checksheet & Batch Quality Platform)
 **Version:** 2.0 (Development-Ready Blueprint)  
 **Authors / Stakeholders:** Shiva Datta, Yuvraj, Sheetal  
 **UI & Print Theme:** High-Contrast Monochrome White & Black (`#FFFFFF` pure white surfaces, `#000000` pitch black borders, typography, and controls)
@@ -7,7 +7,7 @@
 
 ## 1. Overview & Architecture
 
-The **TAA – Inspection Management System** digitizes manufacturing **Initial Flow Management (IFM) Control Items Monitoring Checksheets** and batch quality inspections performed on the shop floor.
+The **AI-Smart Scan – Inspection Management System** digitizes manufacturing **Initial Flow Management (IFM) Control Items Monitoring Checksheets** and batch quality inspections performed on the shop floor.
 
 - **Frontend:** React (Vite + TypeScript + IndexedDB Offline Sync + Tailwind / High-Contrast Monochrome CSS)
 - **Backend:** Python (FastAPI + SQLAlchemy + ReportLab + OpenPyXL + python-barcode + qrcode + Pillow)

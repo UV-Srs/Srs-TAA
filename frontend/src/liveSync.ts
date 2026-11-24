@@ -1,5 +1,5 @@
 /**
- * TAA Inspection Management System - Real-time Live Synchronization Engine
+ * AI-Smart Scan Inspection Management System - Real-time Live Synchronization Engine
  * Connects via WebSocket (/ws/live) to receive instant updates across Admin,
  * Supervisor, and Operator workspaces without requiring page refreshes.
  */
