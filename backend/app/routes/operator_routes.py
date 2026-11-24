@@ -94,7 +94,12 @@ def submit_operator_inspection(
     all_responses = db.query(BatchCellResponse).filter(BatchCellResponse.batch_id == batch_id).all()
     resp_map = {(r.item_id, str(r.column_key)): r for r in all_responses}
 
-    required_items = [it for it in template.control_items if it.is_required]
+    required_items = [
+        it for it in template.control_items
+        if it.is_required
+        and it.assigned_role not in ('supervisor', 'admin')
+        and it.editable_by_operator is not False
+    ]
     missing_fields = []
     bad_fields = []
 

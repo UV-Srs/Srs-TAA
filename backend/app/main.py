@@ -58,6 +58,8 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Let browser fetch() read the server-provided filename on report downloads.
+    expose_headers=["Content-Disposition"],
 )
 
 # WebSocket Endpoint for Live Real-Time Collaboration
@@ -81,6 +83,9 @@ async def websocket_live_endpoint(websocket: WebSocket, token: str = Query(defau
         finally:
             db.close()
     except Exception:
+        # Accept first so the close is a proper WS close frame, not a TCP reset.
+        # Without accept(), Vite's proxy sees ECONNRESET and logs a noisy error.
+        await websocket.accept()
         await websocket.close(code=4001)
         return
 

@@ -1,5 +1,6 @@
 import { defineConfig, type ProxyOptions } from 'vite'
 import react from '@vitejs/plugin-react'
+import basicSsl from '@vitejs/plugin-basic-ssl'
 
 const BACKEND = 'http://127.0.0.1:8000'
 
@@ -17,10 +18,11 @@ const ignoreResets: ProxyOptions['configure'] = (proxy) => {
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), basicSsl()],
   server: {
     port: 5173,
     host: true,
+    https: {},
     proxy: {
       '/api': {
         target: BACKEND,

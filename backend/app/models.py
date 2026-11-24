@@ -36,6 +36,8 @@ class SheetTemplate(Base):
     part_category = Column(String(50), default="MAIN PART")
     qr_code_value = Column(String(255), unique=True, nullable=False, index=True)
     barcode_value = Column(String(255), unique=True, nullable=False, index=True)
+    external_barcode = Column(String(255), nullable=True)
+    is_default = Column(Boolean, nullable=False, default=False)
     created_by = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
