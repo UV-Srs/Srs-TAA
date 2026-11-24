@@ -10,6 +10,11 @@ interface UniversalScanBarProps {
   onBatchResolved: (batchId: number) => void;
   onTemplateResolved?: (sheetId: string) => void;
   onRequestCreateBatch?: (code: string) => void;
+  /**
+   * 'bar' = slim full-width strip (default). 'hero' = large scan card used on the operator home.
+   * 'listener' = no visible bar; keeps the hardware-scanner (keyboard wedge) listener active and shows a toast.
+   */
+  variant?: 'bar' | 'hero' | 'listener';
 }
 
 export const UniversalScanBar: React.FC<UniversalScanBarProps> = ({
@@ -17,6 +22,7 @@ export const UniversalScanBar: React.FC<UniversalScanBarProps> = ({
   onBatchResolved,
   onTemplateResolved,
   onRequestCreateBatch,
+  variant = 'bar',
 }) => {
   const [scanInput, setScanInput] = useState<string>('');
   const [feedback, setFeedback] = useState<{ text: string; isError: boolean } | null>(null);
@@ -121,8 +127,82 @@ export const UniversalScanBar: React.FC<UniversalScanBarProps> = ({
     setScanInput('');
   };
 
+  // Status pill for the hero card: resolving > feedback > idle
+  const heroStatus = isResolving
+    ? { label: 'Opening…', cls: 'bg-blue-50 text-brand', dot: 'bg-brand animate-pulse' }
+    : feedback?.isError
+    ? { label: 'Not found', cls: 'bg-red-50 text-red-700', dot: 'bg-red-500' }
+    : feedback
+    ? { label: 'Lot loaded', cls: 'bg-emerald-50 text-emerald-700', dot: 'bg-emerald-500' }
+    : { label: 'Ready to scan', cls: 'bg-emerald-50 text-emerald-700', dot: 'bg-emerald-500' };
+
+  const heroCard = (
+    <section className="bg-white border border-slate-200/80 rounded-2xl shadow-sm p-5 sm:p-6 flex flex-col lg:flex-row lg:items-center gap-5 lg:gap-8">
+      <div className="flex items-start sm:items-center gap-4 sm:gap-5 flex-1 min-w-0">
+        {/* Barcode tile doubles as the camera-scan trigger */}
+        <button
+          type="button"
+          onClick={() => setIsCameraScannerOpen(true)}
+          title="Scan with camera"
+          className="shrink-0 w-20 h-16 sm:w-36 sm:h-24 rounded-xl bg-slate-100 hover:bg-slate-200 transition-colors flex items-center justify-center"
+        >
+          <svg viewBox="0 0 112 64" className="w-14 sm:w-28 h-auto" aria-hidden="true">
+            {[0, 5, 8, 14, 17, 22, 27, 30, 36, 39, 44, 47, 53, 58, 61, 66, 71, 74, 80, 83, 88, 92, 97, 100, 106].map((x, i) => (
+              <rect key={x} x={x + 2} y={6} width={i % 3 === 0 ? 3 : 1.5} height={52} fill="#334155" />
+            ))}
+            <rect x="0" y="17" width="112" height="2.5" fill="#EF4444" />
+          </svg>
+        </button>
+
+        <div className="min-w-0">
+          <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${heroStatus.cls}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${heroStatus.dot}`} />
+            {heroStatus.label}
+          </span>
+          <h2 className="mt-2 text-xl sm:text-2xl font-semibold text-slate-900 tracking-tight">Scan the lot barcode</h2>
+          <p className="mt-1 text-sm text-slate-500 leading-relaxed">
+            Point the TAA device at the lot label. The inspection opens by itself.
+          </p>
+        </div>
+      </div>
+
+      <div className="w-full lg:w-[440px] shrink-0">
+        <form onSubmit={handleFormSubmit} className="flex items-stretch gap-2">
+          <input
+            type="text"
+            value={scanInput}
+            onChange={(e) => setScanInput(e.target.value)}
+            placeholder="Or enter the barcode number"
+            className="flex-1 min-w-0 px-4 py-3 bg-white border border-slate-300 hover:border-slate-400 focus:border-brand focus:ring-2 focus:ring-brand/20 rounded-xl text-sm text-slate-800 placeholder-slate-400 outline-none transition-all"
+          />
+          <button
+            type="submit"
+            disabled={isResolving}
+            className="px-6 py-3 bg-brand hover:bg-brand-dark text-white rounded-xl text-sm font-semibold transition-colors disabled:opacity-50"
+          >
+            {isResolving ? 'Opening…' : 'Open'}
+          </button>
+        </form>
+        <p className={`mt-2 text-xs ${feedback?.isError ? 'text-red-600 font-medium' : 'text-slate-500'}`}>
+          {feedback ? feedback.text : 'No device? Tap the barcode picture to scan with the camera.'}
+        </p>
+      </div>
+    </section>
+  );
+
   return (
-    <div className="bg-[var(--surface)] border-b border-[var(--line)] px-4 py-2.5 sm:px-6 no-print">
+    <div className={variant === 'bar' ? 'bg-[var(--surface)] border-b border-[var(--line)] px-4 py-2.5 sm:px-6 no-print' : 'no-print'}>
+      {variant === 'listener' && (isResolving || feedback) && (
+        <div
+          role="status"
+          className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-50 max-w-[calc(100vw-2rem)] px-4 py-2.5 rounded-xl shadow-lg text-sm font-medium ${
+            feedback?.isError ? 'bg-red-600 text-white' : 'bg-slate-900 text-white'
+          }`}
+        >
+          {isResolving ? 'Opening scanned lot…' : feedback?.text}
+        </div>
+      )}
+      {variant === 'listener' ? null : variant === 'hero' ? heroCard : (
       <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
         {/* Search & Scan Box */}
         <form onSubmit={handleFormSubmit} className="w-full sm:max-w-xl flex items-center gap-2">
@@ -184,6 +264,7 @@ export const UniversalScanBar: React.FC<UniversalScanBarProps> = ({
           )}
         </div>
       </div>
+      )}
 
       {/* Admin On-The-Fly Registration Modal */}
       {unregisteredCode && (

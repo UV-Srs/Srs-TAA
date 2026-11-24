@@ -14,6 +14,8 @@ import { AdminSheetBuilder } from './pages/AdminSheetBuilder';
 import { AdminUserManagement } from './pages/AdminUserManagement';
 import { AuditLogsView } from './pages/AuditLogsView';
 import { MobileScannerPage } from './pages/MobileScannerPage';
+import { OperatorHome } from './pages/OperatorHome';
+import { OperatorInspection } from './pages/OperatorInspection';
 
 function isMobileDevice() {
   return /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
@@ -25,6 +27,8 @@ export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string>('sheet');
   const [currentBatchId, setCurrentBatchId] = useState<number | null>(null);
   const [batches, setBatches] = useState<InspectionBatch[]>([]);
+  // Phones: operators inspect directly; they can opt into "phone as scanner for a desktop" mode
+  const [phoneScannerMode, setPhoneScannerMode] = useState<boolean>(false);
   const [progressSummary, setProgressSummary] = useState<any>(null);
   const [isCreateBatchOpen, setIsCreateBatchOpen] = useState<boolean>(false);
   const [createBatchCode, setCreateBatchCode] = useState<string>('');
@@ -106,7 +110,8 @@ export const App: React.FC = () => {
     try {
       const bList = await fetchBatches();
       setBatches(bList);
-      if (bList.length > 0 && !currentBatchId) {
+      // Operators start on their home screen, so don't auto-open the first batch for them
+      if (bList.length > 0 && !currentBatchId && currentUser?.role !== 'operator') {
         setCurrentBatchId(bList[0].batch_id);
       }
 
@@ -132,6 +137,26 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleTemplateResolved = async (sheetId: string) => {
+    if (currentUser?.role === 'admin') {
+      setActiveTab('builder');
+      return;
+    }
+    try {
+      const { batch_id } = await startInspectionFromTemplate(sheetId);
+      await loadBatches();
+      setCurrentBatchId(batch_id);
+      setActiveTab('sheet');
+    } catch (err) {
+      console.error('Failed to open checksheet for scanned part:', err);
+    }
+  };
+
+  const handleOpenBatch = (bId: number) => {
+    setCurrentBatchId(bId);
+    setActiveTab('sheet');
+    loadBatches();
+  };
   if (!authChecked) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center">
@@ -152,15 +177,66 @@ export const App: React.FC = () => {
   }
 
   // Mobile phones get a simplified scanning interface
-  if (isMobileDevice()) {
+  if (isMobileDevice() && (currentUser.role !== 'operator' || phoneScannerMode)) {
     return (
       <MobileScannerPage
         currentUser={currentUser}
         onLogout={() => { logoutUser(); setCurrentUser(null); }}
+        onExitScannerMode={currentUser.role === 'operator' ? () => setPhoneScannerMode(false) : undefined}
       />
     );
   }
 
+  // ---------- Operator layout: home (scan + today + recent lots) <-> checksheet ----------
+  if (currentUser.role === 'operator') {
+    return (
+      <div className="min-h-screen bg-canvas text-slate-900 flex flex-col font-sans">
+        <Header
+          user={currentUser}
+          onLogout={handleLogout}
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          onSelectBatchByCode={handleSelectBatchByCode}
+        />
+
+        {currentBatchId ? (
+          <>
+            {/* No visible scan bar here (per design), but a hardware scan still opens the next lot */}
+            <UniversalScanBar
+              variant="listener"
+              currentUser={currentUser}
+              onBatchResolved={handleOpenBatch}
+              onTemplateResolved={handleTemplateResolved}
+            />
+            <OperatorInspection
+              key={currentBatchId}
+              batchId={currentBatchId}
+              currentUser={currentUser}
+              onBack={() => {
+                setCurrentBatchId(null);
+                loadBatches();
+              }}
+              onBatchUpdated={loadBatches}
+              onSubmitted={() => {
+                setCurrentBatchId(null);
+                loadBatches();
+              }}
+            />
+          </>
+        ) : (
+          <main className="flex-1 w-full max-w-7xl mx-auto px-4 py-5 sm:px-6 sm:py-8">
+            <OperatorHome
+              currentUser={currentUser}
+              batches={batches}
+              onOpenBatch={handleOpenBatch}
+              onTemplateResolved={handleTemplateResolved}
+              onUsePhoneAsScanner={isMobileDevice() ? () => setPhoneScannerMode(true) : undefined}
+            />
+          </main>
+        )}
+      </div>
+    );
+  }
   const onHoldCount = batches.filter((b) => (b.status as string) === 'ON_HOLD' || (b.status as string) === 'hold').length;
 
   return (
@@ -177,25 +253,8 @@ export const App: React.FC = () => {
       {/* Universal Scan Adapter & Device Simulator Bar (FR-017, FR-018, FR-019) */}
       <UniversalScanBar
         currentUser={currentUser}
-        onBatchResolved={(bId) => {
-          setCurrentBatchId(bId);
-          setActiveTab('sheet');
-          loadBatches();
-        }}
-        onTemplateResolved={async (sheetId) => {
-          if (currentUser.role === 'admin') {
-            setActiveTab('builder');
-            return;
-          }
-          try {
-            const { batch_id } = await startInspectionFromTemplate(sheetId);
-            await loadBatches();
-            setCurrentBatchId(batch_id);
-            setActiveTab('sheet');
-          } catch (err) {
-            console.error('Failed to open checksheet for scanned part:', err);
-          }
-        }}
+        onBatchResolved={handleOpenBatch}
+        onTemplateResolved={handleTemplateResolved}
         onRequestCreateBatch={(code) => handleOpenCreateBatch(code, '', code)}
       />
 

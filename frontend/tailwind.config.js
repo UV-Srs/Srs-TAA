@@ -11,6 +11,13 @@ export default {
         mono: ['JetBrains Mono', 'monospace'],
       },
       colors: {
+        // Operator home / inspection pages
+        brand: {
+          DEFAULT: "#2B5C8F",
+          dark: "#234C77",
+          soft: "#EAF1F8",
+        },
+        canvas: "#F1F4F8",
         ls: {
           bg: "var(--bg)",
           surface: "var(--surface)",
