@@ -33,19 +33,17 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4 select-none">
-      <div className="w-full max-w-sm bg-white border border-slate-200 rounded-2xl p-8 shadow-sm space-y-6">
+    <div className="min-h-screen bg-[var(--bg)] flex flex-col justify-center items-center p-4 select-none">
+      <div className="w-full max-w-sm sv-card p-8 space-y-6">
         {/* Brand */}
         <div className="text-center space-y-2">
-          <div className="w-12 h-12 bg-black text-white font-black text-base rounded-xl flex items-center justify-center mx-auto tracking-tight shadow-sm">
-            TAA
-          </div>
+          <img src="/srs-logo.png" alt="SRS Consulting" className="w-14 h-14 object-contain mx-auto" />
           <div>
-            <h1 className="text-lg font-bold text-slate-900 tracking-tight">
-              Inspection System
+            <h1 className="text-xl font-semibold text-[var(--ink)] tracking-tight">
+              TAA Inspection
             </h1>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Sign in with your role account
+            <p className="sub text-xs mt-0.5">
+              Lot inspection made simple
             </p>
           </div>
         </div>
@@ -93,55 +91,42 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           <button
             type="submit"
             disabled={isLoading || !username || !password}
-            className="w-full py-2.5 bg-black hover:bg-slate-800 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition-all shadow-sm disabled:opacity-40 cursor-pointer mt-2"
+            className="btn primary w-full mt-2 disabled:opacity-40"
           >
             <LogIn className="w-4 h-4" />
             <span>{isLoading ? 'Signing In...' : 'Sign In'}</span>
           </button>
         </form>
 
-        {/* Demo Credentials Box */}
+        {/* Quick-fill usernames (no passwords) */}
         <div className="pt-4 border-t border-slate-100 space-y-2.5">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-              Demo Credentials
-            </span>
-            <span className="text-[10px] text-slate-400">Click to fill</span>
-          </div>
-
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+            Quick fill username
+          </span>
           <div className="grid grid-cols-3 gap-2">
-            <button
-              type="button"
-              onClick={() => { setUsername('operator'); setPassword('oper123'); }}
-              className="p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200/80 rounded-xl text-left transition-all group cursor-pointer"
-            >
-              <div className="text-[11px] font-bold text-slate-800 group-hover:text-black">Operator</div>
-              <div className="text-[10px] text-slate-500 font-mono mt-0.5 truncate">operator</div>
-              <div className="text-[10px] text-slate-400 font-mono">oper123</div>
-            </button>
-            <button
-              type="button"
-              onClick={() => { setUsername('supervisor'); setPassword('super123'); }}
-              className="p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200/80 rounded-xl text-left transition-all group cursor-pointer"
-            >
-              <div className="text-[11px] font-bold text-slate-800 group-hover:text-black">Supervisor</div>
-              <div className="text-[10px] text-slate-500 font-mono mt-0.5 truncate">supervisor</div>
-              <div className="text-[10px] text-slate-400 font-mono">super123</div>
-            </button>
-            <button
-              type="button"
-              onClick={() => { setUsername('admin'); setPassword('admin123'); }}
-              className="p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200/80 rounded-xl text-left transition-all group cursor-pointer"
-            >
-              <div className="text-[11px] font-bold text-slate-800 group-hover:text-black">Admin</div>
-              <div className="text-[10px] text-slate-500 font-mono mt-0.5 truncate">admin</div>
-              <div className="text-[10px] text-slate-400 font-mono">admin123</div>
-            </button>
+            {['operator', 'supervisor', 'admin'].map((role) => (
+              <button
+                key={role}
+                type="button"
+                onClick={() => setUsername(role)}
+                className="p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200/80 rounded-xl text-left transition-all group cursor-pointer"
+              >
+                <div className="text-[11px] font-bold text-slate-800 group-hover:text-black capitalize">{role}</div>
+                <div className="text-[10px] text-slate-500 font-mono mt-0.5 truncate">{role}</div>
+              </button>
+            ))}
           </div>
         </div>
 
         <div className="pt-1 text-center text-[11px] text-slate-400 border-t border-slate-100">
           Industrial Quality & Batch Inspection Management
+        </div>
+
+        {/* Powered by */}
+        <div className="flex items-center justify-center gap-1.5 text-[10px] text-slate-400">
+          <span>Powered by</span>
+          <img src="/srs-logo.png" alt="SRS" className="h-4 w-4 object-contain" />
+          <span className="font-semibold text-slate-500">SRS Consulting Inc.</span>
         </div>
       </div>
     </div>

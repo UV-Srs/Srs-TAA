@@ -37,14 +37,14 @@ export const AdminSheetBuilder: React.FC = () => {
     try {
       setIsLoading(true);
       const list = await fetchSheets();
-      setSheetsList(list);
-      if (list.length > 0) {
+      setSheetsList(list || []);
+      if (list && list.length > 0) {
         populateForm(list[0]);
       } else {
         handleStartBlank();
       }
     } catch (err: any) {
-      console.error(err);
+      console.error('Failed to load sheets:', err);
     } finally {
       setIsLoading(false);
     }
@@ -58,8 +58,8 @@ export const AdminSheetBuilder: React.FC = () => {
     setPartNo(s.part_no || '');
     setPartName(s.part_name || '');
     setModelName(s.model_name || '');
-    vendorName && setVendorName(s.vendor_name || '');
-    customerName && setCustomerName(s.customer_name || '');
+    if (s.vendor_name) setVendorName(s.vendor_name);
+    if (s.customer_name) setCustomerName(s.customer_name);
     setPartCategory(s.part_category || 'MAIN PART');
     setControlItems(s.control_items || []);
     setStatusMsg(null);
@@ -227,30 +227,35 @@ export const AdminSheetBuilder: React.FC = () => {
   };
 
   if (isLoading) {
-    return <div className="py-20 text-center text-xs font-medium text-slate-500">Loading builder...</div>;
+    return (
+      <div className="py-24 text-center">
+        <div className="w-7 h-7 border-2 border-[var(--line2)] border-t-[var(--primary)] rounded-full animate-spin mx-auto mb-3" />
+        <p className="text-sm text-[var(--muted)]">Loading template builder...</p>
+      </div>
+    );
   }
 
   return (
     <div className="space-y-6">
-      {/* Top Bar */}
-      <div className="pb-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-4">
+      {/* ── Page Header: Title + Select + Actions ─────────────────────────── */}
+      <div className="flex flex-wrap items-center justify-between gap-4 pb-3 border-b border-[var(--line)]">
         <div>
-          <h2 className="text-lg font-bold text-slate-900 tracking-tight">
-            Checksheet Template Builder
-          </h2>
-          <p className="text-xs text-slate-500">
-            Configure inspection rows, columns, tolerances, and generate linked QR codes
+          <h2>Templates</h2>
+          <p className="sub mt-0.5">
+            Configure checksheet templates, control items, tolerances, and generate linked QR codes
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+          {/* Template Select Dropdown */}
           <select
             value={selectedSheetId}
             onChange={(e) => {
               const found = sheetsList.find((s) => s.sheet_id === e.target.value);
               if (found) populateForm(found);
             }}
-            className="w-full sm:w-auto min-w-0 sm:max-w-[260px] truncate border border-slate-300 rounded-lg px-3 py-2 sm:py-1.5 text-xs font-medium bg-white focus:outline-none"
+            aria-label="Select Template"
+            className="min-h-[44px] px-3.5 border border-[var(--line2)] rounded-xl text-xs font-semibold bg-[var(--surface)] text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] max-w-[280px] truncate"
           >
             {sheetsList.map((s) => (
               <option key={s.sheet_id} value={s.sheet_id}>
@@ -260,26 +265,32 @@ export const AdminSheetBuilder: React.FC = () => {
           </select>
 
           <button
+            type="button"
             onClick={handleStartBlank}
-            className="px-3 py-2 sm:py-1.5 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-lg transition-colors flex flex-1 sm:flex-none items-center justify-center gap-1.5 whitespace-nowrap"
+            className="btn sm"
+            title="Create blank sheet"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Blank Sheet</span>
           </button>
 
           <button
+            type="button"
             onClick={() => setIsPrintModalOpen(true)}
             disabled={isNewSheet}
-            className="px-3 py-2 sm:py-1.5 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-lg transition-colors flex flex-1 sm:flex-none items-center justify-center gap-1.5 whitespace-nowrap disabled:opacity-40"
+            className="btn sm disabled:opacity-40"
+            title="View & Print QR Code"
           >
             <Printer className="w-3.5 h-3.5" />
             <span>View QR</span>
           </button>
 
           <button
+            type="button"
             disabled={isSaving}
             onClick={handleSave}
-            className="px-4 py-2 sm:py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium rounded-lg transition-all shadow-sm flex flex-1 sm:flex-none items-center justify-center gap-1.5 whitespace-nowrap disabled:opacity-50"
+            className="btn primary sm disabled:opacity-50"
+            title="Save Template"
           >
             <Save className="w-3.5 h-3.5" />
             <span>{isSaving ? 'Saving...' : 'Save Template'}</span>
@@ -287,25 +298,35 @@ export const AdminSheetBuilder: React.FC = () => {
         </div>
       </div>
 
+      {/* ── Status Message Banner ─────────────────────────────────────────── */}
       {statusMsg && (
-        <div className={`p-3 rounded-lg text-xs flex items-center gap-2 border ${
-          statusMsg.type === 'success'
-            ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-            : 'border-red-200 bg-red-50 text-red-800'
-        }`}>
-          {statusMsg.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <AlertCircle className="w-4 h-4 text-red-600" />}
-          <span>{statusMsg.text}</span>
+        <div
+          className={`p-3.5 rounded-xl text-xs flex items-center gap-2.5 border ${
+            statusMsg.type === 'success'
+              ? 'border-[var(--ok)] bg-[var(--ok-bg)] text-[var(--ok)]'
+              : 'border-[var(--ng)] bg-[var(--ng-bg)] text-[var(--ng)]'
+          }`}
+        >
+          {statusMsg.type === 'success' ? (
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-[var(--ok)]" />
+          ) : (
+            <AlertCircle className="w-4 h-4 shrink-0 text-[var(--ng)]" />
+          )}
+          <span className="font-medium">{statusMsg.text}</span>
         </div>
       )}
 
-      {/* Part Metadata Card */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4 text-xs">
-        <div className="flex items-center justify-between gap-3 pb-3 border-b border-slate-100">
-          <span className="font-semibold text-slate-900">Sheet Metadata & Identification</span>
+      {/* ── Card 1: Sheet Metadata & Identification ────────────────────────── */}
+      <div className="sv-card space-y-4">
+        <div className="flex items-center justify-between gap-3 pb-3 border-b border-[var(--line)]">
+          <span className="font-semibold text-sm text-[var(--ink)]">
+            Sheet Metadata & Identification
+          </span>
           <button
             type="button"
             onClick={() => setIsTFTScanOpen(true)}
-            className="text-[11px] font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-md flex items-center gap-1 transition-colors whitespace-nowrap shrink-0"
+            className="btn sm text-xs"
+            title="Scan part number barcode or QR"
           >
             <QrCode className="w-3.5 h-3.5" />
             <span>Scan Part Number</span>
@@ -314,45 +335,45 @@ export const AdminSheetBuilder: React.FC = () => {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
           <div className="space-y-1">
-            <label className="font-medium text-slate-600 block">Sheet ID</label>
+            <label className="font-semibold text-xs text-[var(--ink)] block">Sheet ID</label>
             <input
               type="text"
               required
               value={sheetId}
               onChange={(e) => setSheetId(e.target.value)}
               placeholder="e.g. 18351M62Q50-IFM"
-              className="w-full border border-slate-300 rounded-lg p-2 font-medium focus:outline-none focus:ring-2 focus:ring-slate-900"
+              className="w-full border border-[var(--line2)] rounded-xl p-2.5 bg-[var(--surface)] text-[var(--ink)] mono focus:outline-none focus:ring-2 focus:ring-[var(--accent)] text-xs font-medium"
             />
           </div>
 
           <div className="space-y-1">
-            <label className="font-medium text-slate-600 block">Part Number</label>
+            <label className="font-semibold text-xs text-[var(--ink)] block">Part Number</label>
             <input
               type="text"
               value={partNo}
               onChange={(e) => setPartNo(e.target.value)}
               placeholder="e.g. 18351M62Q50"
-              className="w-full border border-slate-300 rounded-lg p-2 font-medium focus:outline-none focus:ring-2 focus:ring-slate-900"
+              className="w-full border border-[var(--line2)] rounded-xl p-2.5 bg-[var(--surface)] text-[var(--ink)] mono focus:outline-none focus:ring-2 focus:ring-[var(--accent)] text-xs font-medium"
             />
           </div>
 
           <div className="space-y-1">
-            <label className="font-medium text-slate-600 block">Part Name</label>
+            <label className="font-semibold text-xs text-[var(--ink)] block">Part Name</label>
             <input
               type="text"
               value={partName}
               onChange={(e) => setPartName(e.target.value)}
               placeholder="e.g. PIPE, PURGE LINE (RH)"
-              className="w-full border border-slate-300 rounded-lg p-2 font-medium focus:outline-none focus:ring-2 focus:ring-slate-900"
+              className="w-full border border-[var(--line2)] rounded-xl p-2.5 bg-[var(--surface)] text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] text-xs font-medium"
             />
           </div>
 
           <div className="space-y-1">
-            <label className="font-medium text-slate-600 block">Category</label>
+            <label className="font-semibold text-xs text-[var(--ink)] block">Category</label>
             <select
               value={partCategory}
               onChange={(e) => setPartCategory(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg p-2 font-medium focus:outline-none focus:ring-2 focus:ring-slate-900 bg-white"
+              className="w-full border border-[var(--line2)] rounded-xl p-2.5 bg-[var(--surface)] text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] text-xs font-medium cursor-pointer"
             >
               <option value="MAIN PART">MAIN PART</option>
               <option value="CHILD PART">CHILD PART</option>
@@ -362,65 +383,73 @@ export const AdminSheetBuilder: React.FC = () => {
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
           <div className="space-y-1">
-            <label className="font-medium text-slate-600 block">Model</label>
+            <label className="font-semibold text-xs text-[var(--ink)] block">Model</label>
             <input
               type="text"
               value={modelName}
               onChange={(e) => setModelName(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
+              placeholder="e.g. YTA MC26 Fuel Line"
+              className="w-full border border-[var(--line2)] rounded-xl p-2.5 bg-[var(--surface)] text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] text-xs"
             />
           </div>
           <div className="space-y-1">
-            <label className="font-medium text-slate-600 block">Vendor</label>
+            <label className="font-semibold text-xs text-[var(--ink)] block">Vendor</label>
             <input
               type="text"
               value={vendorName}
               onChange={(e) => setVendorName(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
+              placeholder="e.g. Bundy India Ltd."
+              className="w-full border border-[var(--line2)] rounded-xl p-2.5 bg-[var(--surface)] text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] text-xs"
             />
           </div>
           <div className="space-y-1">
-            <label className="font-medium text-slate-600 block">Customer</label>
+            <label className="font-semibold text-xs text-[var(--ink)] block">Customer</label>
             <input
               type="text"
               value={customerName}
               onChange={(e) => setCustomerName(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
+              placeholder="e.g. MSIL"
+              className="w-full border border-[var(--line2)] rounded-xl p-2.5 bg-[var(--surface)] text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] text-xs"
             />
           </div>
         </div>
 
         <div className="space-y-1">
-          <label className="font-medium text-slate-600 block">Document Title</label>
+          <label className="font-semibold text-xs text-[var(--ink)] block">Document Title</label>
           <input
             type="text"
             value={documentTitle}
             onChange={(e) => setDocumentTitle(e.target.value)}
-            className="w-full border border-slate-300 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
+            className="w-full border border-[var(--line2)] rounded-xl p-2.5 bg-[var(--surface)] text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] text-xs font-medium"
           />
         </div>
       </div>
 
-      {/* Control Items Matrix Card */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
-        <div className="flex items-center justify-between gap-3 pb-3 border-b border-slate-100">
+      {/* ── Card 2: Control Items & Specification Matrix ─────────────────────── */}
+      <div className="sv-card flush">
+        <div className="p-4 sm:p-5 border-b border-[var(--line)] flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h3 className="text-xs font-semibold text-slate-900">Control Items & Specification Matrix</h3>
-            <p className="text-[11px] text-slate-500">Configure visual checklist rows and numeric sample measurement grids</p>
+            <h3 className="text-sm font-semibold text-[var(--ink)]">
+              Control Items & Specification Matrix
+            </h3>
+            <p className="sub text-[11px] mt-0.5">
+              Configure visual checklist rows and numeric sample measurement grids
+            </p>
           </div>
 
           <button
             type="button"
             onClick={handleAddRow}
-            className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium rounded-lg flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
+            className="btn primary sm"
+            title="Add a new row"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Add Row</span>
           </button>
         </div>
 
-        <div className="overflow-x-auto border border-slate-200 rounded-lg">
-          <table className="clean-table min-w-full text-xs">
+        <div className="overflow-x-auto">
+          <table className="vt">
             <thead>
               <tr>
                 <th className="w-10 text-center">#</th>
@@ -432,20 +461,20 @@ export const AdminSheetBuilder: React.FC = () => {
                 <th className="w-28">Columns</th>
                 <th className="w-28 text-center">Tolerance (Min / Max)</th>
                 <th className="w-24">Role</th>
-                <th className="w-10 text-center"></th>
+                <th className="w-12 text-center"></th>
               </tr>
             </thead>
             <tbody>
               {controlItems.map((item, idx) => (
                 <tr key={idx}>
-                  <td className="text-center font-semibold text-slate-500">{item.serial_no}</td>
+                  <td className="text-center font-semibold text-[var(--muted)]">{item.serial_no}</td>
 
                   <td>
                     <input
                       type="text"
                       value={item.stage_name}
                       onChange={(e) => handleUpdateItem(idx, 'stage_name', e.target.value)}
-                      className="w-full border border-slate-200 rounded px-2 py-1 text-xs"
+                      className="w-full border border-[var(--line2)] rounded-lg px-2 py-1.5 text-xs bg-[var(--surface)] text-[var(--ink)]"
                       placeholder="Stage"
                     />
                   </td>
@@ -455,7 +484,7 @@ export const AdminSheetBuilder: React.FC = () => {
                       type="text"
                       value={item.control_item_name}
                       onChange={(e) => handleUpdateItem(idx, 'control_item_name', e.target.value)}
-                      className="w-full border border-slate-200 rounded px-2 py-1 text-xs font-medium"
+                      className="w-full border border-[var(--line2)] rounded-lg px-2 py-1.5 text-xs font-semibold bg-[var(--surface)] text-[var(--ink)]"
                       placeholder="Item name"
                     />
                   </td>
@@ -465,7 +494,7 @@ export const AdminSheetBuilder: React.FC = () => {
                       type="text"
                       value={item.specification_content}
                       onChange={(e) => handleUpdateItem(idx, 'specification_content', e.target.value)}
-                      className="w-full border border-slate-200 rounded px-2 py-1 text-xs text-slate-700"
+                      className="w-full border border-[var(--line2)] rounded-lg px-2 py-1.5 text-xs bg-[var(--surface)] text-[var(--muted)]"
                       placeholder="Spec"
                     />
                   </td>
@@ -475,7 +504,7 @@ export const AdminSheetBuilder: React.FC = () => {
                       type="text"
                       value={item.application_method || ''}
                       onChange={(e) => handleUpdateItem(idx, 'application_method', e.target.value)}
-                      className="w-full border border-slate-200 rounded px-2 py-1 text-xs"
+                      className="w-full border border-[var(--line2)] rounded-lg px-2 py-1.5 text-xs bg-[var(--surface)] text-[var(--ink)]"
                       placeholder="Method"
                     />
                   </td>
@@ -494,7 +523,7 @@ export const AdminSheetBuilder: React.FC = () => {
                           handleUpdateItem(idx, 'sample_columns', ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']);
                         }
                       }}
-                      className="w-full border border-slate-200 rounded px-1.5 py-1 text-xs bg-white font-medium"
+                      className="w-full border border-[var(--line2)] rounded-lg px-1.5 py-1.5 text-xs bg-[var(--surface)] text-[var(--ink)] font-medium cursor-pointer"
                     >
                       <option value="SERIAL_TICKBOX">Tickbox (100%/200%)</option>
                       <option value="NUMERIC_SAMPLE">Numeric (n=5/10)</option>
@@ -506,7 +535,7 @@ export const AdminSheetBuilder: React.FC = () => {
                       type="text"
                       value={item.sample_columns.join(',')}
                       onChange={(e) => handleUpdateItem(idx, 'sample_columns', e.target.value.split(',').map((s) => s.trim()))}
-                      className="w-full border border-slate-200 rounded px-2 py-1 text-[11px] font-mono"
+                      className="w-full border border-[var(--line2)] rounded-lg px-2 py-1.5 text-[11px] mono bg-[var(--surface)] text-[var(--ink)]"
                     />
                   </td>
 
@@ -519,7 +548,7 @@ export const AdminSheetBuilder: React.FC = () => {
                           value={item.min_val ?? ''}
                           onChange={(e) => handleUpdateItem(idx, 'min_val', e.target.value ? parseFloat(e.target.value) : null)}
                           placeholder="Min"
-                          className="w-12 border border-slate-200 rounded p-1 text-[10px] text-center"
+                          className="w-12 border border-[var(--line2)] rounded-lg p-1 text-[11px] text-center bg-[var(--surface)] text-[var(--ink)] mono"
                         />
                         <input
                           type="number"
@@ -527,11 +556,11 @@ export const AdminSheetBuilder: React.FC = () => {
                           value={item.max_val ?? ''}
                           onChange={(e) => handleUpdateItem(idx, 'max_val', e.target.value ? parseFloat(e.target.value) : null)}
                           placeholder="Max"
-                          className="w-12 border border-slate-200 rounded p-1 text-[10px] text-center"
+                          className="w-12 border border-[var(--line2)] rounded-lg p-1 text-[11px] text-center bg-[var(--surface)] text-[var(--ink)] mono"
                         />
                       </div>
                     ) : (
-                      <span className="text-[10px] text-slate-400">Pass / Fail</span>
+                      <span className="text-[11px] text-[var(--muted)]">Pass / Fail</span>
                     )}
                   </td>
 
@@ -539,7 +568,7 @@ export const AdminSheetBuilder: React.FC = () => {
                     <select
                       value={item.assigned_role}
                       onChange={(e) => handleUpdateItem(idx, 'assigned_role', e.target.value as any)}
-                      className="w-full border border-slate-200 rounded px-1.5 py-1 text-xs bg-white"
+                      className="w-full border border-[var(--line2)] rounded-lg px-1.5 py-1.5 text-xs bg-[var(--surface)] text-[var(--ink)] cursor-pointer"
                     >
                       <option value="operator">Operator</option>
                       <option value="supervisor">Supervisor</option>
@@ -551,7 +580,7 @@ export const AdminSheetBuilder: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => handleRemoveRow(idx)}
-                      className="p-1 text-slate-400 hover:text-red-600 rounded transition-colors"
+                      className="p-1.5 text-[var(--muted)] hover:text-[var(--ng)] rounded-lg transition-colors cursor-pointer"
                       title="Delete Row"
                     >
                       <Trash2 className="w-3.5 h-3.5" />

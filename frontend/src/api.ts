@@ -25,6 +25,14 @@ export async function apiRequest<T>(
     headers,
   });
 
+  if (response.status === 401) {
+    // Token missing or expired — clear session and force re-login
+    localStorage.removeItem('taa_jwt_token');
+    localStorage.removeItem('taa_user');
+    window.location.href = '/';
+    throw new Error('Session expired. Please log in again.');
+  }
+
   if (!response.ok) {
     let errorDetail = 'API request failed';
     try {

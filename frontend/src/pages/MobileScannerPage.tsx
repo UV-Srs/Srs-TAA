@@ -11,6 +11,8 @@ import {
 interface MobileScannerPageProps {
   currentUser: User;
   onLogout: () => void;
+  /** When set, shows an "Inspect here" button that leaves scanner mode (used for operators). */
+  onExitScannerMode?: () => void;
 }
 
 interface ScanEntry {
@@ -28,7 +30,7 @@ const roleBadge: Record<string, string> = {
   operator:   'bg-emerald-100 text-emerald-800',
 };
 
-export const MobileScannerPage: React.FC<MobileScannerPageProps> = ({ currentUser, onLogout }) => {
+export const MobileScannerPage: React.FC<MobileScannerPageProps> = ({ currentUser, onLogout, onExitScannerMode }) => {
   const [isScanOpen, setIsScanOpen]   = useState(false);
   const [isOpening, setIsOpening]     = useState(false);
   const [lastResult, setLastResult]   = useState<ScanEntry | null>(null);
@@ -85,6 +87,15 @@ export const MobileScannerPage: React.FC<MobileScannerPageProps> = ({ currentUse
           <p className="text-sm font-bold text-white leading-tight mt-0.5">{currentUser.full_name}</p>
         </div>
         <div className="flex items-center gap-3">
+          {onExitScannerMode && (
+            <button
+              type="button"
+              onClick={onExitScannerMode}
+              className="text-xs font-semibold px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+            >
+              Inspect here
+            </button>
+          )}
           <span className={`text-[11px] font-bold uppercase px-2.5 py-1 rounded-full ${roleBadge[currentUser.role] ?? 'bg-slate-700 text-slate-300'}`}>
             {currentUser.role}
           </span>

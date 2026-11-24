@@ -49,6 +49,14 @@ def sync_offline_queue(
                     is_spec = False
             except ValueError:
                 is_spec = False
+        elif m.cell_value and str(m.cell_value).strip().lower() in ("fail", "false"):
+            # Pass/fail and tick-box results: a "Fail" is out of spec (matches PATCH /cell)
+            is_spec = False
+
+        # Auto-progress to IN_PROGRESS on the first synced result (matches PATCH /cell)
+        target_batch = db.query(InspectionBatch).filter(InspectionBatch.batch_id == m.batch_id).first()
+        if target_batch and target_batch.status in ["CREATED_PENDING_OPERATOR", "pending"]:
+            target_batch.status = "OPERATOR_IN_PROGRESS"
 
         # Upsert cell response
         resp = db.query(BatchCellResponse).filter(
