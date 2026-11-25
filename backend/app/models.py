@@ -4,7 +4,7 @@ from sqlalchemy import (
     ForeignKey, Float, JSON, UniqueConstraint
 )
 from sqlalchemy.orm import relationship
-from backend.app.database import Base
+from backend.app.db_base import Base
 
 class User(Base):
     __tablename__ = "users"
@@ -225,7 +225,7 @@ class SupervisorLotReview(Base):
     Supervisor review state for one lot and inspection round (supervisor UI).
     Holds what inspection_batches has no field for: per-item decisions, the review
     lock, the out-of-spec action and the admin's reopen note.
-    New table, so Base.metadata.create_all() creates it without a migration.
+    Added by migration 0001 (the baseline).
     """
     __tablename__ = "supervisor_lot_reviews"
     __table_args__ = (UniqueConstraint("batch_id", "round", name="uq_supervisor_lot_review_round"),)

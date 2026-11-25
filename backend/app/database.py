@@ -1,7 +1,9 @@
 import sys
 import logging
 from sqlalchemy import create_engine, text
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.orm import sessionmaker
+
+from backend.app.db_base import Base  # re-exported: `from backend.app.database import Base` still works
 
 try:
     from backend.app.config import DATABASE_URL, DB_NAME, DB_HOST, DB_PORT
@@ -9,8 +11,6 @@ except ImportError:
     from app.config import DATABASE_URL, DB_NAME, DB_HOST, DB_PORT
 
 logger = logging.getLogger("taa.database")
-
-Base = declarative_base()
 
 def init_engine():
     target_url = DATABASE_URL

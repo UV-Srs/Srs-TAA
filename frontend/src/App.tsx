@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { User, InspectionBatch, QRResolveResult } from './types';
 import { getCurrentStoredUser, logoutUser, fetchBatches, fetchProgressDashboard, startInspectionFromTemplate, fetchPendingScan, apiRequest } from './api';
 import { onBatchCreated, onBatchUpdated, onSheetUpdated, onScanNotFound, liveSync } from './liveSync';
+import { guardedNavigate } from './lib/navGuard';
 import { Header } from './components/Header';
 import { UniversalScanBar } from './components/UniversalScanBar';
 import { BatchSidebar } from './components/BatchSidebar';
@@ -127,21 +128,28 @@ export const App: React.FC = () => {
   };
 
   const handleLogout = () => {
-    logoutUser();
-    setCurrentUser(null);
+    guardedNavigate(() => {
+      logoutUser();
+      setCurrentUser(null);
+    });
   };
+
+  // Every in-app tab change goes through here so a screen with unsaved work can ask first.
+  const requestTab = (tab: string) => guardedNavigate(() => setActiveTab(tab));
 
   const handleSelectBatchByCode = (batchCode: string) => {
     const found = batches.find((b) => b.lot_number === batchCode || b.lot_number === `TAA-${batchCode}`);
     if (found) {
-      setCurrentBatchId(found.batch_id);
-      setActiveTab('sheet');
+      guardedNavigate(() => {
+        setCurrentBatchId(found.batch_id);
+        setActiveTab('sheet');
+      });
     }
   };
 
   const handleTemplateResolved = async (sheetId: string) => {
     if (currentUser?.role === 'admin') {
-      setActiveTab('builder');
+      requestTab('builder');
       return;
     }
     try {
@@ -155,9 +163,11 @@ export const App: React.FC = () => {
   };
 
   const handleOpenBatch = (bId: number) => {
-    setCurrentBatchId(bId);
-    setActiveTab('sheet');
-    loadBatches();
+    guardedNavigate(() => {
+      setCurrentBatchId(bId);
+      setActiveTab('sheet');
+      loadBatches();
+    });
   };
   if (!authChecked) {
     return (
@@ -254,7 +264,7 @@ export const App: React.FC = () => {
         user={currentUser}
         onLogout={handleLogout}
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        setActiveTab={requestTab}
         onSelectBatchByCode={handleSelectBatchByCode}
       />
 
@@ -275,7 +285,7 @@ export const App: React.FC = () => {
         <Sidebar
           user={currentUser}
           activeTab={activeTab}
-          setActiveTab={setActiveTab}
+          setActiveTab={requestTab}
           onHoldCount={onHoldCount}
         />
 

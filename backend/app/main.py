@@ -3,13 +3,16 @@ import asyncio
 from pathlib import Path
 from contextlib import asynccontextmanager
 import jwt as _jwt
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from backend.app.config import UPLOAD_DIR, BASE_DIR, SECRET_KEY, ALGORITHM
-from backend.app.database import engine, Base, SessionLocal
+from backend.app.database import engine, SessionLocal
+from backend.app.migrations_check import verify_database_is_current
 from backend.app import models
 from backend.app.seed_data import seed_database
 from backend.app.live_sync import live_manager
@@ -25,25 +28,14 @@ from backend.app.routes import (
     notification_routes,
 )
 
-def _add_missing_columns():
-    """create_all() never alters existing tables; add the columns introduced after a table was
-    first created (supervisor spot checks and comments). Idempotent."""
-    from sqlalchemy import inspect, text
-    added = {"supervisor_lot_reviews": {"spot_checks": "JSON", "comment": "TEXT"}}
-    insp = inspect(engine)
-    with engine.begin() as conn:
-        for table, cols in added.items():
-            if not insp.has_table(table):
-                continue
-            have = {c["name"] for c in insp.get_columns(table)}
-            for name, sql_type in cols.items():
-                if name not in have:
-                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}"))
-
-
 def init_db():
-    Base.metadata.create_all(bind=engine)
-    _add_missing_columns()
+    """Startup no longer creates or alters any table: the schema is owned by Alembic migrations.
+
+    It only VERIFIES that the database is at the migration this code expects (and raises, so the
+    app does not start, if not), then seeds the default users. See "Database migrations" in README.md.
+    """
+    revision = verify_database_is_current(engine)
+    print(f"[DB] Schema is at migration {revision}")
     db = SessionLocal()
     try:
         seed_database(db)
@@ -67,6 +59,19 @@ app = FastAPI(
     version="2.0.0",
     lifespan=lifespan
 )
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError):
+    """422 with {detail: [{loc, msg, type}]}, the standard shape, minus the echoed request values.
+
+    FastAPI's default body repeats the submitted `input`. For a value such as NaN that makes the
+    error response itself fail to serialise (a 500), and for a malformed login it echoes the
+    password back. Only the location, message and type are needed to show the error.
+    """
+    errors = [{"loc": list(e.get("loc", ())), "msg": str(e.get("msg", "")), "type": e.get("type", "value_error")}
+              for e in exc.errors()]
+    return JSONResponse(status_code=422, content={"detail": errors})
+
 
 # CORS configuration
 app.add_middleware(
@@ -149,6 +154,15 @@ def serve_frontend(full_path: str):
     # If API, Uploads, or WS route was not matched, return 404 for API
     if full_path.startswith("api/") or full_path.startswith("uploads/") or full_path.startswith("ws/"):
         return {"error": "Not Found"}
+
+    # Real files from the frontend build (the logo / tab icon in public/ end up in the dist root).
+    # Without this they fell through to index.html and the logo showed as a broken image.
+    if full_path:
+        root = DIST_DIR.resolve()
+        candidate = (DIST_DIR / full_path).resolve()
+        if candidate.is_file() and root in candidate.parents:  # never serve anything outside dist
+            return FileResponse(candidate)
+
     index_file = DIST_DIR / "index.html"
     if index_file.exists():
         return FileResponse(index_file)

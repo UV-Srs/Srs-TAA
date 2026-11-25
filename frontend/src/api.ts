@@ -5,6 +5,12 @@ import {
 
 const API_BASE = '';
 
+export interface ApiError extends Error {
+  status?: number;
+  /** The response's `detail` as sent: a string, `{message, errors}` (409) or a list of field errors (422). */
+  detail?: unknown;
+}
+
 function getAuthHeader(): Record<string, string> {
   const token = localStorage.getItem('taa_jwt_token');
   return token ? { Authorization: `Bearer ${token}` } : {};
@@ -35,13 +41,20 @@ export async function apiRequest<T>(
 
   if (!response.ok) {
     let errorDetail = 'API request failed';
+    let rawDetail: unknown;
     try {
       const errorJson = await response.json();
+      rawDetail = errorJson.detail;
       errorDetail = errorJson.detail?.message || errorJson.detail || JSON.stringify(errorJson);
     } catch {
       errorDetail = await response.text();
     }
-    throw new Error(errorDetail);
+    // Same Error and message as before, plus the structured detail (for example the list of
+    // per-field validation errors) for callers that want to show it beside the right field.
+    const error = new Error(typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail)) as ApiError;
+    error.status = response.status;
+    error.detail = rawDetail;
+    throw error;
   }
 
   return response.json();

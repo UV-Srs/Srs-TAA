@@ -1,6 +1,8 @@
+import math
+import re
 from datetime import datetime
 from typing import Optional, List, Any, Dict
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # --- User & Auth ---
 class UserLogin(BaseModel):
@@ -52,8 +54,128 @@ class ControlItemBase(BaseModel):
     is_required: bool = True
     display_order: int = 0
 
+# Values the rest of the application already understands (see supervisor_workspace.py, the
+# operator / checksheet screens and the report exports). Anything else would be saved but
+# then ignored or mis-rendered, so it is rejected up front.
+ROW_MODES = {"SERIAL_TICKBOX", "NUMERIC_SAMPLE", "STANDARD_INPUT"}
+INPUT_TYPES = {"checkbox", "number", "text", "select", "radio", "date", "pf"}
+ASSIGNED_ROLES = {"operator", "supervisor", "admin"}
+PART_CATEGORIES = {"MAIN PART", "CHILD PART"}
+MAX_SAMPLE_COLUMNS = 50
+SHEET_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def _clean(value: Optional[str]) -> Optional[str]:
+    return value.strip() if isinstance(value, str) else value
+
+
 class ControlItemCreate(ControlItemBase):
-    pass
+    """Input model for a template row. Validation lives here, not on the shared base, so that
+    rows already stored (possibly from older versions) can still be returned by the API."""
+
+    # Optional: present when the client is editing an existing row, so it is updated in place.
+    item_id: Optional[int] = None
+
+    @field_validator("stage_name", "control_item_name")
+    @classmethod
+    def _required_text(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("must not be empty")
+        return v
+
+    @field_validator("stage_name")
+    @classmethod
+    def _stage_len(cls, v: str) -> str:
+        if len(v) > 100:
+            raise ValueError("must be 100 characters or fewer")
+        return v
+
+    @field_validator("control_item_name")
+    @classmethod
+    def _name_len(cls, v: str) -> str:
+        if len(v) > 255:
+            raise ValueError("must be 255 characters or fewer")
+        return v
+
+    @field_validator("application_method")
+    @classmethod
+    def _method_len(cls, v: Optional[str]) -> Optional[str]:
+        v = _clean(v)
+        if v and len(v) > 100:
+            raise ValueError("must be 100 characters or fewer")
+        return v
+
+    @field_validator("normal_frequency", "ifm_frequency")
+    @classmethod
+    def _freq_len(cls, v: Optional[str]) -> Optional[str]:
+        v = _clean(v)
+        if v and len(v) > 50:
+            raise ValueError("must be 50 characters or fewer")
+        return v
+
+    @field_validator("row_mode")
+    @classmethod
+    def _row_mode(cls, v: str) -> str:
+        if v not in ROW_MODES:
+            raise ValueError(f"unsupported row mode '{v}'. Use one of: {', '.join(sorted(ROW_MODES))}")
+        return v
+
+    @field_validator("html_input_type")
+    @classmethod
+    def _input_type(cls, v: str) -> str:
+        if v not in INPUT_TYPES:
+            raise ValueError(f"unsupported input type '{v}'. Use one of: {', '.join(sorted(INPUT_TYPES))}")
+        return v
+
+    @field_validator("assigned_role")
+    @classmethod
+    def _role(cls, v: str) -> str:
+        if v not in ASSIGNED_ROLES:
+            raise ValueError(f"unsupported role '{v}'. Use one of: {', '.join(sorted(ASSIGNED_ROLES))}")
+        return v
+
+    @field_validator("sample_columns")
+    @classmethod
+    def _columns(cls, v: List[str], info) -> List[str]:
+        cols = [str(c).strip() for c in v]
+        if any(not c for c in cols):
+            raise ValueError("sample column names must not be empty")
+        if any(len(c) > 50 for c in cols):
+            raise ValueError("sample column names must be 50 characters or fewer")
+        if len(set(cols)) != len(cols):
+            raise ValueError("sample column names must be unique")
+        if len(cols) > MAX_SAMPLE_COLUMNS:
+            raise ValueError(f"at most {MAX_SAMPLE_COLUMNS} samples are allowed")
+        # Tick and numeric rows are filled per sample, so they need at least one column.
+        if info.data.get("row_mode") in ("SERIAL_TICKBOX", "NUMERIC_SAMPLE") and not cols:
+            raise ValueError("at least 1 sample is required")
+        return cols
+
+    @field_validator("min_val", "max_val")
+    @classmethod
+    def _finite(cls, v: Optional[float]) -> Optional[float]:
+        if v is not None and not math.isfinite(v):
+            raise ValueError("must be a finite number")
+        return v
+
+    @field_validator("max_val")
+    @classmethod
+    def _max_above_min(cls, v: Optional[float], info) -> Optional[float]:
+        lo = info.data.get("min_val")
+        if v is not None and lo is not None and lo >= v:
+            raise ValueError("must be greater than the minimum")
+        return v
+
+    @field_validator("unit")
+    @classmethod
+    def _unit(cls, v: Optional[str]) -> Optional[str]:
+        v = _clean(v)
+        if not v:
+            return None
+        if len(v) > 30:
+            raise ValueError("must be 30 characters or fewer")
+        return v
 
 class ControlItemResponse(ControlItemBase):
     item_id: int
@@ -73,6 +195,52 @@ class SheetTemplateCreate(BaseModel):
     customer_name: Optional[str] = None
     part_category: Optional[str] = "MAIN PART"
     control_items: List[ControlItemCreate] = []
+
+    @field_validator("sheet_id")
+    @classmethod
+    def _sheet_id(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("must not be empty")
+        if len(v) > 64:
+            raise ValueError("must be 64 characters or fewer")
+        return v
+
+    @field_validator("document_title")
+    @classmethod
+    def _title(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("must not be empty")
+        if len(v) > 255:
+            raise ValueError("must be 255 characters or fewer")
+        return v
+
+    @field_validator("part_no", "part_name", "model_name", "vendor_name", "customer_name")
+    @classmethod
+    def _optional_text(cls, v: Optional[str], info) -> Optional[str]:
+        v = _clean(v)
+        limit = 100 if info.field_name == "part_no" else 150
+        if v and len(v) > limit:
+            raise ValueError(f"must be {limit} characters or fewer")
+        return v
+
+    @field_validator("part_category")
+    @classmethod
+    def _category(cls, v: Optional[str]) -> Optional[str]:
+        if v in (None, ""):
+            return "MAIN PART"
+        if v not in PART_CATEGORIES:
+            raise ValueError(f"unsupported category '{v}'. Use one of: {', '.join(sorted(PART_CATEGORIES))}")
+        return v
+
+    @field_validator("control_items")
+    @classmethod
+    def _unique_item_ids(cls, v: List[ControlItemCreate]) -> List[ControlItemCreate]:
+        ids = [i.item_id for i in v if i.item_id is not None]
+        if len(ids) != len(set(ids)):
+            raise ValueError("the same item_id appears more than once")
+        return v
 
 class SheetTemplateResponse(BaseModel):
     sheet_id: str
