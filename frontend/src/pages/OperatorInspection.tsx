@@ -659,16 +659,9 @@ const CheckCard: React.FC<{ index: number; item: ControlItem; state: 'pass' | 'f
   const limits = item.min_val !== null && item.min_val !== undefined && item.max_val !== null && item.max_val !== undefined
     ? `${item.min_val} – ${item.max_val}${item.unit ? ` ${item.unit}` : ''}` : null;
   return (
-    <button
-      type="button"
-      onClick={readOnly ? undefined : onToggle}
-      disabled={readOnly}
-      aria-pressed={readOnly ? undefined : failed}
-      aria-label={readOnly
-        ? `${item.control_item_name}: ${failed ? 'bad' : 'good'}`
-        : `${item.control_item_name}: ${failed ? 'marked bad, tap to mark good' : 'good, tap to mark bad'}`}
-      className={`w-full text-left rounded-2xl border p-4 sm:p-5 flex items-start gap-3 sm:gap-4 transition-colors disabled:cursor-default ${
-        failed ? 'bg-red-50 border-red-300' : `bg-white border-emerald-200 ${readOnly ? '' : 'hover:border-emerald-400'}`
+    <div
+      className={`w-full text-left rounded-2xl border p-4 sm:p-5 flex items-start gap-3 sm:gap-4 transition-colors ${
+        failed ? 'bg-red-50 border-red-300' : 'bg-white border-emerald-200'
       }`}
     >
       <span className={`w-7 h-7 shrink-0 rounded-full flex items-center justify-center text-xs font-semibold ${failed ? 'bg-red-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
@@ -684,10 +677,33 @@ const CheckCard: React.FC<{ index: number; item: ControlItem; state: 'pass' | 'f
           <span className={`block mt-1.5 text-xs ${failed ? 'text-red-500' : 'text-slate-400'}`}>{item.application_method}</span>
         )}
       </span>
-      <span className={`w-8 h-8 shrink-0 rounded-lg flex items-center justify-center ${failed ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white'}`}>
-        {failed ? <X className="w-5 h-5" strokeWidth={3} /> : <Check className="w-5 h-5" strokeWidth={3} />}
+      <span className="shrink-0 flex gap-2" role="group" aria-label={`${item.control_item_name}: yes or no`}>
+        <label className={`flex items-center gap-2 h-9 px-3 rounded-lg border text-sm font-bold select-none ${readOnly ? '' : 'cursor-pointer'} ${
+          !failed ? 'border-emerald-600 bg-emerald-50 text-emerald-700' : 'border-slate-300 bg-white text-slate-600'
+        }`}>
+          <input
+            type="checkbox"
+            className="w-4 h-4 accent-emerald-600"
+            checked={!failed}
+            disabled={readOnly}
+            onChange={() => { if (!readOnly && failed) onToggle(); }}
+          />
+          Yes
+        </label>
+        <label className={`flex items-center gap-2 h-9 px-3 rounded-lg border text-sm font-bold select-none ${readOnly ? '' : 'cursor-pointer'} ${
+          failed ? 'border-red-600 bg-red-50 text-red-700' : 'border-slate-300 bg-white text-slate-600'
+        }`}>
+          <input
+            type="checkbox"
+            className="w-4 h-4 accent-red-600"
+            checked={failed}
+            disabled={readOnly}
+            onChange={() => { if (!readOnly && !failed) onToggle(); }}
+          />
+          No
+        </label>
       </span>
-    </button>
+    </div>
   );
 };
 
