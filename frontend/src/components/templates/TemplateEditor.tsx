@@ -20,6 +20,7 @@ interface TemplateEditorProps {
   errorJump: number;
   onBasicChange: (field: Exclude<keyof DraftTemplate, 'items'>, value: string) => void;
   onScan: () => void;
+  onPartNoBlur?: () => void;
   onViewQr: () => void;
   onSave: () => void;
   onAddItem: (section: Section, stage?: string) => string;
@@ -33,7 +34,7 @@ interface TemplateEditorProps {
 
 export const TemplateEditor: React.FC<TemplateEditorProps> = ({
   draft, isNew, dirty, saving, validation, showErrors, serverErrors, usage, errorJump,
-  onBasicChange, onScan, onViewQr, onSave,
+  onBasicChange, onScan, onPartNoBlur, onViewQr, onSave,
   onAddItem, onLoadStandard, onItemChange, onItemKind, onItemMove, onItemDuplicate, onItemDelete,
 }) => {
   const handleSave = () => onSave();
@@ -85,6 +86,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
           serverErrors={serverErrors}
           onChange={onBasicChange}
           onScan={onScan}
+          onPartNoBlur={onPartNoBlur}
         />
         {(['operator', 'supervisor'] as const).map((sec) => (
           <ItemsTab
@@ -103,6 +105,24 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
           />
         ))}
         <RulesTab items={draft.items} onItemChange={onItemChange} />
+      </div>
+
+      {/* Bottom action bar: stays pinned to the bottom of the screen while the form is on screen,
+          so after filling a long form the admin can save without scrolling back to the top. */}
+      <div className="sticky bottom-0 z-30 no-print">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)] px-4 py-3 shadow-[0_-4px_16px_rgba(15,23,42,0.08)]">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--muted)] min-w-0">
+            {isNew
+              ? <span className="pill info sm">New template</span>
+              : dirty
+                ? <span className="pill warn sm">Unsaved changes</span>
+                : <span className="pill ok sm">All changes saved</span>}
+          </div>
+          <button type="button" className="btn primary disabled:opacity-50" onClick={handleSave} disabled={saving || (!isNew && !dirty)}>
+            <Save className="w-4 h-4" />
+            <span>{saving ? 'Saving...' : isNew ? 'Create template' : 'Save changes'}</span>
+          </button>
+        </div>
       </div>
     </div>
   );

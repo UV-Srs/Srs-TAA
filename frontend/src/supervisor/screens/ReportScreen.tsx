@@ -1,7 +1,7 @@
 import React from 'react';
 import { OOS_ACTIONS, type Lot, type Workspace } from '../data';
 import { protoTime, shortName } from '../logic/format';
-import { DEC, badIdx, checkValue, dimStatusSV, fmt, nSamples, paramsOf, spotsOf, st, stats, supChecksOf, templateOf } from '../logic/rules';
+import { DEC, badIdx, checkValue, finalBadCount, dimStatusSV, fmt, nSamples, paramsOf, spotsOf, st, stats, supChecksOf, templateOf } from '../logic/rules';
 import type { SupervisorController } from '../hooks/useSupervisorController';
 import { LotBar } from '../components/LotBar';
 
@@ -21,6 +21,8 @@ export const ReportScreen: React.FC<{ ws: Workspace; c: SupervisorController; lo
   bad.forEach((i) => { const p = L.parts[i]; if (p && p.r === 'NG' && p.disp) cnt[p.disp]++; });
   // parts has one entry per item of the lot (1..qty), as in the prototype.
   const nIt = L.parts.length;
+  // Overall bad: after the supervisor's decisions and spot checks (the review card keeps the operator's list).
+  const finalBad = finalBadCount(L);
   const pages = Math.ceil(nIt / PER);
   const me = shortName(ws.me.name);
   const needOos = !!ss.bad.length && !L.oos && !readOnly;
@@ -207,8 +209,8 @@ export const ReportScreen: React.FC<{ ws: Workspace; c: SupervisorController; lo
           </div>
           <div className="pvsum">
             <span><b>{nIt}</b>Items</span>
-            <span className="g"><b>{nIt - bad.length}</b>Good</span>
-            <span className={bad.length ? 'r' : ''}><b>{bad.length}</b>Bad</span>
+            <span className="g"><b>{nIt - finalBad}</b>Good</span>
+            <span className={finalBad ? 'r' : ''}><b>{finalBad}</b>Bad</span>
             <span><b>{ss.filled}/{ss.total}</b>Readings</span>
           </div>
         </div>

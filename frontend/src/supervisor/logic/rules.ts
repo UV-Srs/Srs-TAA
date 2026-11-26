@@ -83,6 +83,17 @@ export const DEC: Record<string, 'ok' | 'warn' | 'ng'> = { Approved: 'ok', 'On h
 export const badIdx = (l: Lot): number[] =>
   l.parts.map((p, i) => (p && p.r === 'NG' ? i : -1)).filter((i) => i >= 0);
 
+/**
+ * Overall (final) number of bad items in a lot: the operator's bad items, minus those the supervisor
+ * changed to good (Approved), plus problems the supervisor found when spot-checking items the operator
+ * passed. Rejected, on-hold and undecided items stay bad. Same rule as the server's PDF report.
+ */
+export const finalBadCount = (l: Lot): number => {
+  const keptBad = l.parts.filter((p) => p && p.r === 'NG' && p.disp !== 'Approved').length;
+  const spotProblems = Object.values(l.spot ?? {}).filter((s) => s?.r === 'NG').length;
+  return keptBad + spotProblems;
+};
+
 /** Number of samples (prototype: 10): dimensions and supervisor checks share sample 1..n. */
 export const nSamples = (ws: Workspace, l: Lot): number =>
   [...paramsOf(ws, l), ...supChecksOf(ws, l)].reduce((m, p) => Math.max(m, p.samples.length), 0);

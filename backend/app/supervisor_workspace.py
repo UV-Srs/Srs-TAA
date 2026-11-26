@@ -231,6 +231,31 @@ def lot_items(b: InspectionBatch, review: Optional[SupervisorLotReview]) -> Dict
             "sup_visual": sup_visual, "sup_checks": sup_checks}
 
 
+def final_bad_count(parts: List[Optional[Dict[str, Any]]], spot: Dict[str, Dict[str, Any]]) -> int:
+    """Overall (final) bad items in a lot: the operator's bad items minus those the supervisor changed
+    to good (Approved), plus problems the supervisor found when spot-checking items the operator
+    passed. Rejected, on-hold and undecided items stay bad. A spot-checked item is one the operator
+    marked good, so the two groups never overlap. Used by the lot report and the admin dashboard."""
+    kept = sum(1 for p in parts if p and p["r"] == "NG" and p.get("disp") != "Approved")
+    problems = sum(1 for v in (spot or {}).values() if v.get("r") == "NG")
+    return kept + problems
+
+
+def lot_bad_summary(b: InspectionBatch, review: Optional[SupervisorLotReview]) -> Dict[str, int]:
+    """Counts for one lot, worked out fresh from the stored inspection cells every time:
+    items_checked - pieces the operator has checked (all pieces once the operator has submitted),
+    operator_ng - pieces the operator marked bad, ng_count - overall bad after the supervisor's review."""
+    li = lot_items(b, review)
+    parts = li["parts"]
+    spot = lot_spots(li["columns"], review)
+    checked = len(parts) if b.operator_submitted_at else sum(1 for p in parts if p)
+    return {
+        "items_checked": checked,
+        "operator_ng": sum(1 for p in parts if p and p["r"] == "NG"),
+        "ng_count": final_bad_count(parts, spot),
+    }
+
+
 def clearance_text(decision: Optional[str], parts: List[Optional[Dict[str, Any]]]) -> str:
     """Prototype clearance wording from the operator's stored decision ('Approved' | 'Rejected'):
     bad items found -> they were tagged and kept aside; none -> cleared, unless the operator

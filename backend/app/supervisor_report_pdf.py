@@ -20,7 +20,7 @@ from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from backend.app.export_pdf import Mark, _style, esc
-from backend.app.supervisor_workspace import reading_status_values, short_name
+from backend.app.supervisor_workspace import final_bad_count, reading_status_values, short_name
 
 INK = colors.HexColor("#1B2533")
 MUTED = colors.HexColor("#677386")
@@ -215,6 +215,8 @@ def generate_supervisor_report_pdf(lot: Dict[str, Any], tpl: Dict[str, Any], rev
     filled = sum(1 for _, _, v in readings if v is not None)
     oos = [(p, j, v) for p, j, v in readings if reading_status_values(p.get("min"), p.get("max"), v) == "bad"]
     spots = sorted(int(k) for k in spot if str(k).isdigit())
+    # Overall (final) bad count after the supervisor's decisions and spot checks (same rule as the dashboard).
+    final_bad = final_bad_count(parts, spot)
 
     op = lot.get("op") or {}
     sup = lot.get("sup") or {}
@@ -235,8 +237,8 @@ def generate_supervisor_report_pdf(lot: Dict[str, Any], tpl: Dict[str, Any], rev
         else "Visual results with the supervisor's decisions, and the sample dimensions."), S_SUB))
     story.append(Spacer(1, 3 * mm))
 
-    summary = [("Items", str(n_items), INK), ("Good", str(n_items - len(bad)), OK_C),
-               ("Bad", str(len(bad)), NG_C if bad else INK), ("Readings", f"{filled}/{len(readings)}", INK)]
+    summary = [("Items", str(n_items), INK), ("Good", str(n_items - final_bad), OK_C),
+               ("Bad", str(final_bad), NG_C if final_bad else INK), ("Readings", f"{filled}/{len(readings)}", INK)]
     sum_tbl = Table([[Paragraph(f'<font size="13" color="{c.hexval()}">{esc(v)}</font><br/>'
                                 f'<font size="6.5" color="#677386">{esc(k)}</font>', S_SUMMARY) for k, v, c in summary]],
                     colWidths=[28 * mm] * 4, hAlign="LEFT")

@@ -22,7 +22,7 @@ from backend.app.audit import log_audit, purge_user_audit_logs
 from backend.app.config import UPLOAD_DIR
 from backend.app.export_pdf import generate_pdf_report
 from backend.app.supervisor_report_pdf import generate_supervisor_report_pdf
-from backend.app.supervisor_workspace import COMPLETED, serialize_lot, serialize_template
+from backend.app.supervisor_workspace import COMPLETED, get_review, lot_bad_summary, serialize_lot, serialize_template
 from backend.app.export_excel import generate_excel_report
 from backend.app.checksheet_report import generate_checksheet_csv
 from backend.app.report_people import resolve_report_people
@@ -289,6 +289,14 @@ def update_sheet(sheet_id: str, payload: SheetTemplateCreate, db: Session = Depe
                 "item_id": item.item_id, "field": "assigned_role",
                 "message": "The assigned role can't be changed because inspection values are already recorded for this row.",
             })
+        # These two decide which checks count as the operator's, so changing them after values are
+        # recorded would quietly change an old lot's Good/Bad counts. (A missing value means "yes".)
+        if (item.visible_to_operator is not False) != (row.visible_to_operator is not False) \
+                or (item.editable_by_operator is not False) != (row.editable_by_operator is not False):
+            blocked.append({
+                "item_id": item.item_id, "field": "assigned_role",
+                "message": "Whether the operator can see or edit this row can't be changed because inspection values are already recorded for it.",
+            })
         lost = sorted(cols - set(item.sample_columns))
         if lost:
             blocked.append({
@@ -498,6 +506,13 @@ def get_progress_dashboard(db: Session = Depends(get_db), current_user: User = D
         prep_user = db.query(User).filter(User.user_id == b.prepared_by).first() if b.prepared_by else None
         chk_user = db.query(User).filter(User.user_id == b.checked_by).first() if b.checked_by else None
 
+        # Bad-item counts, worked out fresh from the stored cells on every request (nothing is cached).
+        # A lot nobody has started yet has nothing to count.
+        if b.status == "CREATED_PENDING_OPERATOR":
+            bad = {"items_checked": 0, "operator_ng": 0, "ng_count": 0}
+        else:
+            bad = lot_bad_summary(b, get_review(db, b))
+
         batch_list.append({
             "batch_id": b.batch_id,
             "sheet_id": b.sheet_id,
@@ -513,6 +528,9 @@ def get_progress_dashboard(db: Session = Depends(get_db), current_user: User = D
             "is_overdue": is_over,
             "completion_pct": pct,
             "bottleneck_stage": bottleneck,
+            "items_checked": bad["items_checked"],
+            "operator_ng_count": bad["operator_ng"],
+            "ng_count": bad["ng_count"],
             "operator_name": prep_user.full_name if prep_user else None,
             "supervisor_name": chk_user.full_name if chk_user else None,
             "created_at": b.created_at,

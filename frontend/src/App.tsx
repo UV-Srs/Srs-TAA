@@ -290,7 +290,7 @@ export const App: React.FC = () => {
         />
 
         {/* Main Workspace Canvas */}
-        <main className="svbody flex-1 min-w-0 p-3 sm:p-5 lg:p-6 w-full max-w-[1400px]">
+        <main className="svbody flex-1 min-w-0 p-3 sm:p-5 lg:p-6 w-full max-w-[1400px] mx-auto">
           {activeTab === 'sheet' && (
             <div className="flex flex-col lg:flex-row gap-5 items-start">
               {/* Left Queue Sidebar (Ready for inspection / Awaiting review / All batches + Progress) */}

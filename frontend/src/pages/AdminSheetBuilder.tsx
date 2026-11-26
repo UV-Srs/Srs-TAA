@@ -9,7 +9,7 @@ import { TemplateList } from '../components/templates/TemplateList';
 import { TemplateEditor } from '../components/templates/TemplateEditor';
 import { ConfirmDialog } from '../components/templates/ui';
 import {
-  applyKind, blankTemplate, createItem, duplicateItem, mapServerErrors, moveWithinSection, normalizeSheetId, standardItems,
+  applyKind, blankTemplate, createItem, duplicateItem, generateSheetId, mapServerErrors, moveWithinSection, standardItems,
   snapshot, toDraft, toPayload, validate, withServerErrors,
   type CheckKind, type DraftItem, type DraftTemplate, type FieldErrors, type Section, type ServerErrors,
 } from '../components/templates/templateModel';
@@ -34,7 +34,17 @@ export const AdminSheetBuilder: React.FC = () => {
   const [editorKey, setEditorKey] = useState(0);
   const [draft, setDraft] = useState<DraftTemplate>(blankTemplate());
   const [baseline, setBaseline] = useState<string>(snapshot(blankTemplate()));
-  const sheetIdTouched = useRef(false);
+  // Latest list of templates, readable inside callbacks without making them change identity.
+  const sheetsRef = useRef<SheetTemplate[]>([]);
+  sheetsRef.current = sheets;
+  // What a brand-new template looked like when it was opened (part number empty). Used to tell
+  // whether the admin has filled in anything besides the part number.
+  const pristineNew = useRef('');
+
+  const findByPartNo = (partNo: string) => {
+    const p = partNo.trim().toLowerCase();
+    return p ? sheetsRef.current.find((s) => (s.part_no || '').trim().toLowerCase() === p) : undefined;
+  };
 
   const [showErrors, setShowErrors] = useState(false);
   const [serverErrors, setServerErrors] = useState<ServerErrors | null>(null);
@@ -74,8 +84,9 @@ export const AdminSheetBuilder: React.FC = () => {
     const d = blankTemplate();
     d.items = standardItems();
     d.part_no = partNo;
-    d.sheet_id = partNo ? normalizeSheetId(partNo) : '';
-    sheetIdTouched.current = false;
+    // The Sheet ID is always random. It is not derived from the part number.
+    d.sheet_id = generateSheetId(sheetsRef.current.map((s) => s.sheet_id));
+    pristineNew.current = snapshot({ ...d, part_no: '' });
     setBaseline(snapshot(blankTemplate()));
     setDraft(d);
     setSelectedId('');
@@ -164,18 +175,32 @@ export const AdminSheetBuilder: React.FC = () => {
     });
 
   const handleBasicChange = (field: Exclude<keyof DraftTemplate, 'items'>, value: string) => {
-    if (field === 'sheet_id') sheetIdTouched.current = true;
     setServerErrors((s) => {
       if (!s || !s.basic[field]) return s;
       const { [field]: _gone, ...rest } = s.basic;
       return { ...s, basic: rest };
     });
-    setDraft((d) => {
-      const next = { ...d, [field]: value };
-      // Until the admin types a Sheet ID, derive it from the part number (the previous behaviour on scan).
-      if (field === 'part_no' && isNew && !sheetIdTouched.current) next.sheet_id = normalizeSheetId(value);
-      return next;
-    });
+    // The Sheet ID is generated and read-only, so only other fields can change here.
+    if (field === 'sheet_id') return;
+    setDraft((d) => ({ ...d, [field]: value }));
+  };
+
+  /**
+   * One template per part number. When a new template's part number already has a template, that
+   * template is opened instead. If the admin has already filled in other fields, they are asked
+   * before those are discarded.
+   */
+  const handlePartNoBlur = () => {
+    if (!isNew) return;
+    const existing = findByPartNo(draft.part_no);
+    if (!existing) return;
+    const untouched = snapshot({ ...draft, part_no: '' }) === pristineNew.current;
+    const reuse = () => {
+      open(existing);
+      setBanner({ type: 'success', text: `Part number ${draft.part_no.trim()} already has a template. Opened it.` });
+    };
+    if (untouched) reuse();
+    else setPendingDiscard((prev) => prev ?? reuse);
   };
 
   const handleLoadStandard = () => patchItems(() => standardItems());
@@ -205,10 +230,24 @@ export const AdminSheetBuilder: React.FC = () => {
     setSaving(true);
     setBanner(null);
     setServerErrors(null);
-    const sent = draft; // the rows are located by their position in what was sent
+    let sent = draft; // the rows are located by their position in what was sent
     try {
-      const payload = toPayload(sent);
-      const saved = isNew ? await createSheet(payload) : await updateSheet(sent.sheet_id, payload);
+      let saved: SheetTemplate;
+      if (isNew) {
+        // A generated Sheet ID is very unlikely to collide, but if the server says it does, draw a new one.
+        for (let attempt = 0; ; attempt++) {
+          try {
+            saved = await createSheet(toPayload(sent));
+            break;
+          } catch (e: any) {
+            const collided = e?.status === 400 && /sheet id/i.test(e?.message || '') && !/part number/i.test(e?.message || '');
+            if (!collided || attempt >= 3) throw e;
+            sent = { ...sent, sheet_id: generateSheetId(sheetsRef.current.map((s) => s.sheet_id)) };
+          }
+        }
+      } else {
+        saved = await updateSheet(sent.sheet_id, toPayload(sent));
+      }
       await load(saved.sheet_id); // re-read from the server so the screen shows what was stored
       setBanner({ type: 'success', text: `Template '${saved.sheet_id}' ${isNew ? 'created' : 'saved'}.` });
     } catch (err: any) {
@@ -244,6 +283,18 @@ export const AdminSheetBuilder: React.FC = () => {
     setShowErrors(true);
     if (clientValidation.total > 0) {
       setBanner({ type: 'error', kind: 'validation', text: 'Some fields need attention. Fix the highlighted items before saving.' });
+      return;
+    }
+    // One template per part number: stop before the server has to refuse it.
+    const duplicate = isNew ? findByPartNo(draft.part_no) : undefined;
+    if (duplicate) {
+      setServerErrors({
+        basic: { part_no: `Part number '${draft.part_no.trim()}' already has the template '${duplicate.document_title || duplicate.sheet_id}'. Open that template instead.` },
+        items: {},
+        general: [],
+      });
+      setErrorJump((j) => j + 1);
+      setBanner({ type: 'error', text: `Part number '${draft.part_no.trim()}' already has a template, so a second one can't be created.` });
       return;
     }
     void persist();
@@ -336,6 +387,7 @@ export const AdminSheetBuilder: React.FC = () => {
           errorJump={errorJump}
           onBasicChange={handleBasicChange}
           onScan={() => setIsScanOpen(true)}
+          onPartNoBlur={handlePartNoBlur}
           onViewQr={() => setIsPrintOpen(true)}
           onSave={handleSave}
           onAddItem={handleAdd}

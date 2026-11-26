@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { User } from '../types';
 import {
   LayoutGrid, Users, ClipboardList, PlusCircle, ShieldCheck, ScanLine
@@ -19,6 +19,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const isAdmin = user.role === 'admin';
 
+  // The sidebar is pinned just below the sticky top header, so it stays put while the
+  // page scrolls. The header height is measured (not hard-coded) so it stays correct
+  // if the header wraps or changes size on small screens.
+  const [headerH, setHeaderH] = useState(58);
+  useEffect(() => {
+    const header = document.querySelector('header');
+    if (!header) return;
+    const measure = () => setHeaderH(Math.round(header.getBoundingClientRect().height));
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(header);
+    return () => ro.disconnect();
+  }, []);
+
   const navItems = [
     ...(isAdmin
       ? [
@@ -36,7 +51,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <nav
-      className="svnav2 w-[72px] sm:w-[84px] lg:w-[220px] shrink-0 bg-[var(--surface)] border-r border-[var(--line)] p-3 lg:p-4.5 flex flex-col gap-1 transition-all no-print select-none"
+      className="svnav2 sticky self-start overflow-y-auto overflow-x-hidden w-[72px] sm:w-[84px] lg:w-[220px] shrink-0 bg-[var(--surface)] border-r border-[var(--line)] p-3 lg:p-4.5 flex flex-col gap-1 transition-all no-print select-none"
+      style={{ top: headerH, height: `calc(100dvh - ${headerH}px)` }}
       aria-label="Admin Navigation"
     >
       {/* Section Heading: ADMIN (uppercase small muted) */}

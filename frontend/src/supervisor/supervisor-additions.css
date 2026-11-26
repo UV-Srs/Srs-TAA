@@ -20,3 +20,15 @@
 
 /* Dimension tiles for readings the operator owns (agreed rule): visible, not editable */
 .sv-root .dtile[title] { cursor: default; }
+
+/* Admin Scan tab on phones: the scan card stacks (picture above the text) and the page padding is
+   trimmed, so nothing is squeezed or pushed off the screen. Scoped to the admin page only. */
+@media (max-width: 560px) {
+  .sv-root.admin-scan .home { padding: 4px 0 24px; }
+  .sv-root.admin-scan .home-top { padding: 12px; }
+  .sv-root.admin-scan .scancard { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .sv-root.admin-scan .scancard h2 { overflow-wrap: anywhere; }
+  .sv-root.admin-scan .typebox { flex-wrap: wrap; }
+  .sv-root.admin-scan .typebox input { min-width: 0; flex: 1 1 140px; }
+  .sv-root.admin-scan .sv-scanacts { grid-template-columns: 1fr; }
+}

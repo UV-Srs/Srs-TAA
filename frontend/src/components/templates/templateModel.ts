@@ -232,15 +232,27 @@ export function toPayload(d: DraftTemplate): SheetTemplate {
 /** Stable text of the saved content, used to tell whether the editor has unsaved changes. */
 export const snapshot = (d: DraftTemplate): string => JSON.stringify(toPayload(d));
 
-export const normalizeSheetId = (partNo: string): string => {
-  const id = partNo.trim().toUpperCase().replace(/[^A-Z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 55);
-  return id ? `IFM-${id}` : '';
+/**
+ * A new random Sheet ID, e.g. IFM-7K3Q9XM2PD. It does not depend on the part number, so it is unique
+ * per template and safe to print on a QR code. Letters that look alike (O/0, I/1) are left out.
+ * `taken` lets the caller avoid IDs that already exist.
+ */
+export const generateSheetId = (taken: Iterable<string> = []): string => {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const used = new Set(Array.from(taken, (t) => t.toUpperCase()));
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const bytes = new Uint8Array(10);
+    crypto.getRandomValues(bytes);
+    const id = `IFM-${Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('')}`;
+    if (!used.has(id)) return id;
+  }
+  return `IFM-${Date.now().toString(36).toUpperCase()}`;
 };
 
 export function validate(d: DraftTemplate, isNew: boolean): ValidationResult {
   const basic: FieldErrors = {};
   if (isNew) {
-    if (!d.sheet_id.trim()) basic.sheet_id = 'Enter a Sheet ID. It is used for the QR code and cannot be changed later.';
+    if (!d.sheet_id.trim()) basic.sheet_id = 'The Sheet ID was not generated. Reopen the new template and try again.';
     else if (!/^[A-Za-z0-9._-]+$/.test(d.sheet_id.trim())) basic.sheet_id = 'Use letters, numbers, dots, dashes or underscores only.';
   }
   if (!d.document_title.trim()) basic.document_title = 'Enter a template name.';

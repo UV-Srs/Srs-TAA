@@ -13,9 +13,11 @@ interface BasicInfoTabProps {
   serverErrors: FieldErrors;
   onChange: (field: BasicField, value: string) => void;
   onScan: () => void;
+  /** Called when the part number field loses focus, so an existing template can be reused. */
+  onPartNoBlur?: () => void;
 }
 
-export const BasicInfoTab: React.FC<BasicInfoTabProps> = ({ draft, errors, isNew, serverErrors, onChange, onScan }) => {
+export const BasicInfoTab: React.FC<BasicInfoTabProps> = ({ draft, errors, isNew, serverErrors, onChange, onScan, onPartNoBlur }) => {
   const err = (f: string) => errors[f] || serverErrors[f];
 
   return (
@@ -42,11 +44,12 @@ export const BasicInfoTab: React.FC<BasicInfoTabProps> = ({ draft, errors, isNew
           />
         </Field>
 
-        <Field label="Part number" htmlFor="tpl-part-no" error={err('part_no')} hint="Each part number can belong to one template.">
+        <Field label="Part number" htmlFor="tpl-part-no" error={err('part_no')} hint="Each part number has one template. Typing or scanning a part number that already has one opens that template.">
           <input
             id="tpl-part-no"
             value={draft.part_no}
             onChange={(e) => onChange('part_no', e.target.value)}
+            onBlur={onPartNoBlur}
             placeholder="e.g. 18351M62Q50"
             className={`${inputCls(err('part_no'))} mono`}
           />
@@ -77,16 +80,14 @@ export const BasicInfoTab: React.FC<BasicInfoTabProps> = ({ draft, errors, isNew
         <Field
           label="Sheet ID"
           htmlFor="tpl-sheet-id"
-          required={isNew}
           error={err('sheet_id')}
-          hint={isNew ? 'Used for the QR code and barcode. It cannot be changed after saving.' : 'Fixed after the template is created.'}
+          hint={isNew ? 'Generated automatically. Used for the QR code and barcode, and fixed after saving.' : 'Generated automatically. Fixed after the template is created.'}
         >
           <input
             id="tpl-sheet-id"
             value={draft.sheet_id}
-            onChange={(e) => onChange('sheet_id', e.target.value)}
-            disabled={!isNew}
-            placeholder="e.g. IFM-18351M62Q50"
+            readOnly
+            disabled
             className={`${inputCls(err('sheet_id'))} mono`}
           />
         </Field>
