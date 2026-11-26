@@ -24,7 +24,7 @@ const cell = 'w-full rounded-lg border border-[var(--line)] bg-[var(--surface)] 
 const bad = '!border-[var(--ng)]';
 // A row stacks on phones and tablets-in-portrait, and becomes the table-like grid from `md` up
 // (the column widths come in through the --cols variable).
-const ROW = 'grid gap-2 md:[grid-template-columns:var(--cols)]';
+const ROW = 'grid gap-2 xl:[grid-template-columns:var(--cols)]';
 const OP_COLS ='28px minmax(120px,1fr) minmax(0,2.2fr) minmax(110px,0.9fr) 140px 36px';
 const DIM_COLS = 'minmax(160px,1.4fr) 140px 100px 100px 36px';
 
@@ -92,8 +92,8 @@ export const ItemsTab: React.FC<ItemsTabProps> = ({
       return (
         <div key={x._uid} className="py-2 border-t border-[var(--line)] space-y-2">
           <div className={`${ROW} items-start grid-cols-1`} style={{ '--cols': OP_COLS } as React.CSSProperties}>
-            <span className="text-xs font-semibold text-[var(--muted)] md:pt-2.5 md:text-center">
-              <span className="md:hidden">Check </span>{n}
+            <span className="text-xs font-semibold text-[var(--muted)] xl:pt-2.5 xl:text-center">
+              <span className="xl:hidden">Check </span>{n}
             </span>
             {name}
             <input className={cell} placeholder="Description, as on the checksheet" value={x.specification_content}
@@ -101,13 +101,13 @@ export const ItemsTab: React.FC<ItemsTabProps> = ({
             <input className={cell} placeholder="Method" list="tpl-methods" value={x.application_method || ''}
               onChange={(e) => onChange(x._uid, { application_method: e.target.value })} />
             {typeSel}
-            <span className="justify-self-end md:justify-self-auto">{del}</span>
+            <span className="justify-self-end xl:justify-self-auto">{del}</span>
           </div>
           {numeric && (
             <div className={`${ROW} items-center grid-cols-3`} style={{ '--cols': '28px 100px 100px 90px 1fr' } as React.CSSProperties}>
-              <span className="hidden md:block" />{limits}
+              <span className="hidden xl:block" />{limits}
               <input className={cell} placeholder="Unit" value={x.unit || ''} onChange={(e) => onChange(x._uid, { unit: e.target.value })} />
-              <span className="text-xs text-[var(--muted)] col-span-3 md:col-span-1">Reading must be between min and max.</span>
+              <span className="text-xs text-[var(--muted)] col-span-3 xl:col-span-1">Reading must be between min and max.</span>
             </div>
           )}
         </div>
@@ -115,10 +115,10 @@ export const ItemsTab: React.FC<ItemsTabProps> = ({
     }
     return (
       <div key={x._uid} className={`${ROW} items-start grid-cols-2 py-2 border-t border-[var(--line)]`} style={{ '--cols': DIM_COLS } as React.CSSProperties}>
-        <div className="col-span-2 md:col-span-1">{name}</div>
-        <div className="col-span-2 md:col-span-1">{typeSel}</div>
-        {numeric ? limits : <span className="col-span-2 text-xs text-[var(--muted)] md:pt-2.5">{kind === 'passfail' ? 'Pass is OK, Fail is out of spec' : 'Ticked is OK'}</span>}
-        <span className="col-span-2 justify-self-end md:col-span-1 md:justify-self-auto">{del}</span>
+        <div className="col-span-2 xl:col-span-1">{name}</div>
+        <div className="col-span-2 xl:col-span-1">{typeSel}</div>
+        {numeric ? limits : <span className="col-span-2 text-xs text-[var(--muted)] xl:pt-2.5">{kind === 'passfail' ? 'Pass is OK, Fail is out of spec' : 'Ticked is OK'}</span>}
+        <span className="col-span-2 justify-self-end xl:col-span-1 xl:justify-self-auto">{del}</span>
       </div>
     );
   };
@@ -165,7 +165,7 @@ export const ItemsTab: React.FC<ItemsTabProps> = ({
               )}
             </div>
             {/* Column titles only make sense when the columns sit side by side (md and up). */}
-            <div className={`hidden md:grid gap-2 text-xs font-semibold text-[var(--muted)] pb-1`}
+            <div className={`hidden xl:grid gap-2 text-xs font-semibold text-[var(--muted)] pb-1`}
               style={{ gridTemplateColumns: section === 'operator' ? OP_COLS : DIM_COLS }}>
               {section === 'operator'
                 ? (<><span>#</span><span>Check</span><span>Description</span><span>Method</span><span>Type</span><span /></>)
