@@ -6,9 +6,9 @@ from pydantic import BaseModel
 from backend.app.database import get_db
 from backend.app.models import User
 from backend.app.auth import require_any_authenticated
-from backend.app.schemas import NotificationResponse
+from backend.app.schemas import NotificationResponse, NotificationPage
 from backend.app.notifications import (
-    get_user_notifications, mark_all_user_notifications_read, mark_single_notification_read
+    get_user_notifications, list_user_notifications, mark_all_user_notifications_read, mark_single_notification_read
 )
 
 router = APIRouter(prefix="/api/notifications", tags=["In-App Notifications"])
@@ -23,6 +23,20 @@ def get_notifications(
     limit: int = Query(50, ge=1, le=200)
 ):
     return get_user_notifications(db=db, user=current_user, limit=limit)
+
+@router.get("/page", response_model=NotificationPage)
+def get_notifications_page(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_any_authenticated),
+    limit: int = Query(25, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    unread_only: bool = False,
+    kind: Optional[str] = Query(None, max_length=30),
+):
+    """A page of the user's notifications, with the total and the unread count (read state is per user)."""
+    return list_user_notifications(db=db, user=current_user, limit=limit, offset=offset,
+                                   unread_only=unread_only, kind=kind or None)
+
 
 @router.post("/mark-read")
 def mark_read(

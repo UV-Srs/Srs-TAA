@@ -187,7 +187,8 @@ def review_batch(
         roles=["operator", "admin"],
         text=msg,
         batch_id=batch.batch_id,
-        batch_code=batch.lot_number
+        batch_code=batch.lot_number,
+        kind="review",
     )
 
     log_audit(
@@ -723,13 +724,13 @@ def sign_supervisor_lot(
     if held:
         n = len(held)
         send_notification(db, ["admin"], f"{code} kept on hold by {me}: {n} item{'s' if n > 1 else ''} held.",
-                          batch_id=batch.batch_id, batch_code=code)
+                          batch_id=batch.batch_id, batch_code=code, kind="hold", severity="warn")
     else:
         # Prototype: `${code} completed by ${sup.by}.` printed "Neha S.."; skip the second period.
         send_notification(db, ["admin"], f"{code} completed by {me}{'' if me.endswith('.') else '.'}",
-                          batch_id=batch.batch_id, batch_code=code)
+                          batch_id=batch.batch_id, batch_code=code, kind="review")
         send_notification(db, [] if batch.prepared_by else ["operator"], f"{code} checked and completed.",
-                          batch_id=batch.batch_id, batch_code=code,
+                          batch_id=batch.batch_id, batch_code=code, kind="review",
                           user_ids=[batch.prepared_by] if batch.prepared_by else None)
     db.commit()
     log_audit(

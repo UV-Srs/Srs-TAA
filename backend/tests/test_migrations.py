@@ -20,6 +20,7 @@ from backend.app.db_base import Base
 ROOT = Path(__file__).resolve().parents[2]
 SERVER = make_url(os.environ["TAA_TEST_DATABASE_URL"])
 APP_TABLES = set(Base.metadata.tables)
+HEAD = "0004"  # the newest migration; bump this when a new one is added
 
 
 @pytest.fixture
@@ -89,8 +90,8 @@ def test_alembic_and_checks_load_without_the_app_engine():
     assert r.returncode == 0, r.stdout + r.stderr
 
 
-def test_one_baseline_revision_and_it_is_the_head():
-    assert mc.head_revision() == "0001"
+def test_head_is_the_newest_migration():
+    assert mc.head_revision() == HEAD
 
 
 # ── Fresh database ────────────────────────────────────────────────────────────────────────────────
@@ -104,7 +105,7 @@ def test_fresh_database_builds_with_upgrade_head(scratch_db, monkeypatch):
     assert mc.current_revision(engine) == mc.head_revision()
     assert mc.schema_differences(engine) == []
     run_alembic(monkeypatch, url, "upgrade", "head")  # running it again changes nothing
-    assert mc.current_revision(engine) == "0001"
+    assert mc.current_revision(engine) == HEAD
 
 
 def test_baseline_equals_what_the_old_startup_created(scratch_db, monkeypatch):
@@ -130,13 +131,14 @@ def test_baseline_equals_what_the_old_startup_created(scratch_db, monkeypatch):
 
 def test_baseline_downgrade_is_refused_and_drops_nothing(scratch_db, monkeypatch):
     url = scratch_db()
-    run_alembic(monkeypatch, url, "upgrade", "head")
+    run_alembic(monkeypatch, url, "upgrade", "0001")
     engine = create_engine(url)
     with engine.begin() as c:
         c.execute(text("INSERT INTO users (username, full_name, password_hash, role) VALUES ('keep','Keep','x','operator')"))
     with pytest.raises(RuntimeError, match="Refusing to downgrade past the baseline"):
         run_alembic(monkeypatch, url, "downgrade", "base")
-    assert app_tables(engine) == APP_TABLES and mc.current_revision(engine) == "0001"
+    assert mc.current_revision(engine) == "0001"
+    assert {"users", "audit_logs", "in_app_notifications"} <= app_tables(engine)
     with engine.connect() as c:
         assert c.execute(text("SELECT count(*) FROM users WHERE username='keep'")).scalar() == 1
 
@@ -154,7 +156,7 @@ def test_app_refuses_to_start_on_an_empty_database_and_creates_nothing(scratch_d
 def test_a_wrongly_stamped_empty_database_is_caught_at_startup(scratch_db, monkeypatch):
     """Stamping without the drift check leaves a version row but no tables. Startup must not accept it."""
     url = scratch_db()
-    run_alembic(monkeypatch, url, "stamp", "0001")  # the mistake
+    run_alembic(monkeypatch, url, "stamp", "head")  # the mistake
     engine = create_engine(url)
     assert app_tables(engine) == set()
     with pytest.raises(mc.DatabaseNotReady, match="SCHEMA INCOMPLETE"):
@@ -165,7 +167,7 @@ def test_a_wrongly_stamped_empty_database_is_caught_at_startup(scratch_db, monke
     # the documented recovery for an empty database
     run_alembic(monkeypatch, url, "stamp", "base")
     run_alembic(monkeypatch, url, "upgrade", "head")
-    assert mc.verify_database_is_current(engine) == "0001"
+    assert mc.verify_database_is_current(engine) == HEAD
 
 
 def test_a_database_missing_one_table_is_caught_at_startup(scratch_db, monkeypatch):
@@ -173,7 +175,7 @@ def test_a_database_missing_one_table_is_caught_at_startup(scratch_db, monkeypat
     run_alembic(monkeypatch, url, "upgrade", "head")
     engine = create_engine(url)
     with engine.begin() as c:
-        c.execute(text("DROP TABLE in_app_notifications"))
+        c.execute(text("DROP TABLE in_app_notifications CASCADE"))
     with pytest.raises(mc.DatabaseNotReady, match="in_app_notifications"):
         mc.verify_database_is_current(engine)
 
@@ -207,9 +209,9 @@ def test_verify_states(scratch_db, monkeypatch):
         mc.verify_database_is_current(engine)
 
     run_alembic(monkeypatch, url, "upgrade", "head")
-    assert mc.verify_database_is_current(engine) == "0001"
+    assert mc.verify_database_is_current(engine) == HEAD
 
-    monkeypatch.setattr(mc, "head_revision", lambda: "0002")  # code ships a newer migration than the DB has
+    monkeypatch.setattr(mc, "head_revision", lambda: "0099")  # code ships a newer migration than the DB has
     with pytest.raises(mc.DatabaseNotReady, match="NEEDS MIGRATION"):
         mc.verify_database_is_current(engine)
     monkeypatch.undo()
@@ -226,7 +228,7 @@ def test_migrate_script_builds_a_fresh_database(scratch_db):
     url = scratch_db()
     r = run_script("migrate.py", url)
     assert r.returncode == 0, r.stderr + r.stdout
-    assert mc.current_revision(create_engine(url)) == "0001"
+    assert mc.current_revision(create_engine(url)) == HEAD
 
 
 def test_migrate_script_refuses_an_unstamped_existing_database(scratch_db):
@@ -258,8 +260,8 @@ def test_adoption_flow_changes_no_data(scratch_db, monkeypatch):
     check = run_script("check_schema_drift.py", url)
     assert check.returncode == 0 and "SAFE TO STAMP" in check.stdout, check.stdout + check.stderr
 
-    run_alembic(monkeypatch, url, "stamp", "0001")
-    assert mc.current_revision(engine) == "0001"
+    run_alembic(monkeypatch, url, "stamp", "head")  # the old startup built the current models, so it matches the newest migration
+    assert mc.current_revision(engine) == HEAD
     with engine.connect() as c:
         assert c.execute(text("SELECT count(*) FROM users")).scalar() == 1
         assert c.execute(text("SELECT count(*) FROM sheet_templates")).scalar() == 1
@@ -325,13 +327,13 @@ def test_drift_check_is_read_only_and_needs_an_explicit_url(scratch_db):
 # ── A later migration: upgrade and safe rollback (uses a temporary revision) ──────────────────────
 
 def test_later_migration_upgrades_and_rolls_back_without_touching_data(scratch_db, monkeypatch, tmp_path):
-    """Adds a throwaway 0002 next to the real versions in a copy of the migrations folder."""
+    """Adds a throwaway 0099 next to the real versions in a copy of the migrations folder."""
     import shutil
     work = tmp_path / "migrations"
     shutil.copytree(mc.MIGRATIONS_DIR, work, ignore=shutil.ignore_patterns("__pycache__"))
     (work / "versions" / "0002_probe.py").write_text(
         '"""probe"""\nfrom alembic import op\nimport sqlalchemy as sa\n'
-        "revision='0002'\ndown_revision='0001'\nbranch_labels=None\ndepends_on=None\n"
+        f"revision='0099'\ndown_revision='{HEAD}'\nbranch_labels=None\ndepends_on=None\n"
         "def upgrade():\n    op.add_column('template_control_items', sa.Column('probe_col', sa.JSON(), nullable=True))\n"
         "def downgrade():\n    op.drop_column('template_control_items', 'probe_col')\n"
     )
@@ -340,7 +342,7 @@ def test_later_migration_upgrades_and_rolls_back_without_touching_data(scratch_d
 
     url = scratch_db()
     monkeypatch.setenv("ALEMBIC_DATABASE_URL", url)
-    command.upgrade(cfg, "0001")
+    command.upgrade(cfg, HEAD)
     engine = create_engine(url)
     with engine.begin() as c:
         c.execute(text("INSERT INTO sheet_templates (sheet_id, document_title, qr_code_value, barcode_value, is_default) VALUES ('S1','T','q','b',false)"))
@@ -359,4 +361,46 @@ def test_later_migration_upgrades_and_rolls_back_without_touching_data(scratch_d
     assert "probe_col" in cols() and rows() == before
     command.downgrade(cfg, "-1")
     assert "probe_col" not in cols() and rows() == before
-    assert mc.current_revision(engine) == "0001"
+    assert mc.current_revision(engine) == HEAD
+
+
+# ── 0004: audit history survives user removal, per-user notification reads ────────────────────────
+
+def test_0004_keeps_existing_data_and_backfills(scratch_db, monkeypatch):
+    url = scratch_db()
+    run_alembic(monkeypatch, url, "upgrade", "0003")
+    engine = create_engine(url)
+    with engine.begin() as c:
+        c.execute(text("INSERT INTO users (user_id, username, full_name, password_hash, role) VALUES "
+                       "(1,'adm1','Admin One','x','admin'),(2,'adm2','Admin Two','x','admin'),(3,'op1','Op One','x','operator')"))
+        c.execute(text("INSERT INTO audit_logs (user_id, role, action_type, details) VALUES (1,'admin','USER_LOGIN','{}'),(NULL,'system','HOLD_OVERDUE_ESCALATION','{}')"))
+        c.execute(text("INSERT INTO in_app_notifications (recipient_role, text, is_read) VALUES "
+                       "('admin','was read',true),('admin','was unread',false),('operator','op read',true)"))
+
+    run_alembic(monkeypatch, url, "upgrade", "0004")
+    assert mc.current_revision(engine) == "0004" and mc.schema_differences(engine) == []
+
+    with engine.connect() as c:
+        # existing audit rows are kept and get the name copied from the user
+        assert c.execute(text("SELECT count(*) FROM audit_logs")).scalar() == 2
+        row = c.execute(text("SELECT actor_name, actor_username FROM audit_logs WHERE user_id=1")).one()
+        assert tuple(row) == ("Admin One", "adm1")
+        # notifications keep their text; new columns default to info
+        assert c.execute(text("SELECT count(*) FROM in_app_notifications WHERE kind='info' AND severity='info'")).scalar() == 3
+        # what was read stays read, for every user of that role; unread stays unread
+        reads = c.execute(text("SELECT n.text, r.user_id FROM notification_reads r JOIN in_app_notifications n USING (notification_id) ORDER BY 1, 2")).all()
+        assert [tuple(r) for r in reads] == [("op read", 3), ("was read", 1), ("was read", 2)]
+
+    # deleting the user no longer deletes their audit rows
+    with engine.begin() as c:
+        c.execute(text("DELETE FROM users WHERE user_id=1"))
+    with engine.connect() as c:
+        row = c.execute(text("SELECT user_id, actor_username FROM audit_logs WHERE actor_username='adm1'")).one()
+        assert tuple(row) == (None, "adm1")
+
+    # and the migration rolls back without losing the rows
+    run_alembic(monkeypatch, url, "downgrade", "0003")
+    assert mc.current_revision(engine) == "0003"
+    with engine.connect() as c:
+        assert c.execute(text("SELECT count(*) FROM audit_logs")).scalar() == 2
+        assert c.execute(text("SELECT count(*) FROM in_app_notifications")).scalar() == 3

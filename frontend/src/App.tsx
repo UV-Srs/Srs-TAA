@@ -15,6 +15,7 @@ import { AdminDashboard } from './pages/AdminDashboard';
 import { AdminSheetBuilder } from './pages/AdminSheetBuilder';
 import { AdminUserManagement } from './pages/AdminUserManagement';
 import { AuditLogsView } from './pages/AuditLogsView';
+import { NotificationsView } from './pages/NotificationsView';
 import { MobileScannerPage } from './pages/MobileScannerPage';
 import { SupervisorApp } from './supervisor/SupervisorApp';
 import { OperatorHome } from './pages/OperatorHome';
@@ -24,8 +25,27 @@ function isMobileDevice() {
   return /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
 }
 
+/**
+ * True only on a phone-sized screen. The phone scanner page replaces the whole admin UI, so it must
+ * depend on the real screen width and not on the browser's user-agent text alone: a mobile
+ * user-agent (device emulation in browser dev tools, tablets) on a wide window would otherwise
+ * switch the admin to the scanner page on the next click, with no sidebar.
+ */
+const PHONE_MAX_WIDTH = 767;
+function useIsPhoneScreen(): boolean {
+  const get = () => isMobileDevice() && window.innerWidth <= PHONE_MAX_WIDTH;
+  const [isPhone, setIsPhone] = useState<boolean>(get);
+  useEffect(() => {
+    const onResize = () => setIsPhone(get());
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  return isPhone;
+}
+
 export const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const isPhoneScreen = useIsPhoneScreen();
   const [authChecked, setAuthChecked] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [currentBatchId, setCurrentBatchId] = useState<number | null>(null);
@@ -214,7 +234,9 @@ export const App: React.FC = () => {
   }
 
   // Mobile phones get a simplified scanning interface
-  if (isMobileDevice() && (currentUser.role !== 'operator' || phoneScannerMode)) {
+  // Admins always get the normal (responsive) admin UI, on phones too: Dashboard first, scanning from the
+  // Scan tab. The full-screen phone scanner is only for an operator who chose "phone as scanner".
+  if (isPhoneScreen && currentUser.role === 'operator' && phoneScannerMode) {
     return (
       <MobileScannerPage
         currentUser={currentUser}
@@ -267,7 +289,7 @@ export const App: React.FC = () => {
               batches={batches}
               onOpenBatch={handleOpenBatch}
               onTemplateResolved={handleTemplateResolved}
-              onUsePhoneAsScanner={isMobileDevice() ? () => setPhoneScannerMode(true) : undefined}
+              onUsePhoneAsScanner={isPhoneScreen ? () => setPhoneScannerMode(true) : undefined}
             />
           </main>
         )}
@@ -368,6 +390,10 @@ export const App: React.FC = () => {
 
           {activeTab === 'audit' && currentUser.role === 'admin' && (
             <AuditLogsView />
+          )}
+
+          {activeTab === 'notifications' && currentUser.role === 'admin' && (
+            <NotificationsView onOpenLot={handleSelectBatchByCode} />
           )}
         </main>
       </div>

@@ -18,7 +18,8 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
-    audit_logs = relationship("AuditLog", back_populates="user", cascade="all, delete-orphan", passive_deletes=True)
+    # No delete cascade: audit history is kept when a user is removed (the DB sets user_id to NULL).
+    audit_logs = relationship("AuditLog", back_populates="user", passive_deletes=True)
     decisions = relationship("InspectionDecision", back_populates="user")
     attachments = relationship("InspectionAttachment", back_populates="user")
     notifications = relationship("InAppNotification", back_populates="user", cascade="all, delete-orphan")
@@ -201,24 +202,40 @@ class InAppNotification(Base):
     batch_id = Column(Integer, ForeignKey("inspection_batches.batch_id", ondelete="CASCADE"), nullable=True)
     batch_code = Column(String(100), nullable=True)
     text = Column(Text, nullable=False)
-    is_read = Column(Boolean, default=False)
+    is_read = Column(Boolean, default=False)  # only used for notifications addressed to one user
+    kind = Column(String(30), nullable=False, default="info", server_default="info")  # batch, hold, review, user, security, info
+    severity = Column(String(10), nullable=False, default="info", server_default="info")  # info, warn, critical
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
     user = relationship("User", back_populates="notifications")
     batch = relationship("InspectionBatch")
 
+
+class NotificationRead(Base):
+    """Which user has read which notification (role-wide notifications are read per user)."""
+    __tablename__ = "notification_reads"
+
+    notification_id = Column(Integer, ForeignKey("in_app_notifications.notification_id", ondelete="CASCADE"), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.user_id", ondelete="CASCADE"), primary_key=True, index=True)
+    read_at = Column(DateTime, default=datetime.utcnow)
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 
     log_id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True, index=True)
     role = Column(String(20), nullable=True)
-    action_type = Column(String(100), nullable=False)
+    action_type = Column(String(100), nullable=False, index=True)
     sheet_id = Column(String(64), nullable=True)
     batch_id = Column(Integer, nullable=True)
     details = Column(JSON, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    # Who did it, copied at the time, so the history still identifies them after the user is removed.
+    actor_name = Column(String(150), nullable=True)
+    actor_username = Column(String(100), nullable=True)
+    ip_address = Column(String(64), nullable=True)
+    user_agent = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
     # Relationships
     user = relationship("User", back_populates="audit_logs")

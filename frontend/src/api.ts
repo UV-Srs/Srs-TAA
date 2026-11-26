@@ -1,6 +1,7 @@
 import {
   User, SheetTemplate, InspectionBatch, CellResponse,
-  QRResolveResult, OfflineMutation, InAppNotification
+  QRResolveResult, OfflineMutation, InAppNotification,
+  NotificationPage, AuditLogPage, AuditLogFilters
 } from './types';
 
 const API_BASE = '';
@@ -77,6 +78,13 @@ export function getCurrentStoredUser(): User | null {
 }
 
 export function logoutUser(): void {
+  // Best effort: tell the server so the sign-out is in the audit trail. Never blocks or fails the sign-out.
+  try {
+    const headers = getAuthHeader();
+    if (headers.Authorization) {
+      void fetch(`${API_BASE}/api/auth/logout`, { method: 'POST', headers, keepalive: true }).catch(() => {});
+    }
+  } catch { /* ignore */ }
   localStorage.removeItem('taa_jwt_token');
   localStorage.removeItem('taa_user');
 }
@@ -227,6 +235,15 @@ export async function fetchNotifications(limit: number = 50): Promise<InAppNotif
   return apiRequest<InAppNotification[]>(`/api/notifications?limit=${limit}`);
 }
 
+export async function fetchNotificationsPage(
+  opts: { offset?: number; limit?: number; unreadOnly?: boolean; kind?: string } = {}
+): Promise<NotificationPage> {
+  const params = new URLSearchParams({ offset: String(opts.offset ?? 0), limit: String(opts.limit ?? 25) });
+  if (opts.unreadOnly) params.set('unread_only', 'true');
+  if (opts.kind) params.set('kind', opts.kind);
+  return apiRequest<NotificationPage>(`/api/notifications/page?${params.toString()}`);
+}
+
 export async function markNotificationsRead(notificationId?: number): Promise<any> {
   return apiRequest('/api/notifications/mark-read', {
     method: 'POST',
@@ -285,6 +302,27 @@ export async function fetchProgressDashboard(): Promise<any> {
 
 export async function fetchAuditLogs(): Promise<any[]> {
   return apiRequest<any[]>('/api/admin/audit-logs');
+}
+
+function auditQuery(filters: AuditLogFilters, extra: Record<string, string | number> = {}): string {
+  const params = new URLSearchParams();
+  Object.entries({ ...filters, ...extra }).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && String(v).trim() !== '') params.set(k, String(v));
+  });
+  const qs = params.toString();
+  return qs ? `?${qs}` : '';
+}
+
+export async function fetchAuditLogsPage(filters: AuditLogFilters, page: number, pageSize: number): Promise<AuditLogPage> {
+  return apiRequest<AuditLogPage>(`/api/admin/audit-logs/search${auditQuery(filters, { page, page_size: pageSize })}`);
+}
+
+export async function fetchAuditActions(): Promise<string[]> {
+  return apiRequest<string[]>('/api/admin/audit-logs/actions');
+}
+
+export function downloadAuditCsv(filters: AuditLogFilters): Promise<void> {
+  return downloadAuthenticatedFile(`/api/admin/audit-logs/export${auditQuery(filters)}`, 'audit-trail.csv');
 }
 
 export async function syncOfflineQueue(mutations: OfflineMutation[]): Promise<any> {

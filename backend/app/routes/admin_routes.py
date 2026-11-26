@@ -1,12 +1,13 @@
 import io
 import csv
+import json
 import re
 from urllib.parse import quote
-from datetime import datetime
+from datetime import datetime, date, time as dtime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_, cast, Text
 
 from backend.app.database import get_db
 from backend.app.models import (
@@ -15,10 +16,10 @@ from backend.app.models import (
 )
 from backend.app.schemas import (
     UserCreate, UserResponse, SheetTemplateCreate, SheetTemplateResponse, SHEET_ID_PATTERN,
-    BatchCreate, QuickBatchRegisterRequest, InspectionBatchResponse, AuditLogResponse
+    BatchCreate, QuickBatchRegisterRequest, InspectionBatchResponse, AuditLogResponse, AuditLogPage
 )
 from backend.app.auth import require_admin, hash_password
-from backend.app.audit import log_audit, purge_user_audit_logs
+from backend.app.audit import log_audit
 from backend.app.config import UPLOAD_DIR
 from backend.app.export_pdf import generate_pdf_report
 from backend.app.supervisor_report_pdf import generate_supervisor_report_pdf
@@ -64,27 +65,33 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db), current_user
     )
     return user
 
+def _user_event(db: Session, admin: User, action: str, target: User, text: str) -> None:
+    """Audit a change to a user account and tell the admins about it."""
+    log_audit(
+        db=db, user_id=admin.user_id, role=admin.role, action_type=action,
+        details={"target_user_id": target.user_id, "username": target.username,
+                 "full_name": target.full_name, "role": target.role},
+    )
+    send_notification(db=db, roles=["admin"], text=text, kind="user", severity="warn")
+    db.commit()
+
+
 @router.patch("/users/{user_id}/deactivate")
 def deactivate_user(user_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
-    """
-    FR-005: When an Admin deactivates a user account, the system automatically detects
-    all audit_logs associated with that user_id and removes them from the database
-    while preserving anonymized historical batch records.
-    """
+    """Deactivates an account. Its audit history is kept."""
     user = db.query(User).filter(User.user_id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     user.is_active = False
     db.commit()
-
-    # FR-005: Purge audit logs for this user
-    purged_count = purge_user_audit_logs(db, user_id=user_id)
+    _user_event(db, current_user, "USER_DEACTIVATED", user,
+                f"{current_user.full_name} deactivated the account of {user.full_name} ({user.username}).")
 
     return {
         "success": True,
-        "message": f"User {user.username} deactivated. {purged_count} audit logs purged.",
-        "purged_audit_logs_count": purged_count
+        "message": f"User {user.username} deactivated. Their audit history is kept.",
+        "purged_audit_logs_count": 0
     }
 
 @router.patch("/users/{user_id}/activate")
@@ -92,31 +99,29 @@ def activate_user(user_id: int, db: Session = Depends(get_db), current_user: Use
     user = db.query(User).filter(User.user_id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     user.is_active = True
     db.commit()
+    _user_event(db, current_user, "USER_ACTIVATED", user,
+                f"{current_user.full_name} re-activated the account of {user.full_name} ({user.username}).")
     return {"success": True, "message": f"User {user.username} activated."}
 
 @router.delete("/users/{user_id}")
 def delete_user(user_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
-    """
-    FR-005: When an Admin deletes a user account, all audit_logs associated with that
-    user_id are removed, preserving historical batch records (anonymized via SET NULL).
-    """
+    """Deletes an account. Their audit rows stay (the database clears the link, the name is kept on each row)."""
     user = db.query(User).filter(User.user_id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    # FR-005: Purge audit logs
-    purged_count = purge_user_audit_logs(db, user_id=user_id)
 
+    _user_event(db, current_user, "USER_DELETED", user,
+                f"{current_user.full_name} deleted the account of {user.full_name} ({user.username}).")
     db.delete(user)
     db.commit()
 
     return {
         "success": True,
-        "message": f"User deleted. {purged_count} audit logs purged.",
-        "purged_audit_logs_count": purged_count
+        "message": "User deleted. Their audit history is kept.",
+        "purged_audit_logs_count": 0
     }
 
 # --- Checksheet Templates (FR-006 - FR-012, FR-019) ---
@@ -427,7 +432,8 @@ def quick_register_batch(
         roles=["operator"],
         text=f"New batch {payload.code} ({template.part_name or template.document_title}) is ready for inspection on {payload.line_name}.",
         batch_id=batch.batch_id,
-        batch_code=batch.lot_number
+        batch_code=batch.lot_number,
+        kind="batch",
     )
 
     log_audit(
@@ -561,6 +567,8 @@ def export_all_records_csv(db: Session = Depends(get_db), current_user: User = D
     """
     check_overdue_holds(db)
     batches = db.query(InspectionBatch).order_by(InspectionBatch.created_at.desc()).all()
+    log_audit(db=db, user_id=current_user.user_id, role=current_user.role, action_type="CSV_EXPORTED",
+              details={"batches": len(batches)})
 
     output = io.StringIO()
     writer = csv.writer(output, quoting=csv.QUOTE_ALL)
@@ -645,6 +653,9 @@ def export_batch_report(
     attachments = db.query(InspectionAttachment).filter(InspectionAttachment.batch_id == batch_id).all()
 
     filename_base = f"IFM_Checksheet_{template.sheet_id}_{batch.lot_number}"
+    log_audit(db=db, user_id=current_user.user_id, role=current_user.role, action_type="REPORT_EXPORTED",
+              sheet_id=batch.sheet_id, batch_id=batch.batch_id,
+              details={"format": format, "lot": batch.lot_number})
 
     def disposition(ext: str) -> str:
         # ASCII-safe filename (lot numbers may contain spaces, slashes or non-Latin characters)
@@ -710,6 +721,95 @@ def export_batch_report(
         )
 
 # --- Activity / Audit Logs (FR-015) ---
+
+def _audit_query(
+    db: Session, q: Optional[str], role: Optional[str], action_type: Optional[str],
+    user_id: Optional[int], batch_id: Optional[int], date_from: Optional[date], date_to: Optional[date],
+):
+    query = db.query(AuditLog)
+    if role:
+        query = query.filter(func.lower(AuditLog.role) == role.lower())
+    if action_type:
+        query = query.filter(AuditLog.action_type == action_type)
+    if user_id:
+        query = query.filter(AuditLog.user_id == user_id)
+    if batch_id:
+        query = query.filter(AuditLog.batch_id == batch_id)
+    if date_from:
+        query = query.filter(AuditLog.created_at >= datetime.combine(date_from, dtime.min))
+    if date_to:
+        query = query.filter(AuditLog.created_at <= datetime.combine(date_to, dtime.max))
+    if q and q.strip():
+        like = f"%{q.strip().lower()}%"
+        query = query.filter(or_(
+            func.lower(AuditLog.action_type).like(like),
+            func.lower(func.coalesce(AuditLog.actor_name, "")).like(like),
+            func.lower(func.coalesce(AuditLog.actor_username, "")).like(like),
+            func.lower(func.coalesce(AuditLog.sheet_id, "")).like(like),
+            func.lower(func.coalesce(AuditLog.ip_address, "")).like(like),
+            func.lower(cast(AuditLog.batch_id, Text)).like(like),
+            func.lower(cast(AuditLog.details, Text)).like(like),
+        ))
+    return query
+
+
+@router.get("/audit-logs/search", response_model=AuditLogPage)
+def search_audit_logs(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=200),
+    q: Optional[str] = Query(None, max_length=200),
+    role: Optional[str] = Query(None, max_length=20),
+    action_type: Optional[str] = Query(None, max_length=100),
+    user_id: Optional[int] = None,
+    batch_id: Optional[int] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """One page of the audit trail, newest first, with the filters applied on the server."""
+    query = _audit_query(db, q, role, action_type, user_id, batch_id, date_from, date_to)
+    total = query.count()
+    items = query.order_by(AuditLog.created_at.desc(), AuditLog.log_id.desc()) \
+        .offset((page - 1) * page_size).limit(page_size).all()
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+@router.get("/audit-logs/actions", response_model=List[str])
+def list_audit_actions(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    """Every action type that appears in the audit trail (for the filter)."""
+    return [r[0] for r in db.query(AuditLog.action_type).distinct().order_by(AuditLog.action_type.asc()).all()]
+
+
+@router.get("/audit-logs/export")
+def export_audit_logs(
+    q: Optional[str] = Query(None, max_length=200),
+    role: Optional[str] = Query(None, max_length=20),
+    action_type: Optional[str] = Query(None, max_length=100),
+    user_id: Optional[int] = None,
+    batch_id: Optional[int] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """The filtered audit trail as CSV (up to 20,000 newest rows)."""
+    rows = _audit_query(db, q, role, action_type, user_id, batch_id, date_from, date_to) \
+        .order_by(AuditLog.created_at.desc(), AuditLog.log_id.desc()).limit(20000).all()
+    out = io.StringIO()
+    w = csv.writer(out, quoting=csv.QUOTE_ALL)
+    w.writerow(["ID", "Time (UTC)", "Name", "Username", "Role", "Action", "Sheet", "Batch", "IP address", "Details"])
+    for r in rows:
+        w.writerow([r.log_id, r.created_at.isoformat(sep=" ", timespec="seconds") if r.created_at else "",
+                    r.actor_name or "", r.actor_username or "", r.role or "", r.action_type,
+                    r.sheet_id or "", r.batch_id or "", r.ip_address or "", json.dumps(r.details or {}, default=str)])
+    filters = {"q": q, "role": role, "action_type": action_type,
+               "date_from": str(date_from) if date_from else None, "date_to": str(date_to) if date_to else None}
+    log_audit(db=db, user_id=current_user.user_id, role=current_user.role, action_type="AUDIT_LOG_EXPORTED",
+              details={"rows": len(rows), "filters": {k: v for k, v in filters.items() if v}})
+    return Response(content="\ufeff" + out.getvalue(), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": 'attachment; filename="audit-trail.csv"'})
+
 
 @router.get("/audit-logs", response_model=List[AuditLogResponse])
 def get_audit_logs(

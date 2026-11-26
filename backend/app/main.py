@@ -16,6 +16,8 @@ from backend.app.migrations_check import verify_database_is_current
 from backend.app import models
 from backend.app.seed_data import seed_database
 from backend.app.live_sync import live_manager
+from backend.app.notifications import check_overdue_holds
+from backend.app.audit import set_request_context
 
 from backend.app.routes import (
     auth_routes,
@@ -45,12 +47,36 @@ def init_db():
 # Initialize DB synchronously on import
 init_db()
 
+def _run_overdue_hold_check():
+    db = SessionLocal()
+    try:
+        check_overdue_holds(db)
+    finally:
+        db.close()
+
+
+async def _overdue_hold_loop():
+    """Raise overdue-hold alerts on a timer, so reading notifications never writes to the database."""
+    while True:
+        try:
+            await asyncio.to_thread(_run_overdue_hold_check)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # never let one failed check stop the loop
+            print(f"[overdue-holds] check failed: {exc}")
+        await asyncio.sleep(60)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Set running event loop for live WebSocket broadcasts
     loop = asyncio.get_running_loop()
     live_manager.set_event_loop(loop)
-    yield
+    overdue_task = asyncio.create_task(_overdue_hold_loop())
+    try:
+        yield
+    finally:
+        overdue_task.cancel()
 
 # Initialize FastAPI application
 app = FastAPI(
@@ -74,6 +100,15 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
 
 
 # CORS configuration
+@app.middleware("http")
+async def audit_request_context(request: Request, call_next):
+    """Remember the caller's address and browser so audit rows can record them."""
+    fwd = request.headers.get("x-forwarded-for")
+    ip = fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else None)
+    set_request_context(ip, request.headers.get("user-agent"))
+    return await call_next(request)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

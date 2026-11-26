@@ -211,7 +211,8 @@ def submit_operator_inspection(
         roles=["supervisor", "admin"],
         text=notif_text,
         batch_id=batch.batch_id,
-        batch_code=batch.lot_number
+        batch_code=batch.lot_number,
+        kind="review",
     )
 
     # 7. Audit log

@@ -391,7 +391,9 @@ def release_batch_hold(
         text=notif_msg,
         batch_id=batch.batch_id,
         batch_code=batch.lot_number,
-        user_ids=[holder_id] if holder_id and holder_id != current_user.user_id else None
+        user_ids=[holder_id] if holder_id and holder_id != current_user.user_id else None,
+        kind="hold",
+        severity="warn" if outcome != "reinspect" else "info",
     )
 
     log_audit(

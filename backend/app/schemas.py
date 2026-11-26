@@ -406,11 +406,21 @@ class NotificationResponse(BaseModel):
     batch_id: Optional[int] = None
     batch_code: Optional[str] = None
     text: str
+    kind: str = "info"
+    severity: str = "info"
     is_read: bool = False
     created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
+
+
+class NotificationPage(BaseModel):
+    items: List[NotificationResponse]
+    total: int
+    unread_total: int
+    offset: int
+    limit: int
 
 # --- Offline Sync ---
 class OfflineSyncMutation(BaseModel):
@@ -435,10 +445,21 @@ class AuditLogResponse(BaseModel):
     sheet_id: Optional[str] = None
     batch_id: Optional[int] = None
     details: Optional[Dict[str, Any]] = None
+    actor_name: Optional[str] = None
+    actor_username: Optional[str] = None
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
     created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
+
+
+class AuditLogPage(BaseModel):
+    items: List[AuditLogResponse]
+    total: int
+    page: int
+    page_size: int
 
 # --- QR Resolve ---
 class QRResolveResponse(BaseModel):

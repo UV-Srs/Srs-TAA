@@ -148,8 +148,48 @@ export interface InAppNotification {
   batch_id?: number;
   batch_code?: string;
   text: string;
+  kind?: string;
+  severity?: string;
   is_read: boolean;
   created_at: string;
+}
+
+export interface NotificationPage {
+  items: InAppNotification[];
+  total: number;
+  unread_total: number;
+  offset: number;
+  limit: number;
+}
+
+export interface AuditLogEntry {
+  log_id: number;
+  user_id?: number | null;
+  role?: string | null;
+  action_type: string;
+  sheet_id?: string | null;
+  batch_id?: number | null;
+  details?: Record<string, unknown> | null;
+  actor_name?: string | null;
+  actor_username?: string | null;
+  ip_address?: string | null;
+  user_agent?: string | null;
+  created_at?: string | null;
+}
+
+export interface AuditLogPage {
+  items: AuditLogEntry[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface AuditLogFilters {
+  q?: string;
+  role?: string;
+  action_type?: string;
+  date_from?: string;
+  date_to?: string;
 }
 
 export interface QRResolveResult {
