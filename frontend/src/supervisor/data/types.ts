@@ -84,10 +84,23 @@ export type Part =
   | ({ r: 'OK' } & PartCheck)
   | ({ r: 'NG'; ng: { id: string }[]; disp: Disposition | null } & PartCheck);
 
-/** Prototype L.spot[k]: the supervisor's own check of a good item; ng = CheckItem ids found wrong. */
+/**
+ * Prototype L.spot[k]: the supervisor's own check of a good item. Always OK (an item the supervisor
+ * finds bad is rejected instead); dims = the supervisor's readings where the item has no sample reading.
+ */
 export interface SpotCheck {
   r: 'OK' | 'NG';
   ng: string[];
+  dims?: Record<string, number | null>;
+}
+
+/**
+ * The supervisor's Yes/No answers where they differ from the operator's: the checks answered No.
+ * d = the decision on an item the operator marked good and the supervisor found bad.
+ */
+export interface ItemAnswer {
+  ng: string[];
+  d?: Disposition | null;
 }
 
 export interface Lot {
@@ -112,6 +125,8 @@ export interface Lot {
   dims: Record<string, (number | null)[]>;
   /** Supervisor spot checks, keyed by item index (0-based, as a string). At most 3. */
   spot: Record<string, SpotCheck>;
+  /** Supervisor's answers that differ from the operator's, keyed by item index (0-based, as a string). */
+  svd: Record<string, ItemAnswer>;
   /** Supervisor comments printed on the report. */
   supComment: string;
   oos: string | null;

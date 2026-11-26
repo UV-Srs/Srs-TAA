@@ -1,35 +1,36 @@
-import React, { useEffect, useLayoutEffect } from 'react';
-import { SPOT_CHECKS, type Disposition, type Lot, type Workspace } from '../data';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { DimensionParam, Lot, Workspace } from '../data';
 import {
-  DEC, badIdx, checkValue, dimValue, fmt, nItems, nSamples, paramsOf, sampleChecks, sampleCount, sampleOwnDone,
-  sampleParams, sampleTotal, spotsOf, st, svProgress, templateOf,
+  ITEM_FILTERS, SV_TAG, checkValue, dimValue, effAns, fmt, itemDecision, nItems, nSamples, paramsOf, sampleChecks,
+  sampleParams, spotDimValue, spotMissing, spotUsesSample, st, supRejected, svProgress, svStatusItem,
+  svVisibleItems, templateOf, type ItemStatus,
 } from '../logic/rules';
 import type { SupervisorController } from '../hooks/useSupervisorController';
 import { LotBar } from '../components/LotBar';
 
-const DECISIONS: [Disposition, string][] = [['Approved', '✓'], ['On hold', '‖'], ['Rejected', '✕']];
-
 /**
- * Prototype svReview(L): the item list on the left; on the right the open item's card (its checks
- * as chips, a spot check for good items), the bad items to decide, the 3 spot checks, the sample
- * dimensions (tiles with a keypad popup) and comments. Preview is enabled once everything is done.
+ * Prototype v2 svReview(L): every item of the lot on the left (filter + Go to item); on the right
+ * the open item's visual checks as Yes/No cards. Every tap is saved at once (no Save button):
+ * - bad items (operator) get a decision: Approve / On hold / Reject;
+ * - on a good item, answering any check No means the supervisor found it bad (rejected);
+ * - good items not rejected can be spot checks, and a spot check needs every dimension reading.
+ * Sample readings are typed straight into the boxes; Pick a random item / Preview report at the bottom.
  */
 export const ReviewScreen: React.FC<{ ws: Workspace; c: SupervisorController; lot: Lot }> = ({ ws, c, lot: L }) => {
   const tpl = templateOf(ws, L);
   const ITEMS = tpl?.items ?? [];
   const PARAMS = paramsOf(ws, L);
-  const S = nSamples(ws, L);
+  const NS = nSamples(ws, L);
   const N = nItems(ws, L);
   const pr = svProgress(ws, L);
-  const sp = spotsOf(L);
+  const NSP = pr.spotNeed;
   const done = pr.ready;
-  const total = pr.bad + S + pr.spotNeed;
-  const dn = pr.dec + pr.samp + Math.min(pr.spot, pr.spotNeed);
-  const titleOf = (id: string) => ITEMS.find((x) => x.id === id)?.t ?? id;
 
   const i = c.svItem != null && c.svItem < N ? c.svItem : 0;
   const p = L.parts[i] ?? null;
-  const it = c.sel.s < S ? c.sel.s : 0;
+  const ist = svStatusItem(L, i);
+  const isBad = !!p && p.r === 'NG';
+  const spot = L.spot?.[String(i)];
 
   // Prototype render(): keep the current item visible in the sidebar list.
   useLayoutEffect(() => {
@@ -40,234 +41,232 @@ export const ReviewScreen: React.FC<{ ws: Workspace; c: SupervisorController; lo
     if (t < ul.scrollTop || t > ul.scrollTop + ul.clientHeight - 50) ul.scrollTop = t - ul.clientHeight / 2;
   });
 
-  // Prototype keydown: with the keypad open, digits / . / Backspace / Enter / Tab / Escape drive it.
-  useEffect(() => {
-    if (!c.kpOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement | null)?.tagName;
-      if (tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT') return;
-      if (e.key === 'Escape') c.kpclose();
-      else if (/^[0-9.]$/.test(e.key)) c.key(e.key);
-      else if (e.key === 'Backspace') c.bksp();
-      else if (e.key === 'Enter' || e.key === 'Tab') c.advance();
-      else return;
-      e.preventDefault();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  });
-
   // ---------------- sidebar ----------------
 
-  const rows = Array.from({ length: N }, (_, k) => {
+  const [jump, setJump] = useState('');
+  const goJump = () => { if (!c.jumpgo(jump)) setJump(''); };
+
+  const visible = svVisibleItems(ws, L, c.svFilt);
+  const rows = visible.length ? visible.map((k) => {
     const q = L.parts[k] ?? null;
-    const bad = !!q && q.r === 'NG';
-    const cls = k === i ? 'now' : bad ? 'bad' : q ? 'good' : '';
-    const right = q && q.r === 'NG'
-      ? (q.disp ? <span className={`pill ${DEC[q.disp]} sm`}>{q.disp}</span> : <span className="ist">✕ Decide</span>)
-      : (q ? <span className="ist">✓</span> : <span className="ist">—</span>);
+    const sk = svStatusItem(L, k);
+    const tag: [string, string] | undefined = sk === 'spot' && spotMissing(ws, L, k) > 0 ? ['warn', 'Measure'] : SV_TAG[sk];
     return (
-      <li key={k} className={`irow ${cls}`}>
+      <li key={k} className={`irow ${k === i ? 'now' : q && q.r === 'NG' ? 'bad' : q ? 'good' : ''}`}>
         <button className="ilabel" onClick={() => c.svitem(k)}>
           <span>
             Item {k + 1}
-            {k < S && <> <span className={`sc ${sampleOwnDone(ws, L, k) ? 'done' : ''}`}>▤ {sampleCount(ws, L, k)}/{sampleTotal(ws, L, k)}</span></>}
-            {L.spot?.[String(k)] && <> <span className="sc spot">★</span></>}
+            {L.spot?.[String(k)] && <> <span className="spotstar" title="Spot checked by you" aria-label="Spot checked">★</span></>}
           </span>
-          {right}
+          {tag
+            ? <span className={`pill ${tag[0]} sm`}>{tag[1]}</span>
+            : <span className="ist">{q ? (q.r === 'NG' ? '✕' : '✓') : '—'}</span>}
         </button>
       </li>
     );
-  });
+  }) : <li className="sub" style={{ padding: '16px 8px' }}>No items with this status.</li>;
 
+  const tot = pr.bad + NS + NSP;
+  const dn = pr.dec + Math.min(pr.samp, NS) + Math.min(pr.spot, NSP);
   const side = (
     <aside className="side opside">
       <div className="sub">Review progress</div>
-      <div className="bignum">{dn}<span> / {total}</span></div>
-      <div className="progress"><i style={{ width: `${total ? (dn / total) * 100 : 100}%` }}></i></div>
+      <div className="bignum">{dn}<span> / {tot}</span></div>
+      <div className="progress"><i style={{ width: `${tot ? (dn / tot) * 100 : 100}%` }}></i></div>
       <div className="counts">
         <span className={`pill ${pr.dec === pr.bad ? 'ok' : 'ng'}`}>{pr.dec}/{pr.bad} decided</span>
-        <span className={`pill ${pr.spot >= pr.spotNeed ? 'ok' : 'neutral'}`}>{pr.spot}/{pr.spotNeed} spot</span>
-        {S > 0 && <span className={`pill ${pr.samp === S ? 'ok' : 'neutral'}`}>{pr.samp}/{S} measured</span>}
+        <span className={`pill ${pr.spot >= NSP ? 'ok' : 'neutral'}`} title="Spot checks with every dimension measured">{Math.min(pr.spot, NSP)}/{NSP} spot</span>
+        {NS > 0 && <span className={`pill ${pr.samp >= NS ? 'ok' : 'neutral'}`}>{Math.min(pr.samp, NS)}/{NS} measured</span>}
       </div>
-      <p className="sub sideleg">▤ sample to measure · ★ your spot check</p>
+      <div className="jump">
+        <input
+          id="jumpin"
+          inputMode="numeric"
+          placeholder="Go to item #"
+          aria-label="Go to item number"
+          value={jump}
+          onChange={(e) => setJump(e.target.value.replace(/[^0-9]/g, ''))}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); goJump(); } }}
+        />
+        <button className="btn" onClick={goJump}>Go</button>
+      </div>
+      <label className="svfsel">
+        <select id="svfiltsel" aria-label="Filter items" value={c.svFilt} onChange={(e) => c.svfilt(e.target.value as typeof c.svFilt)}>
+          {ITEM_FILTERS.map(([k, n]) => <option key={k} value={k}>{n}</option>)}
+        </select>
+      </label>
       <ul className="ilist" id="ilist">{rows}</ul>
     </aside>
   );
 
-  // ---------------- selected item ----------------
+  // ---------------- item header ----------------
 
-  const marks = new Set(p && p.r === 'NG' ? p.ng.map((n) => n.id) : []);
-  const spot = L.spot?.[String(i)];
-  const opRes = !p ? 'Not checked by the operator' : p.r === 'NG' ? 'Operator: bad' : 'Operator: good';
-
-  const chips = ITEMS.map((x, n) => (
-    <span
-      key={x.id}
-      className={`mchip ${marks.has(x.id) ? 'bad' : ''} ${spot && spot.r === 'NG' && spot.ng.includes(x.id) ? 'sbad' : ''}`}
-      title={x.t}
-    >
-      {n + 1}. {x.t}
-    </span>
-  ));
-
-  let action: React.ReactNode = null;
-  if (p && p.r === 'NG') {
-    action = (
-      <p className="sub" style={{ margin: '10px 0 0' }}>
-        {p.disp ? <>Your decision: <b className={`pill ${DEC[p.disp]}`}>{p.disp}</b></> : 'Decide this item in the list below.'}
-      </p>
-    );
-  } else if (p) {
-    const full = !spot && sp.length >= SPOT_CHECKS;
-    action = (
-      <div className="rv-row">
-        <span className="lbl2">Spot check this item {spot ? '' : `(${sp.length}/${SPOT_CHECKS} used)`}</span>
-        <div className="seg3 two">
-          <button className={`ok ${spot && spot.r === 'OK' ? 'on' : ''}`} onClick={() => c.svspot('OK')} disabled={full}>✓ Agree, good</button>
-          <button className={`ng ${spot && spot.r === 'NG' ? 'on' : ''}`} onClick={() => c.svspot('NG')} disabled={full}>✕ Found a problem</button>
-        </div>
-        {spot && spot.r === 'NG' && (
-          <>
-            <p className="sub" style={{ margin: '8px 0 4px' }}>Tap what’s wrong:</p>
-            <div className="fchips">
-              {ITEMS.map((x) => (
-                <button key={x.id} className={`fchip ${spot.ng.includes(x.id) ? 'on' : ''}`} onClick={() => c.svspotf(x.id)}>{x.t}</button>
-              ))}
-            </div>
-          </>
-        )}
-        {spot && <button className="linkbtn" onClick={() => c.svspotdel(i)}>Remove spot check</button>}
+  const spotLeft = spot ? spotMissing(ws, L, i) : 0;
+  const rejGood = supRejected(L, i);
+  const foundBad = rejGood ? 'The operator marked this item good; you found it bad. ' : '';
+  const decTxt: Record<ItemStatus, string> = {
+    todo: rejGood ? `${foundBad}Decide it below.` : 'The operator marked this item bad. Decide it.',
+    rejected: `${foundBad}Rejected by you.`,
+    hold: `${foundBad}Kept on hold by you.`,
+    spot: spotLeft
+      ? `Spot checked by you. Enter every dimension reading (${spotLeft} still to do).`
+      : 'Spot checked by you. All dimensions measured.',
+    approved: `${foundBad}Approved by you.`,
+    none: p ? `The operator marked this item ${isBad ? 'bad' : 'good'}.` : 'Not checked by the operator.',
+  };
+  const head = (
+    <div className="ckhead">
+      <div>
+        <h2>Item {i + 1} <span className="of">of {N}</span></h2>
+        <p className={`sub ${ist === 'todo' || ist === 'rejected' ? 'ngt' : ''}`}>{decTxt[ist]}</p>
       </div>
-    );
-  }
-
-  const itemCard = (
-    <section className="rv-card">
-      <div className="rv-head">
-        <div>
-          <h3>Item {i + 1} <span className="of">of {N}</span></h3>
-          <p className={`sub ${p && p.r === 'NG' ? 'ngt' : ''}`}>
-            {opRes}{p && p.r === 'NG' && `: ${p.ng.map((n) => titleOf(n.id)).join(', ')}`}
-          </p>
+      {p && p.r === 'OK' && (
+        <div className="spotwrap">
+          <button
+            className={`spotbtn ${spot ? 'on' : ''}`}
+            onClick={c.svspot3}
+            aria-pressed={!!spot}
+            disabled={rejGood && !spot}
+            title={rejGood ? 'An item you rejected can’t be a spot check' : undefined}
+          >
+            {spot ? '▣ Spot checked' : '▢ Mark as spot check'}
+          </button>
+          <span className="sub spotnote">
+            {rejGood ? 'Rejected items can’t be spot checks' : <><span className="spotstar">★</span> spot check needs every dimension</>}
+          </span>
         </div>
-      </div>
-      <div className="mchips">{chips}</div>
-      {action}
-    </section>
+      )}
+    </div>
   );
 
-  // ---------------- bad items ----------------
+  // ---------------- visual check cards ----------------
 
-  const bl = badIdx(L);
-  const badSec = (
+  const opNg = new Set(isBad && p && p.r === 'NG' ? p.ng.map((n) => n.id) : []);
+  const saved = effAns(L, i);
+  const ans: Record<string, 'Y' | 'N'> = Object.fromEntries(ITEMS.map((x) => [x.id, saved.has(x.id) ? 'N' : 'Y']));
+
+  const cards = ITEMS.map((x, n) => {
+    const no = ans[x.id] === 'N';
+    const changed = !!p && no !== opNg.has(x.id);
+    return (
+      <div key={x.id} className={`fcard yn ${!p ? '' : no ? 'bad' : 'good'} ${changed ? 'chg' : ''}`}>
+        <span className="fn">{n + 1}</span>
+        <span className="fb">
+          <b>{x.t}</b>
+          <span>{x.desc}</span>
+          <small>
+            {x.method}
+            {changed && <>{x.method ? ' · ' : ''}<em>Operator: {opNg.has(x.id) ? 'No' : 'Yes'}, changed by supervisor</em></>}
+          </small>
+        </span>
+        {p ? (
+          <span className="ynb ynb2">
+            <button className={`yb ${!no ? 'on' : ''}`} onClick={() => c.svans(x.id, 'Y')} aria-label={`${x.t}: yes`} aria-pressed={!no}>✓</button>
+            <button className={`nb2 ${no ? 'on' : ''}`} onClick={() => c.svans(x.id, 'N')} aria-label={`${x.t}: no`} aria-pressed={no}>✕</button>
+          </span>
+        ) : <span className="roic" aria-label="Not checked">—</span>}
+      </div>
+    );
+  });
+
+  // Bad items only (the operator's, or good items you found bad): the decision, saved at once.
+  const decision = itemDecision(L, i);
+  const needsDecision = decision !== undefined;
+  const disp = decision ?? null;
+  const actions = needsDecision && (
+    <div className="svact2">
+      <span className="hint">
+        <b>Your decision</b> for this bad item. Changes to the checks above are saved automatically.
+      </span>
+      <div className="decrow">
+        <button className={`btn big ${disp === 'Approved' ? 'primary' : ''}`} aria-pressed={disp === 'Approved'} onClick={() => c.svdecide('Approved')}>✓ Approve</button>
+        <button className={`btn big ${disp === 'On hold' ? 'warn' : ''}`} aria-pressed={disp === 'On hold'} onClick={() => c.svdecide('On hold')}>‖ On hold</button>
+        <button className={`btn big ${disp === 'Rejected' ? 'danger' : ''}`} aria-pressed={disp === 'Rejected'} onClick={() => c.svdecide('Rejected')}>✕ Reject</button>
+      </div>
+    </div>
+  );
+  const goodNote = p && !needsDecision && (
+    <p className="sub" style={{ margin: '10px 0 0' }}>
+      Saved automatically. If the operator marked a check good that is actually bad, tap ✕: the item then needs your decision.
+    </p>
+  );
+
+  // ---------------- sample dimensions (typed into the boxes) ----------------
+
+  const isSample = i < NS;
+  const tiles: DimensionParam[] = isSample ? sampleParams(ws, L, i) : PARAMS;
+  const spotSec = !!spot && PARAMS.length > 0 && (
     <>
-      <div className="fsec">Bad items from the operator ({pr.dec}/{bl.length} decided)</div>
-      {bl.length ? (
-        <div className="rv-list">
-          {bl.map((k) => {
-            const q = L.parts[k];
-            if (!q || q.r !== 'NG') return null;
-            return (
-              <div key={k} className={`rv-li ${k === i ? 'cur' : ''}`}>
-                <button className="rv-open" onClick={() => c.svitem(k)}>
-                  <b>Item {k + 1}</b>
-                  <span>{q.ng.map((n) => titleOf(n.id)).join(', ')}</span>
-                </button>
-                <div className="seg3 sm">
-                  {DECISIONS.map(([v, t]) => (
-                    <button key={v} className={`${DEC[v]} ${q.disp === v ? 'on' : ''}`} title={v} onClick={() => c.svdec(k, v)}>{t} {v}</button>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ) : <p className="sub">No bad items in this lot.</p>}
+      <div className="fsec">
+        Spot check dimensions, item {i + 1}
+        <span className="fsec-sub">required: {PARAMS.length - spotLeft} of {PARAMS.length} measured</span>
+      </div>
+      <div className="dtiles six">
+        {PARAMS.map((d, pi) => {
+          const sampleV = i < d.samples.length ? dimValue(L, d, i) : null;
+          // A sample reading entered by the operator stays theirs; anything else the supervisor types.
+          const canEdit = spotUsesSample(d, i) || sampleV == null;
+          return (
+            <DimTile
+              key={d.id}
+              d={d}
+              v={spotDimValue(L, d, i)}
+              item={i}
+              locked={false}
+              canEdit={canEdit}
+              onValue={(nv) => c.typeSpotReading(pi, nv)}
+            />
+          );
+        })}
+      </div>
+      <p className="sub" style={{ margin: '6px 0 0' }}>A spot check counts once every dimension is measured on this item.</p>
     </>
   );
-
-  // ---------------- spot checks ----------------
-
-  const spotSec = (
+  const checksHere = isSample ? sampleChecks(ws, L, i) : [];
+  const hasSec = !spot && NS > 0 && (PARAMS.length > 0 || (tpl?.supChecks ?? []).length > 0);
+  const dims = hasSec && (
     <>
-      <div className="fsec">Your spot checks ({sp.length}/{pr.spotNeed})</div>
-      <p className="sub" style={{ margin: '-2px 0 8px' }}>
-        Pick {pr.spotNeed} item{pr.spotNeed === 1 ? '' : 's'} at random from the lot, check them yourself, and record the result. They appear in the right-side columns of the report.
-      </p>
-      {sp.length > 0 && (
-        <div className="rv-list">
-          {sp.map((k) => {
-            const s2 = L.spot[String(k)];
+      <div className="fsec">
+        {PARAMS.length ? 'Sample dimensions' : 'Sample checks'}, item {i + 1}
+        <span className="fsec-sub">{Math.min(pr.samp, NS)} of {NS} items measured</span>
+      </div>
+      {!isSample && (
+        <p className="lockmsg">
+          Readings are taken on items 1 to {NS}. These boxes are locked. Open a measured item (Show: Measured) to enter or change its readings.
+        </p>
+      )}
+      {tiles.length > 0 && (
+        <div className={`dtiles six ${isSample ? '' : 'locked'}`}>
+          {tiles.map((d) => {
+            const pi = PARAMS.indexOf(d);
+            const v = isSample ? dimValue(L, d, i) : null;
             return (
-              <div key={k} className="rv-li">
-                <button className="rv-open" onClick={() => c.svitem(k)}>
-                  <b>Item {k + 1}</b>
-                  <span>{s2.r === 'OK' ? 'Agree, good' : `Problem: ${s2.ng.map(titleOf).join(', ') || 'choose what’s wrong'}`}</span>
-                </button>
-                <span className={`pill ${s2.r === 'OK' ? 'ok' : 'ng'}`}>{s2.r === 'OK' ? '✓ Good' : '✕ Bad'}</span>
-              </div>
+              <DimTile
+                key={d.id}
+                d={d}
+                v={v}
+                item={i}
+                locked={!isSample}
+                canEdit={d.editable}
+                onValue={(nv) => c.typeReading(pi, i, nv)}
+              />
             );
           })}
         </div>
       )}
-      {sp.length < pr.spotNeed && <button className="btn" onClick={c.svspotrand}>Pick a random item</button>}
-    </>
-  );
-
-  // ---------------- sample dimensions ----------------
-
-  const tiles = sampleParams(ws, L, it);
-  const checksHere = sampleChecks(ws, L, it);
-  const hasDims = PARAMS.length > 0;
-  const hasChecks = (tpl?.supChecks ?? []).length > 0;
-  const secTitle = hasDims && hasChecks ? 'Sample dimensions and checks' : hasChecks ? 'Sample checks' : 'Sample dimensions';
-  const dimSec = S > 0 && (
-    <>
-      <div className="fsec">{secTitle} ({pr.samp}/{S} items done)</div>
-      <div className="samplechips" style={{ gridTemplateColumns: `repeat(${Math.min(S, 10)},minmax(0,1fr))` }}>
-        {Array.from({ length: S }, (_, k) => (
-          <button key={k} className={`${k === it ? 'on' : ''} ${sampleOwnDone(ws, L, k) ? 'done' : ''}`} onClick={() => c.svsample(k)}>
-            Item {k + 1}<small>{sampleCount(ws, L, k)}/{sampleTotal(ws, L, k)}</small>
-          </button>
-        ))}
-      </div>
-      {tiles.length > 0 && <div className="dtiles six">
-        {tiles.map((d) => {
-          const pi = PARAMS.indexOf(d);
-          const v = dimValue(L, d, it);
-          const on = c.kpOpen && c.sel.p === pi;
-          const typ = on && !!c.buf;
-          const cls = typ ? '' : st(d, v);
-          return (
-            <button
-              key={d.id}
-              className={`dtile ${cls} ${on ? 'on' : ''}`}
-              onClick={() => c.svdim(pi)}
-              title={d.editable ? undefined : 'Entered by the operator'}
-            >
-              <span className="dt-top"><small>{d.grp.split(',')[0]}</small>{v != null && !typ && <span className="dt-ok" aria-label="Saved">✓</span>}</span>
-              <b>{d.t}</b>
-              <span className="dv">{typ ? c.buf : v != null ? fmt(v) : '—'}</span>
-              <span className="dl2">
-                Min {d.min != null ? d.min.toFixed(2) : '—'} · Max {d.max != null ? d.max.toFixed(2) : '—'}
-                {!d.editable && ' · by the operator'}
-              </span>
-            </button>
-          );
-        })}
-      </div>}
-      {tiles.length > 0 && <p className="sub" style={{ margin: '6px 0 0' }}>Tap a box to enter its reading.</p>}
+      {isSample && tiles.some((d) => d.editable) && (
+        <p className="sub" style={{ margin: '6px 0 0' }}>Tap a box and type the reading, e.g. 8.04. It moves to the next box after two decimals.</p>
+      )}
       {checksHere.length > 0 && (
         <div className="fgrid" style={{ marginTop: tiles.length ? 14 : 0 }}>
           {checksHere.map((x) => {
-            const v = checkValue(L, x, it);
+            const cv = checkValue(L, x, i);
             return (
-              <div key={x.id} className={`fcard yn ${v === 'NG' ? 'bad' : v === 'OK' ? 'good' : ''}`}>
+              <div key={x.id} className={`fcard yn ${cv === 'NG' ? 'bad' : cv === 'OK' ? 'good' : ''}`}>
                 <span className="fb"><b>{x.t}</b><span>{x.desc}</span>{x.method && <small>{x.method}</small>}</span>
-                <span className="ynb">
-                  <button className={`yb ${v === 'OK' ? 'on' : ''}`} aria-pressed={v === 'OK'} onClick={() => c.svcheck(it, x.id, 'OK')}>✓ Good</button>
-                  <button className={`nb2 ${v === 'NG' ? 'on' : ''}`} aria-pressed={v === 'NG'} onClick={() => c.svcheck(it, x.id, 'NG')}>✕ Bad</button>
+                <span className="ynb ynb2">
+                  <button className={`yb ${cv === 'OK' ? 'on' : ''}`} aria-pressed={cv === 'OK'} aria-label={`${x.t}: good`} onClick={() => c.svcheck(i, x.id, 'OK')}>✓</button>
+                  <button className={`nb2 ${cv === 'NG' ? 'on' : ''}`} aria-pressed={cv === 'NG'} aria-label={`${x.t}: bad`} onClick={() => c.svcheck(i, x.id, 'NG')}>✕</button>
                 </span>
               </div>
             );
@@ -277,52 +276,22 @@ export const ReviewScreen: React.FC<{ ws: Workspace; c: SupervisorController; lo
     </>
   );
 
-  // ---------------- comments ----------------
-
-  const comment = (
-    <>
-      <div className="fsec">Comments</div>
-      <textarea
-        id="svcomment"
-        placeholder="Anything the report should note about this lot (optional)"
-        value={L.supComment ?? ''}
-        onChange={(e) => c.setComment(e.target.value)}
-      />
-    </>
-  );
-
-  // ---------------- keypad popup ----------------
-
-  const q = PARAMS[c.sel.p];
-  const qv = q ? dimValue(L, q, it) : null;
-  const pop = c.kpOpen && q && (
-    <>
-      <div className="kpop-bg" onClick={c.kpclose}></div>
-      <div className="kpop" role="dialog" aria-label="Enter reading">
-        <div className="kpop-h">
-          <div><b>{q.t}</b><span className="sub">Item {it + 1} · Min {q.min != null ? q.min.toFixed(2) : '—'} · Max {q.max != null ? q.max.toFixed(2) : '—'}</span></div>
-          <button className="ghost" onClick={c.kpclose} aria-label="Close">✕</button>
-        </div>
-        <div className={`kpop-v ${c.buf ? '' : st(q, qv)}`}>{c.buf ? c.buf : fmt(qv) || '—'}</div>
-        <div className="kp-grid">
-          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => <button key={n} className="key" onClick={() => c.key(String(n))}>{n}</button>)}
-          <button className="key" onClick={() => c.key('.')} aria-label="Decimal point">.</button>
-          <button className="key" onClick={() => c.key('0')}>0</button>
-          <button className="key small" onClick={c.bksp} aria-label="Delete">⌫</button>
-        </div>
-        <button className="btn big primary" onClick={c.kpclose} style={{ width: '100%', marginTop: 10 }}>Done</button>
-      </div>
-    </>
-  );
-
   // ---------------- action bar ----------------
 
   const todo: string[] = [];
-  if (pr.bad - pr.dec) todo.push(`${pr.bad - pr.dec} to decide`);
-  if (pr.spotNeed - pr.spot > 0) todo.push(`${pr.spotNeed - pr.spot} spot check${pr.spotNeed - pr.spot > 1 ? 's' : ''}`);
-  if (S - pr.samp) todo.push(`${S - pr.samp} sample${S - pr.samp > 1 ? 's' : ''} to ${hasDims ? 'measure' : 'check'}`);
+  const toDecide = pr.bad - pr.dec;
+  const toMeasure = NS - pr.samp;
+  const toSpot = NSP - pr.spot;
+  if (toDecide > 0) todo.push(`${toDecide} bad item${toDecide > 1 ? 's' : ''} to decide`);
+  if (toMeasure > 0) todo.push(`${toMeasure} item${toMeasure > 1 ? 's' : ''} to measure`);
+  if (toSpot > 0) {
+    const open = pr.spotMarked - pr.spot;
+    todo.push(open > 0
+      ? `${toSpot} spot check${toSpot > 1 ? 's' : ''} (${open} need${open > 1 ? '' : 's'} dimension readings)`
+      : `${toSpot} spot check${toSpot > 1 ? 's' : ''}`);
+  }
   let hint: React.ReactNode;
-  if (!done) hint = `Still to do: ${todo.join(', ')}.`;
+  if (!done) hint = `To finish: ${todo.join(', ')}.`;
   else if (pr.opMissing) hint = <><b>All done.</b> {pr.opMissing} reading{pr.opMissing > 1 ? 's' : ''} not entered by the operator. Preview the report.</>;
   else hint = <><b>All done.</b> Preview the report.</>;
 
@@ -335,19 +304,111 @@ export const ReviewScreen: React.FC<{ ws: Workspace; c: SupervisorController; lo
       <section className="layout svlayout">
         {side}
         <div className="main">
-          {itemCard}
-          {badSec}
+          {head}
+          <div className="fsec">Visual check <span className="fsec-sub">operator’s answers, change any that are wrong</span></div>
+          <div className="fgrid">{cards}</div>
+          {actions}
+          {goodNote}
           {spotSec}
-          {dimSec}
-          {comment}
+          {spot && isSample && sampleChecks(ws, L, i).length > 0 && <SampleChecks ws={ws} c={c} lot={L} i={i} />}
+          {dims}
           <div className="grow"></div>
           <div className="actionbar">
             <span className="hint">{hint}</span>
+            <button className="btn big" onClick={c.svrand}>Pick a random item</button>
             <button className="btn big primary" onClick={c.svpreview} disabled={!done}>Preview report ›</button>
           </div>
         </div>
       </section>
-      {pop}
+      {c.toast && <div className={`sv-toast ${c.toast.kind}`} role="status" aria-live="polite">{c.toast.text}</div>}
     </div>
   );
 };
+
+/**
+ * Prototype v2 dimension box (.dtile.din with a .dvin input): the reading is typed straight in and
+ * saved as you type; after two decimals the cursor moves to the next empty box. Readings owned by the
+ * operator are shown but can't be changed.
+ */
+const DimTile: React.FC<{
+  d: DimensionParam; v: number | null; item: number; locked: boolean; canEdit: boolean; onValue: (v: number | null) => void;
+}> = ({ d, v, item, locked, canEdit, onValue }) => {
+  const [text, setText] = useState(fmt(v));
+  const focused = useRef(false);
+  const ref = useRef<HTMLInputElement>(null);
+  // Show the saved value unless the box is being typed in.
+  useEffect(() => { if (!focused.current) setText(fmt(v)); }, [v, item]);
+
+  const disabled = locked || !canEdit;
+  const shown = focused.current ? (text === '' ? null : parseFloat(text)) : v;
+  const cls = st(d, shown != null && !Number.isNaN(shown) ? shown : null);
+
+  const onChange = (raw: string) => {
+    const t = raw.replace(',', '.').replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');
+    setText(t);
+    const n = parseFloat(t);
+    onValue(t && !Number.isNaN(n) ? n : null);
+    if (/^\d+\.\d{2}$/.test(t)) {
+      const all = [...document.querySelectorAll<HTMLInputElement>('.dvin:not(:disabled)')];
+      const k = all.indexOf(ref.current as HTMLInputElement);
+      const next = all.slice(k + 1).find((x) => !x.value) ?? all[k + 1];
+      if (next) next.focus(); else ref.current?.blur();
+    }
+  };
+
+  return (
+    <label className={`dtile din ${cls}`} title={!locked && !canEdit ? 'Entered by the operator' : undefined}>
+      <span className="dt-top">
+        <small>{d.grp.split(',')[0]}</small>
+        {v != null && !locked && <span className="dt-ok" aria-hidden="true">✓</span>}
+      </span>
+      <b>{d.t}</b>
+      <input
+        ref={ref}
+        className="dvin"
+        type="text"
+        inputMode="decimal"
+        enterKeyHint="next"
+        autoComplete="off"
+        disabled={disabled}
+        tabIndex={disabled ? -1 : undefined}
+        value={locked ? '' : text}
+        placeholder={locked ? 'Locked' : canEdit ? 'Enter reading' : 'Not entered by the operator'}
+        aria-label={`${d.t}, item ${item + 1}`}
+        onFocus={() => { focused.current = true; }}
+        onBlur={() => { focused.current = false; setText(fmt(v)); }}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            const all = [...document.querySelectorAll<HTMLInputElement>('.dvin:not(:disabled)')];
+            const k = all.indexOf(e.currentTarget);
+            if (all[k + 1]) all[k + 1].focus(); else e.currentTarget.blur();
+          }
+        }}
+      />
+      <span className="dl2">
+        Min {d.min != null ? d.min.toFixed(2) : '—'} · Max {d.max != null ? d.max.toFixed(2) : '—'}
+        {!canEdit && !locked && ' · by the operator'}
+      </span>
+    </label>
+  );
+};
+
+/** Supervisor pass/fail checks of a sample item (shown with the spot check dimensions). */
+const SampleChecks: React.FC<{ ws: Workspace; c: SupervisorController; lot: Lot; i: number }> = ({ ws, c, lot: L, i }) => (
+  <div className="fgrid" style={{ marginTop: 14 }}>
+    {sampleChecks(ws, L, i).map((x) => {
+      const cv = checkValue(L, x, i);
+      return (
+        <div key={x.id} className={`fcard yn ${cv === 'NG' ? 'bad' : cv === 'OK' ? 'good' : ''}`}>
+          <span className="fb"><b>{x.t}</b><span>{x.desc}</span>{x.method && <small>{x.method}</small>}</span>
+          <span className="ynb ynb2">
+            <button className={`yb ${cv === 'OK' ? 'on' : ''}`} aria-pressed={cv === 'OK'} aria-label={`${x.t}: good`} onClick={() => c.svcheck(i, x.id, 'OK')}>✓</button>
+            <button className={`nb2 ${cv === 'NG' ? 'on' : ''}`} aria-pressed={cv === 'NG'} aria-label={`${x.t}: bad`} onClick={() => c.svcheck(i, x.id, 'NG')}>✕</button>
+          </span>
+        </div>
+      );
+    })}
+  </div>
+);

@@ -32,3 +32,130 @@
   .sv-root.admin-scan .typebox input { min-width: 0; flex: 1 1 140px; }
   .sv-root.admin-scan .sv-scanacts { grid-template-columns: 1fr; }
 }
+/* Lot sheet open (review / report): collapse the left nav to icons, same as the narrow-screen layout. */
+.sv-root .svshell.compact{grid-template-columns:72px minmax(0,1fr)}
+.sv-root .svshell.compact .svnav2{padding:14px 8px}
+.sv-root .svshell.compact .svnav2 .nv-sec{display:none}
+.sv-root .svshell.compact .svnav2 button{justify-content:center;padding:0;position:relative}
+.sv-root .svshell.compact .svnav2 button span{display:none}
+.sv-root .svshell.compact .svnav2 .nb{position:absolute;top:4px;right:4px;min-width:18px;height:18px;font-size:11px}
+
+/* ---- Prototype v2 lot review: item filter, Go to item, Yes/No answer cards, Save item, inline readings ---- */
+.sv-root .jump{display:flex;gap:6px;margin:10px 0 0}
+.sv-root .jump input{flex:1;min-width:0;min-height:42px;border:1px solid var(--line2);border-radius:10px;padding:0 10px;font:inherit;font-size:14px;background:var(--surface);color:var(--ink)}
+.sv-root .jump .btn{min-height:42px;padding:0 14px}
+.sv-root .svfsel{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:var(--muted);margin:12px 0 0}
+.sv-root .svfsel select{width:100%;min-height:44px;border:1px solid var(--line2);border-radius:12px;padding:0 12px;font:inherit;font-size:14px;font-weight:500;color:var(--ink);background:var(--surface)}
+.sv-root .spotstar{color:var(--primary);font-size:13px}
+.sv-root .spotwrap{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.sv-root .spotbtn{min-height:44px;padding:0 16px;border-radius:12px;border:1.5px solid var(--primary);color:var(--primary);font-weight:600;font-size:14px;background:var(--surface);white-space:nowrap}
+.sv-root .spotbtn.on{background:var(--primary);color:var(--on-primary)}
+.sv-root .spotnote{font-size:12px;margin:0}
+.sv-root .ckhead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.sv-root .ckhead h2{margin:0;font-size:26px}
+.sv-root .fsec-sub{text-transform:none;letter-spacing:0;font-weight:400;margin-left:6px}
+.sv-root .fcard.yn{padding:12px 14px;min-height:0}
+.sv-root .fcard.chg{box-shadow:0 0 0 2px var(--warn)}
+.sv-root .fcard.chg em{color:var(--warn);font-style:normal;font-weight:600}
+.sv-root .ynb{display:flex;flex-direction:column;gap:6px;flex:none}
+.sv-root .ynb.ynb2{flex-direction:row;gap:8px;align-self:center}
+.sv-root .ynb.ynb2 button{min-width:0;width:54px;height:54px;padding:0;border-radius:14px;font-size:22px;font-weight:700;display:grid;place-items:center;border:1.5px solid var(--line2);background:var(--surface)}
+.sv-root .ynb.ynb2 .yb{color:var(--ok)}
+.sv-root .ynb.ynb2 .nb2{color:var(--ng)}
+.sv-root .ynb.ynb2 .yb.on{background:var(--ok);border-color:var(--ok);color:var(--on-ok)}
+.sv-root .ynb.ynb2 .nb2.on{background:var(--ng);border-color:var(--ng);color:var(--on-ng)}
+.sv-root .roic{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;font-size:18px;font-weight:700;flex:none;align-self:center;background:var(--surface2);color:var(--muted)}
+.sv-root .roic.y{background:var(--ok);color:var(--on-ok)}
+.sv-root .roic.n{background:var(--ng);color:var(--on-ng)}
+.sv-root .svact2{display:flex;align-items:center;gap:12px;margin:14px 0 4px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:10px 14px;flex-wrap:wrap}
+.sv-root .svact2 .hint{flex:1;min-width:200px;font-size:14px;color:var(--muted)}
+.sv-root .lockmsg{background:var(--surface2);border:1px dashed var(--line2);border-radius:12px;padding:10px 14px;font-size:13px;color:var(--muted);margin:0 0 10px}
+.sv-root .dtile.din{cursor:text}
+.sv-root .dtile.din:focus-within{outline:2.5px solid var(--primary);outline-offset:2px}
+.sv-root .dvin{width:100%;min-height:48px;margin:6px 0 2px;border:1.5px solid var(--line2);border-radius:10px;padding:0 12px;font:inherit;font-size:22px;font-weight:500;color:var(--ink);background:var(--surface)}
+.sv-root .dvin::placeholder{font-size:14px;font-weight:400;color:var(--muted)}
+.sv-root .dvin:focus{outline:none;border-color:var(--primary)}
+.sv-root .dtile.good .dvin{color:var(--ok);border-color:transparent;background:color-mix(in srgb,var(--surface) 70%,var(--ok-bg))}
+.sv-root .dtile.warn .dvin{color:var(--warn)}
+.sv-root .dtile.bad .dvin{color:var(--ng);font-weight:700}
+.sv-root .dvin:disabled,.sv-root .dtiles.locked .dvin{background:var(--surface2);color:var(--muted);cursor:not-allowed;border-color:var(--line)}
+.sv-root .unsaved{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--warn-bg);border:1px solid var(--warn);border-radius:14px;padding:10px 14px;margin-bottom:14px}
+.sv-root .unsaved span{flex:1;min-width:220px;color:var(--warn)}
+.sv-root .unsaved .btn{min-height:42px}
+.sv-toast{position:fixed;left:50%;bottom:110px;transform:translate(-50%,0);background:var(--ink,#1f2937);color:var(--surface,#fff);padding:12px 18px;border-radius:12px;font-size:14px;font-weight:500;box-shadow:0 12px 32px rgba(0,0,0,.2);z-index:60;max-width:min(560px,90vw);text-align:center}
+.sv-toast.ok{background:var(--ok);color:var(--on-ok)}
+.sv-toast.bad{background:var(--ng);color:var(--on-ng)}
+.sv-root .btn.danger{background:var(--ng);border-color:var(--ng);color:var(--on-ng)}
+.sv-root .btn.danger:hover{filter:brightness(.95)}
+.sv-root .btn.warn{background:var(--warn-bg);border-color:var(--warn);color:var(--warn)}
+
+/* =====================================================================================
+   Tablet / iPad (portrait 744–900px, landscape 1024–1366px).
+   The lot review keeps the item list beside the item on tablets (it only stacks on
+   phones, below 700px), the lot bar stays on one row, and the bottom bar wraps instead
+   of squeezing. Inputs are 16px on touch screens so iPad Safari doesn't zoom in on focus.
+   ===================================================================================== */
+
+/* Landscape tablets and small laptops */
+@media (max-width:1180px){
+  .sv-root .lotbar{flex-wrap:nowrap;overflow:hidden;padding:0 10px}
+  .sv-root .lotbar>div{padding:8px 12px;min-height:56px;border-left:1px solid var(--line)}
+  .sv-root .lotbar>div:first-child{border-left:0;padding-left:4px}
+  .sv-root .lotbar b{font-size:14px}
+  .sv-root .lotbar .lb-ico{display:none}
+  .sv-root .lotbar .lb-code{flex:none}
+  .sv-root .lotbar .wide{flex:1 1 auto;min-width:80px}
+  .sv-root .svlayout,.sv-root .svlayout.withkp{grid-template-columns:220px minmax(0,1fr)}
+  .sv-root .svlayout .side{padding:18px 14px}
+  .sv-root .svlayout .opside .bignum{font-size:44px}
+  .sv-root .svlayout .main{padding:18px 20px 0}
+  .sv-root .svlayout .actionbar{flex-wrap:wrap;margin:20px -20px 0;padding:12px 20px calc(12px + env(safe-area-inset-bottom,0px))}
+  .sv-root .svlayout .actionbar .hint{flex:1 1 260px;min-width:0}
+  .sv-root .svlayout .actionbar .btn.big{padding:0 18px;white-space:nowrap}
+  .sv-root .ckhead h2{font-size:23px}
+  .sv-root .spotbtn{min-height:44px}
+}
+
+/* Portrait tablets: keep two columns, scroll the item and the list separately */
+@media (min-width:701px) and (max-width:900px){
+  .sv-root .opshell{height:calc(100dvh - var(--hdr,74px));overflow:hidden}
+  .sv-root .opshell>.layout.svlayout{grid-template-columns:200px minmax(0,1fr)}
+  .sv-root .opshell .opside{height:100%;max-height:none;border-right:1px solid var(--line);border-bottom:0}
+  .sv-root .opshell .main{height:100%;overflow-y:auto}
+  .sv-root .opshell>.pvwrap{overflow-y:auto}
+  .sv-root .svlayout .side{padding:14px 10px}
+  .sv-root .svlayout .opside .bignum{font-size:38px}
+  .sv-root .svlayout .main{padding:14px 14px 0}
+  .sv-root .svlayout .actionbar{margin:16px -14px 0;padding:10px 14px calc(10px + env(safe-area-inset-bottom,0px));gap:8px}
+  .sv-root .svlayout .actionbar .hint{flex:1 1 100%;font-size:13px}
+  .sv-root .svlayout .actionbar .btn.big{flex:1;padding:0 12px;font-size:15px}
+  .sv-root .lotbar{flex-wrap:wrap}
+  .sv-root .lotbar>div{min-height:0;padding:6px 10px;border-left:0}
+  .sv-root .lotbar .wide{flex-basis:100%;order:9}
+  .sv-root .ckhead h2{font-size:21px}
+  .sv-root .spotwrap{align-items:flex-start}
+  .sv-root .fcard.yn{padding:10px 12px;gap:10px}
+  .sv-root .ynb.ynb2 button{width:48px;height:48px;font-size:20px;border-radius:12px}
+  .sv-root .dtiles.six{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .sv-root .dvin{font-size:20px;min-height:46px}
+  .sv-root .svact2{padding:10px 12px}
+  .sv-root .svact2 .hint{flex:1 1 100%;min-width:0}
+  .sv-root .svact2 .btn.big{flex:1}
+  .sv-root .unsaved .btn{flex:1}
+}
+
+/* Touch screens: 16px text in fields stops iPad/iPhone Safari zooming in on focus. */
+@media (pointer:coarse){
+  .sv-root .jump input,.sv-root .svfsel select,.sv-root .sv-tools select,.sv-root .sv-tools .search,
+  .sv-root #svcomment,.sv-root .typebox input,.sv-root .drange input{font-size:16px}
+}
+
+
+/* Decision buttons for a bad item (Approve / On hold / Reject), saved on tap */
+.sv-root .svact2 .decrow{display:flex;gap:8px;flex-wrap:wrap}
+.sv-root .svact2 .decrow .btn.big{min-width:120px}
+.sv-root .spotbtn:disabled{opacity:.45;cursor:not-allowed}
+@media (min-width:701px) and (max-width:900px){.sv-root .svact2 .decrow{flex:1 1 100%}.sv-root .svact2 .decrow .btn.big{flex:1;min-width:0}}
+
+/* Report grid: a check the supervisor changed from the operator's answer */
+.sv-root .rt td.chg{outline:2px solid var(--warn);outline-offset:-2px}

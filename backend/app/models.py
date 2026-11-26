@@ -244,6 +244,10 @@ class SupervisorLotReview(Base):
     oos_action = Column(String(50), nullable=True)
     # Supervisor spot checks (prototype L.spot): {item column key: {"r": "OK"|"NG", "ng": [check ids]}}
     spot_checks = Column(JSON, nullable=True)
+    # Supervisor's Yes/No answers where they differ from the operator's (saved on every tap):
+    # {item column key: {"ng": [check ids answered No]}}. A good item with any No is rejected
+    # by the supervisor. Migration 0003.
+    item_answers = Column(JSON, nullable=True)
     # Supervisor comments for the report (prototype L.supComment)
     comment = Column(Text, nullable=True)
     reopen_note = Column(Text, nullable=True)

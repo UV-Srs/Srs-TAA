@@ -1,4 +1,4 @@
-import type { CheckResult, Disposition, OpenLotResult, ProtoStatus, SpotCheck, Workspace } from './types';
+import type { CheckResult, Disposition, ItemAnswer, OpenLotResult, ProtoStatus, SpotCheck, Workspace } from './types';
 
 /**
  * Everything the supervisor screens read or write goes through this interface
@@ -22,6 +22,10 @@ export interface SupervisorDataService {
   setOos(lotId: number, action: string | null): Promise<void>;
   /** Prototype ACT.svspot / svspotf / svspotdel: spot check of one good item (column key); null removes it. */
   setSpot(lotId: number, columnKey: string, spot: SpotCheck | null): Promise<void>;
+  /** The supervisor's Yes/No answers for one item, saved on every tap (ng = checks answered No). */
+  saveItem(lotId: number, columnKey: string, ng: string[]): Promise<ItemAnswer>;
+  /** A dimension reading the supervisor measured on a spot-checked item; null clears it. */
+  setSpotReading(lotId: number, columnKey: string, paramId: string, value: number | null): Promise<void>;
   /** Prototype #svcomment: supervisor comments for the report. */
   setComment(lotId: number, comment: string): Promise<void>;
   /** Prototype svDownload: the lot report as a PDF file. */
