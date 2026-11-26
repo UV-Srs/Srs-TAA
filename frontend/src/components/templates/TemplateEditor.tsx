@@ -1,11 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React from 'react';
 import { Info, Printer, Save } from 'lucide-react';
 import { BasicInfoTab } from './BasicInfoTab';
 import { ItemsTab } from './ItemsTab';
 import { RulesTab } from './RulesTab';
-import { sectionOf, type CheckKind, type DraftItem, type DraftTemplate, type FieldErrors, type Section, type ValidationResult } from './templateModel';
+import { type CheckKind, type DraftItem, type DraftTemplate, type FieldErrors, type Section, type ValidationResult } from './templateModel';
 
-type TabId = 'basic' | 'operator' | 'supervisor' | 'rules';
 
 interface TemplateEditorProps {
   draft: DraftTemplate;
@@ -23,7 +22,8 @@ interface TemplateEditorProps {
   onScan: () => void;
   onViewQr: () => void;
   onSave: () => void;
-  onAddItem: (section: Section) => string;
+  onAddItem: (section: Section, stage?: string) => string;
+  onLoadStandard?: () => void;
   onItemChange: (uid: string, patch: Partial<DraftItem>) => void;
   onItemKind: (uid: string, kind: Exclude<CheckKind, 'other'>) => void;
   onItemMove: (uid: string, dir: -1 | 1) => void;
@@ -34,38 +34,9 @@ interface TemplateEditorProps {
 export const TemplateEditor: React.FC<TemplateEditorProps> = ({
   draft, isNew, dirty, saving, validation, showErrors, serverErrors, usage, errorJump,
   onBasicChange, onScan, onViewQr, onSave,
-  onAddItem, onItemChange, onItemKind, onItemMove, onItemDuplicate, onItemDelete,
+  onAddItem, onLoadStandard, onItemChange, onItemKind, onItemMove, onItemDuplicate, onItemDelete,
 }) => {
-  const [tab, setTab] = useState<TabId>('basic');
-
-  const firstTabWithErrors = (): TabId =>
-    validation.basicCount ? 'basic' : validation.operatorCount ? 'operator' : 'supervisor';
-
-  // After the server rejects a save, take the admin to the first tab that has something to fix.
-  // Only a change after this editor mounted counts. A freshly opened template starts on its first tab.
-  const seenJump = useRef(errorJump);
-  useEffect(() => {
-    if (errorJump !== seenJump.current) {
-      seenJump.current = errorJump;
-      setTab(firstTabWithErrors());
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [errorJump]);
-
-  const handleSave = () => {
-    if (validation.total > 0) setTab(firstTabWithErrors());
-    onSave();
-  };
-
-  const opCount = draft.items.filter((i) => sectionOf(i) !== 'supervisor' && sectionOf(i) !== 'other').length;
-  const supCount = draft.items.filter((i) => sectionOf(i) === 'supervisor').length;
-
-  const tabs: { id: TabId; label: string; count?: number; errors: number }[] = [
-    { id: 'basic', label: 'Basic information', errors: showErrors ? validation.basicCount : 0 },
-    { id: 'operator', label: 'Operator checks', count: opCount, errors: showErrors ? validation.operatorCount : 0 },
-    { id: 'supervisor', label: 'Supervisor dimensions', count: supCount, errors: showErrors ? validation.supervisorCount : 0 },
-    { id: 'rules', label: 'Rules', errors: 0 },
-  ];
+  const handleSave = () => onSave();
 
   const sectionItemErrors = validation.items;
 
@@ -106,52 +77,32 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
         )}
       </div>
 
-      {/* Tabs */}
-      <div role="tablist" aria-label="Template sections" className="flex flex-wrap gap-2">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            aria-selected={tab === t.id}
-            onClick={() => setTab(t.id)}
-            className={`stchip ${tab === t.id ? 'on' : ''}`}
-          >
-            {t.label}
-            {t.count !== undefined && <span className="ml-1.5 opacity-75">{t.count}</span>}
-            {t.errors > 0 && <span className="ml-1.5 w-2 h-2 rounded-full bg-[var(--ng)]" aria-label={`${t.errors} to fix`} />}
-          </button>
-        ))}
-      </div>
-
-      {/* Panel */}
-      <div className="sv-card !p-5" role="tabpanel">
-        {tab === 'basic' && (
-          <BasicInfoTab
-            draft={draft}
-            errors={showErrors ? validation.basic : {}}
-            isNew={isNew}
-            serverErrors={serverErrors}
-            onChange={onBasicChange}
-            onScan={onScan}
-          />
-        )}
-        {(tab === 'operator' || tab === 'supervisor') && (
+      <div className="sv-card !p-5 space-y-8">
+        <BasicInfoTab
+          draft={draft}
+          errors={showErrors ? validation.basic : {}}
+          isNew={isNew}
+          serverErrors={serverErrors}
+          onChange={onBasicChange}
+          onScan={onScan}
+        />
+        {(['operator', 'supervisor'] as const).map((sec) => (
           <ItemsTab
-            key={tab}
-            section={tab}
+            key={sec}
+            section={sec}
             items={draft.items}
             errors={sectionItemErrors}
             showErrors={showErrors}
-            onAdd={() => onAddItem(tab)}
+            onAdd={(stage) => onAddItem(sec, stage)}
+            onLoadStandard={onLoadStandard}
             onChange={onItemChange}
             onKindChange={onItemKind}
             onMove={onItemMove}
             onDuplicate={onItemDuplicate}
             onRequestDelete={onItemDelete}
           />
-        )}
-        {tab === 'rules' && <RulesTab items={draft.items} />}
+        ))}
+        <RulesTab items={draft.items} onItemChange={onItemChange} />
       </div>
     </div>
   );

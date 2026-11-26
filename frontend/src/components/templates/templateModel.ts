@@ -356,3 +356,47 @@ export function withServerErrors(v: ValidationResult, d: DraftTemplate, server: 
   const basicCount = Object.keys({ ...v.basic, ...server.basic }).length;
   return { ...v, items, basicCount, operatorCount, supervisorCount, total: basicCount + operatorCount + supervisorCount };
 }
+
+// ── LotSure standard template (same values as the reference prototype) ─────────────────────────────
+
+const STD_OPERATOR: [string, string, string, string][] = [
+  ['Visual checks', 'Hose sealing surface', 'Free from burr, scratch, rust, dent, flash, flaw and concave on the jointing and sealing surface, both sides.', 'Visual'],
+  ['Visual checks', 'Fuel passage', 'Free from any foreign body inside the fuel passage.', 'Block testing or air blow'],
+  ['Visual checks', 'Metal tube', 'Free from scratch, dent, burr, ditch-line, damage, crack, deformation, metal chip, bending roller marks and pinch.', 'Visual'],
+  ['Visual checks', 'Bulge and quick spool area', 'Free from burrs.', 'Visual'],
+  ['Visual checks', 'Clamp marking M1', '10±3 mm, yellow colour, covering half or more. As per drawing.', 'Visual'],
+  ['Visual checks', 'Clamp marking M2', '10±3 mm, yellow colour, covering half or more. As per drawing.', 'Visual'],
+  ['Visual checks', 'Clamp marking M3', '10±3 mm, yellow colour, covering half or more. As per drawing.', 'Visual'],
+  ['Visual checks', 'Hose marking', '10±5 mm and 3±2 mm, 1 place, yellow colour. As per drawing.', 'Visual'],
+  ['Visual checks', 'Leak test mark', 'QR code sticker should be available on the part.', 'Visual'],
+  ['Visual checks', 'QR code sticker appearance', 'No damage, light print, half print or duplicate sticker. Must scan.', 'Visual'],
+  ['Visual checks', 'Traceability (batch code)', 'J.O. or batch code number should be available on the part.', 'Visual'],
+  ['Functional checks', 'Part profile', 'Shape matches the drawing.', 'Profile gauge'],
+  ['Functional checks', 'Leak testing', 'No leakage at 490 kPa minimum. Leak rate below 150 Pa.', 'Leak test machine'],
+];
+
+export const CHILD_STAGE_PREFIX = 'Child part';
+export const PRODUCT_STAGE = 'Product, flare';
+export const isChildStage = (stage: string) => stage.trim().toLowerCase().startsWith('child part');
+
+const STD_DIMS: [string, string, number, number, string][] = [
+  [`${CHILD_STAGE_PREFIX}, Tube 8.0 TSW PP`, 'Tube OD after coating', 7.97, 8.17, '7.97 – 8.17'],
+  [`${CHILD_STAGE_PREFIX}, Tube 8.0 TSW PP`, 'Wall thickness after coating', 0.67, 0.83, '0.67 – 0.83'],
+  [`${CHILD_STAGE_PREFIX}, Tube 8.0 TSW PP`, 'Tube OD with PP cover', 9.8, 10.4, 'Ø10 +0.4 / −0.2'],
+  [PRODUCT_STAGE, 'Bulge dia, start side', 9.0, 9.6, '9.30 ± 0.30'],
+  [PRODUCT_STAGE, 'SQ dia, end side', 7.9, 8.0, '7.95 ± 0.05'],
+  [PRODUCT_STAGE, 'Quick bead dia, end side', 10.8, 11.4, '11.10 ± 0.30'],
+];
+
+export function standardItems(): DraftItem[] {
+  const ops = STD_OPERATOR.map(([stage, name, spec, method]) => ({
+    ...createItem('operator', 'yesno', stage),
+    control_item_name: name, specification_content: spec, application_method: method,
+  }));
+  const dims = STD_DIMS.map(([stage, name, lo, hi, spec]) => ({
+    ...createItem('supervisor', 'numeric', stage),
+    control_item_name: name, specification_content: spec, application_method: 'Vernier caliper / micrometer',
+    min_val: lo, max_val: hi, unit: 'mm', sample_columns: makeColumns('numeric', 10),
+  }));
+  return [...ops, ...dims];
+}

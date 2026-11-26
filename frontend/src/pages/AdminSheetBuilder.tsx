@@ -9,7 +9,7 @@ import { TemplateList } from '../components/templates/TemplateList';
 import { TemplateEditor } from '../components/templates/TemplateEditor';
 import { ConfirmDialog } from '../components/templates/ui';
 import {
-  applyKind, blankTemplate, createItem, duplicateItem, mapServerErrors, moveWithinSection, normalizeSheetId,
+  applyKind, blankTemplate, createItem, duplicateItem, mapServerErrors, moveWithinSection, normalizeSheetId, standardItems,
   snapshot, toDraft, toPayload, validate, withServerErrors,
   type CheckKind, type DraftItem, type DraftTemplate, type FieldErrors, type Section, type ServerErrors,
 } from '../components/templates/templateModel';
@@ -72,6 +72,7 @@ export const AdminSheetBuilder: React.FC = () => {
 
   const openBlank = useCallback((partNo = '') => {
     const d = blankTemplate();
+    d.items = standardItems();
     d.part_no = partNo;
     d.sheet_id = partNo ? normalizeSheetId(partNo) : '';
     sheetIdTouched.current = false;
@@ -177,9 +178,11 @@ export const AdminSheetBuilder: React.FC = () => {
     });
   };
 
-  const handleAdd = (section: Section): string => {
-    const stage = [...draft.items].reverse().find((i) => (i.assigned_role === 'supervisor') === (section === 'supervisor'))?.stage_name ?? '';
-    const item = createItem(section, 'passfail', stage);
+  const handleLoadStandard = () => patchItems(() => standardItems());
+
+  const handleAdd = (section: Section, stageArg?: string): string => {
+    const stage = stageArg ?? [...draft.items].reverse().find((i) => (i.assigned_role === 'supervisor') === (section === 'supervisor'))?.stage_name ?? '';
+    const item = createItem(section, section === 'operator' ? 'yesno' : 'numeric', stage.trim());
     patchItems((items) => [...items, item]);
     return item._uid;
   };
@@ -336,6 +339,7 @@ export const AdminSheetBuilder: React.FC = () => {
           onViewQr={() => setIsPrintOpen(true)}
           onSave={handleSave}
           onAddItem={handleAdd}
+          onLoadStandard={handleLoadStandard}
           onItemChange={(uid, patch) => {
             clearServerItemErrors(uid);
             patchItems((items) => items.map((i) => (i._uid === uid ? { ...i, ...patch } : i)));
