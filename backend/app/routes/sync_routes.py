@@ -57,6 +57,8 @@ def sync_offline_queue(
         target_batch = db.query(InspectionBatch).filter(InspectionBatch.batch_id == m.batch_id).first()
         if target_batch and target_batch.status in ["CREATED_PENDING_OPERATOR", "pending"]:
             target_batch.status = "OPERATOR_IN_PROGRESS"
+        if target_batch and current_user.role == "operator" and target_batch.prepared_by is None:
+            target_batch.prepared_by = current_user.user_id
 
         # Upsert cell response
         resp = db.query(BatchCellResponse).filter(

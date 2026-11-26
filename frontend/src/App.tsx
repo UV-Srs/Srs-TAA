@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User, InspectionBatch, QRResolveResult } from './types';
-import { getCurrentStoredUser, logoutUser, fetchBatches, fetchProgressDashboard, startInspectionFromTemplate, fetchPendingScan, apiRequest } from './api';
+import { getCurrentStoredUser, logoutUser, fetchBatches, fetchProgressDashboard, startInspectionFromTemplate, fetchPendingScan, apiRequest, openBatchWorkflow } from './api';
 import { onBatchCreated, onBatchUpdated, onSheetUpdated, onScanNotFound, liveSync } from './liveSync';
 import { guardedNavigate } from './lib/navGuard';
 import { Header } from './components/Header';
@@ -127,11 +127,27 @@ export const App: React.FC = () => {
     }
   };
 
+  // Clear the open lot and screen so the next user starts on their home screen,
+  // not on a sheet left open by whoever was signed in before.
+  const resetSession = () => {
+    setCurrentBatchId(null);
+    setActiveTab('sheet');
+    setPhoneScannerMode(false);
+    setBatches([]);
+  };
+
   const handleLogout = () => {
     guardedNavigate(() => {
       logoutUser();
       setCurrentUser(null);
+      resetSession();
     });
+  };
+
+  // Operators: record the scan on the lot (prepared_by) so it appears in their recent lots.
+  const claimForOperator = async (bId: number) => {
+    if (currentUser?.role !== 'operator') return;
+    try { await openBatchWorkflow(bId); } catch { /* already submitted or finished */ }
   };
 
   // Every in-app tab change goes through here so a screen with unsaved work can ask first.
@@ -154,6 +170,7 @@ export const App: React.FC = () => {
     }
     try {
       const { batch_id } = await startInspectionFromTemplate(sheetId);
+      await claimForOperator(batch_id);
       await loadBatches();
       setCurrentBatchId(batch_id);
       setActiveTab('sheet');
@@ -163,9 +180,10 @@ export const App: React.FC = () => {
   };
 
   const handleOpenBatch = (bId: number) => {
-    guardedNavigate(() => {
+    guardedNavigate(async () => {
       setCurrentBatchId(bId);
       setActiveTab('sheet');
+      await claimForOperator(bId);
       loadBatches();
     });
   };
@@ -181,6 +199,7 @@ export const App: React.FC = () => {
     return (
       <LoginPage
         onLoginSuccess={(u) => {
+          resetSession();
           setCurrentUser(u);
           liveSync.reconnect();
         }}
@@ -199,7 +218,7 @@ export const App: React.FC = () => {
     return (
       <MobileScannerPage
         currentUser={currentUser}
-        onLogout={() => { logoutUser(); setCurrentUser(null); }}
+        onLogout={() => { logoutUser(); setCurrentUser(null); resetSession(); }}
         onExitScannerMode={currentUser.role === 'operator' ? () => setPhoneScannerMode(false) : undefined}
       />
     );

@@ -352,6 +352,9 @@ class InspectionBatchResponse(BaseModel):
     prepared_by: Optional[int] = None
     checked_by: Optional[int] = None
     approved_by: Optional[int] = None
+    operator_clearance: Optional[str] = None
+    operator_clearance_note: Optional[str] = None
+    bad_item_count: int = 0  # items the operator marked bad (any check answered No)
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     template: Optional[SheetTemplateResponse] = None
@@ -375,6 +378,8 @@ class OperatorSubmitRequest(BaseModel):
     rejected_field_names: Optional[List[str]] = []
     remarks: Optional[str] = None
     cells: List[CellResponseItem] = []
+    clearance: Optional[str] = None  # 'Lot cleared' | 'Cleared, NG items segregated' | 'Not cleared, hold the lot'
+    clearance_note: Optional[str] = None
 
 class SupervisorFieldReviewRequest(BaseModel):
     field_key: str

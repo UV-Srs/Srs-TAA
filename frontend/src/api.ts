@@ -180,7 +180,10 @@ export async function updateCellResponse(batchId: number, data: { item_id: numbe
 // --- Operator & Supervisor Decisions ---
 export async function submitOperatorBatch(
   batchId: number,
-  data: { decision: 'APPROVE' | 'REJECT'; rejected_item_ids?: number[]; rejected_field_names?: string[]; remarks?: string; cells: any[] }
+  data: {
+    decision: 'APPROVE' | 'REJECT'; rejected_item_ids?: number[]; rejected_field_names?: string[]; remarks?: string; cells: any[];
+    clearance?: string; clearance_note?: string;
+  }
 ): Promise<any> {
   return apiRequest(`/api/operator/batches/${batchId}/submit`, {
     method: 'POST',
