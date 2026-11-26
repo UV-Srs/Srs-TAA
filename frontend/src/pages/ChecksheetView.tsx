@@ -993,7 +993,9 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                             : 'text-amber-700'
                         }
                       >
-                        {dec.decision}
+                        {String(dec.role || '').toLowerCase() === 'operator' && dec.decision.toLowerCase().includes('reject')
+                          ? 'Not good items'
+                          : dec.decision}
                       </span>
                     </td>
                     <td className="py-2 px-3 text-slate-500 font-mono text-[11px]">
