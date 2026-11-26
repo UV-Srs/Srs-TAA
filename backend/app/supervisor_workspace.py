@@ -249,14 +249,28 @@ def lot_items(b: InspectionBatch, review: Optional[SupervisorLotReview]) -> Dict
             "sup_visual": sup_visual, "sup_checks": sup_checks}
 
 
-def final_bad_count(parts: List[Optional[Dict[str, Any]]], spot: Dict[str, Dict[str, Any]]) -> int:
-    """Overall (final) bad items in a lot: the operator's bad items minus those the supervisor changed
-    to good (Approved), plus problems the supervisor found when spot-checking items the operator
-    passed. Rejected, on-hold and undecided items stay bad. A spot-checked item is one the operator
-    marked good, so the two groups never overlap. Used by the lot report and the admin dashboard."""
-    kept = sum(1 for p in parts if p and p["r"] == "NG" and p.get("disp") != "Approved")
-    problems = sum(1 for v in (spot or {}).values() if v.get("r") == "NG")
-    return kept + problems
+def final_bad_count(
+    parts: List[Optional[Dict[str, Any]]],
+    spot: Dict[str, Dict[str, Any]],
+    svd: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> int:
+    """Overall (final) bad items in a lot, after the supervisor's review:
+      * items the operator marked bad, unless the supervisor changed them to good (Approved);
+      * items the operator marked good but the supervisor found bad (a check answered No in the
+        review), unless then Approved (`svd`: {item index: {"ng": [...], "d": decision}});
+      * problems recorded by older spot checks (r == "NG"), for items not already counted above.
+    Rejected, on-hold and undecided items stay bad. One rule for the lot report (PDF and screen) and
+    the admin dashboard."""
+    svd = svd or {}
+    bad = 0
+    for k, p in enumerate(parts):
+        if p and p["r"] == "NG":
+            bad += p.get("disp") != "Approved"
+        elif p and p["r"] == "OK" and (svd.get(str(k)) or {}).get("ng"):
+            bad += svd[str(k)].get("d") != "Approved"
+        elif ((spot or {}).get(str(k)) or {}).get("r") == "NG":
+            bad += 1
+    return bad
 
 
 def lot_bad_summary(b: InspectionBatch, review: Optional[SupervisorLotReview]) -> Dict[str, int]:
@@ -270,7 +284,7 @@ def lot_bad_summary(b: InspectionBatch, review: Optional[SupervisorLotReview]) -
     return {
         "items_checked": checked,
         "operator_ng": sum(1 for p in parts if p and p["r"] == "NG"),
-        "ng_count": final_bad_count(parts, spot),
+        "ng_count": final_bad_count(parts, spot, lot_answers(li["columns"], review)),
     }
 
 

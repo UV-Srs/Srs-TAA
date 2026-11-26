@@ -215,9 +215,6 @@ def generate_supervisor_report_pdf(lot: Dict[str, Any], tpl: Dict[str, Any], rev
     filled = sum(1 for _, _, v in readings if v is not None)
     oos = [(p, j, v) for p, j, v in readings if reading_status_values(p.get("min"), p.get("max"), v) == "bad"]
     spots = sorted(int(k) for k in spot if str(k).isdigit())
-    # Overall (final) bad count after the supervisor's decisions and spot checks (same rule as the dashboard).
-    final_bad = final_bad_count(parts, spot)
-
     # The supervisor's answers where they differ from the operator's ({item index: {"ng": [...]}}).
     svd: Dict[str, Dict[str, Any]] = lot.get("svd") or {}
 
@@ -236,11 +233,9 @@ def generate_supervisor_report_pdf(lot: Dict[str, Any], tpl: Dict[str, Any], rev
     def found_bad_disp(k: int) -> Optional[str]:
         return (svd.get(str(k)) or {}).get("d")
 
-    # Summary after the supervisor's review (same rules as the preview's supSummary):
-    # bad = operator-bad items not approved + good items the supervisor found bad;
-    # readings = the supervisor's own: supervisor dimension samples, supervisor checks, spot readings.
-    n_bad = sum(1 for k, p in enumerate(parts)
-                if (p and p["r"] == "NG" and p.get("disp") != "Approved") or (sup_rejected(k) and found_bad_disp(k) != "Approved"))
+    # Summary after the supervisor's review: bad = the final count (the same rule as the dashboard and the
+    # preview); readings = the supervisor's own: supervisor dimension samples, supervisor checks, spot readings.
+    n_bad = final_bad_count(parts, spot, svd)
     sup_vals: List[Optional[Any]] = []
     for p in params:
         if p.get("editable"):

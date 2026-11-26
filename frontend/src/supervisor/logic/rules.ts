@@ -113,15 +113,17 @@ export const badIdx = (l: Lot): number[] =>
   l.parts.map((p, i) => (p && p.r === 'NG' ? i : -1)).filter((i) => i >= 0);
 
 /**
- * Overall (final) number of bad items in a lot: the operator's bad items, minus those the supervisor
- * changed to good (Approved), plus problems the supervisor found when spot-checking items the operator
- * passed. Rejected, on-hold and undecided items stay bad. Same rule as the server's PDF report.
+ * Overall (final) number of bad items in a lot, after the supervisor's review: the operator's bad
+ * items, plus good items the supervisor found bad, minus any the supervisor changed to good
+ * (Approved). Problems recorded by older spot checks count too. Rejected, on-hold and undecided
+ * items stay bad. Same rule as the server (final_bad_count): the PDF report and the dashboard.
  */
-export const finalBadCount = (l: Lot): number => {
-  const keptBad = l.parts.filter((p) => p && p.r === 'NG' && p.disp !== 'Approved').length;
-  const spotProblems = Object.values(l.spot ?? {}).filter((s) => s?.r === 'NG').length;
-  return keptBad + spotProblems;
-};
+export const finalBadCount = (l: Lot): number =>
+  l.parts.reduce((n, _p, k) => {
+    const d = itemDecision(l, k);
+    if (d !== undefined) return n + (d !== 'Approved' ? 1 : 0);
+    return n + (l.spot?.[String(k)]?.r === 'NG' ? 1 : 0);
+  }, 0);
 
 /** Number of samples (prototype: 10): dimensions and supervisor checks share sample 1..n. */
 export const nSamples = (ws: Workspace, l: Lot): number =>
@@ -274,7 +276,7 @@ export const spotMissing = (ws: Workspace, l: Lot, k: number): number =>
  */
 export function supSummary(ws: Workspace, l: Lot) {
   const n = l.parts.length;
-  const bad = l.parts.reduce((a, _p, k) => { const d = itemDecision(l, k); return a + (d !== undefined && d !== 'Approved' ? 1 : 0); }, 0);
+  const bad = finalBadCount(l);
   let filled = 0;
   let total = 0;
   const count = (v: unknown) => { total++; if (v != null) filled++; };
