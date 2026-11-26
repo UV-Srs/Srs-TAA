@@ -81,12 +81,12 @@ export const MobileScannerPage: React.FC<MobileScannerPageProps> = ({ currentUse
     <div className="min-h-screen bg-slate-900 text-white flex flex-col select-none">
 
       {/* ── Top bar ─────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-5 pt-safe-top pt-6 pb-4">
-        <div>
-          <p className="text-[10px] text-slate-500 uppercase tracking-widest font-semibold">TFT Scanner</p>
-          <p className="text-sm font-bold text-white leading-tight mt-0.5">{currentUser.full_name}</p>
+      <div className="flex items-center justify-between gap-3 px-4 sm:px-6 lg:px-10 pt-safe-top pt-5 sm:pt-6 lg:pt-8 pb-4 w-full">
+        <div className="min-w-0">
+          <p className="text-slate-500 uppercase tracking-widest font-semibold" style={{ fontSize: 'clamp(10px, 1.6vmin, 16px)' }}>TFT Scanner</p>
+          <p className="font-bold text-white leading-tight mt-0.5 truncate" style={{ fontSize: 'clamp(14px, 2.6vmin, 28px)' }}>{currentUser.full_name}</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
           {onExitScannerMode && (
             <button
               type="button"
@@ -96,7 +96,7 @@ export const MobileScannerPage: React.FC<MobileScannerPageProps> = ({ currentUse
               Inspect here
             </button>
           )}
-          <span className={`text-[11px] font-bold uppercase px-2.5 py-1 rounded-full ${roleBadge[currentUser.role] ?? 'bg-slate-700 text-slate-300'}`}>
+          <span className={`text-[11px] sm:text-xs font-bold uppercase px-2.5 py-1 rounded-full ${roleBadge[currentUser.role] ?? 'bg-slate-700 text-slate-300'}`}>
             {currentUser.role}
           </span>
           <button onClick={handleLogout} className="p-2 text-slate-400 hover:text-white transition-colors" aria-label="Log out">
@@ -106,11 +106,11 @@ export const MobileScannerPage: React.FC<MobileScannerPageProps> = ({ currentUse
       </div>
 
       {/* ── Main scan area ───────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col items-center justify-center px-6 pb-6 gap-6">
+      <div className="flex-1 flex flex-col items-center justify-center px-4 sm:px-6 pb-6 gap-6 lg:gap-8 w-full" style={{ gap: 'clamp(24px, 5vmin, 64px)' }}>
 
         {/* Resolving spinner */}
         {isOpening && (
-          <div className="w-full max-w-sm bg-slate-800 rounded-2xl p-4 flex items-center gap-3">
+          <div className="w-full bg-slate-800 rounded-2xl p-4 flex items-center gap-3" style={{ maxWidth: 'clamp(320px, 70vmin, 760px)' }}>
             <Loader2 className="w-5 h-5 text-slate-400 animate-spin shrink-0" />
             <p className="text-sm text-slate-300">Opening on desktop…</p>
           </div>
@@ -118,12 +118,12 @@ export const MobileScannerPage: React.FC<MobileScannerPageProps> = ({ currentUse
 
         {/* Last result card */}
         {!isOpening && lastResult && (
-          <div className={`w-full max-w-sm rounded-2xl p-4 flex items-start gap-3 border ${
+          <div className={`w-full rounded-2xl p-4 flex items-start gap-3 border ${
             lastResult.status === 'ok'        ? 'bg-emerald-900/50 border-emerald-700' :
             lastResult.status === 'readonly'  ? 'bg-amber-900/40  border-amber-700'   :
             lastResult.status === 'not_found' ? 'bg-violet-900/40  border-violet-700' :
                                                'bg-red-900/40     border-red-700'
-          }`}>
+          }`} style={{ maxWidth: 'clamp(320px, 70vmin, 760px)' }}>
             {lastResult.status === 'ok'        && <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />}
             {lastResult.status === 'readonly'  && <AlertCircle  className="w-5 h-5 text-amber-400  shrink-0 mt-0.5" />}
             {lastResult.status === 'not_found' && <AlertCircle  className="w-5 h-5 text-violet-400 shrink-0 mt-0.5" />}
@@ -142,20 +142,21 @@ export const MobileScannerPage: React.FC<MobileScannerPageProps> = ({ currentUse
         <button
           onClick={() => setIsScanOpen(true)}
           disabled={isOpening}
-          className="w-52 h-52 rounded-full bg-white text-slate-900 flex flex-col items-center justify-center gap-3 shadow-2xl active:scale-95 transition-transform disabled:opacity-40"
+          style={{ width: 'clamp(176px, 38vmin, 520px)', height: 'clamp(176px, 38vmin, 520px)' }}
+          className="rounded-full bg-white text-slate-900 flex flex-col items-center justify-center gap-3 shadow-2xl active:scale-95 transition-transform disabled:opacity-40"
         >
-          <ScanLine className="w-16 h-16" />
-          <span className="text-sm font-bold tracking-wide">TAP TO SCAN</span>
+          <ScanLine style={{ width: '28%', height: '28%' }} />
+          <span className="font-bold tracking-wide" style={{ fontSize: 'clamp(14px, 3.2vmin, 32px)' }}>TAP TO SCAN</span>
         </button>
 
-        <p className="text-xs text-slate-500 text-center max-w-xs leading-relaxed">
+        <p className="text-slate-500 text-center leading-relaxed" style={{ fontSize: 'clamp(12px, 2.2vmin, 22px)', maxWidth: 'clamp(280px, 60vmin, 720px)' }}>
           Scan the <span className="text-slate-300 font-semibold">TAA QR code</span> or <span className="text-slate-300 font-semibold">lot barcode</span> from the printed inspection label — not the vendor barcode on the box
         </p>
       </div>
 
       {/* ── Session history ──────────────────────────────────────────── */}
       {history.length > 0 && (
-        <div className="border-t border-slate-800 px-5 pb-safe-bottom pb-8">
+        <div className="border-t border-slate-800 px-4 sm:px-6 lg:px-10 pb-safe-bottom pb-8 w-full">
           <div className="flex items-center gap-2 py-3">
             <Clock className="w-3.5 h-3.5 text-slate-500" />
             <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Session history</p>
