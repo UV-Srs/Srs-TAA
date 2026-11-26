@@ -59,10 +59,6 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
               <Printer className="w-3.5 h-3.5" />
               <span>View QR</span>
             </button>
-            <button type="button" className="btn primary sm disabled:opacity-50" onClick={handleSave} disabled={saving || (!isNew && !dirty)}>
-              <Save className="w-3.5 h-3.5" />
-              <span>{saving ? 'Saving...' : isNew ? 'Create template' : 'Save changes'}</span>
-            </button>
           </div>
         </div>
 
