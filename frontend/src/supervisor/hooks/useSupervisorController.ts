@@ -30,7 +30,7 @@ const TOAST_MS = 3200;
 
 /**
  * The prototype's supervisor UI state and ACT handlers (svnav, svgo, svclearpre, svopen, svlots,
- * svitem, svprev/next, svnext (Next to do), svdec, readings typed into the dimension fields, svpreview, oos, sign),
+ * svitem, svprev/next, svdec, readings typed into the dimension fields, svpreview, oos, sign),
  * backed by the data service. Writes update the screen at once and are sent in order.
  */
 export function useSupervisorController() {
@@ -225,6 +225,19 @@ export function useSupervisorController() {
 
   /** ACT.svitem (item list row) */
   const svitem = (k: number) => { if (k !== svItemRef.current) openItem(k); };
+
+  /** ACT.svprev / svnext: step to the previous / next item of the filtered list (flushes pending readings). */
+  const svstep = (dir: 1 | -1) => {
+    const L = lotOf(supId);
+    const w = wsRef.current;
+    if (!L || !w) return;
+    const cur = svItemRef.current ?? 0;
+    const vis = svVisibleItems(w, L, svFilt);
+    const list = vis.length ? vis : Array.from({ length: nItems(w, L) }, (_, k) => k);
+    const target = dir === 1 ? list.find((k) => k > cur) : [...list].reverse().find((k) => k < cur);
+    if (target == null) { showToast(dir === 1 ? 'This is the last item.' : 'This is the first item.'); return; }
+    openItem(target);
+  };
 
   /** ACT.svfilt2: filter the item list; opens the first shown item when the open one is hidden. */
   const svfilt = (f: ItemFilter) => {
@@ -600,7 +613,7 @@ export function useSupervisorController() {
     svView, svPre, svOp, setSvOp, supQ, setSupQ, supMsg, setSupMsg, supId, supLot, reviewable,
     svItem, sel, kpOpen, buf,
     svnav, svlots, svgo, svclearpre, svopen, openFromList, openFromSearch, scan,
-    svitem, svFilt, svfilt, jumpgo, svans, svdecide, svspot3, svrand, toast, typeSpotReading,
+    svitem, svstep, svFilt, svfilt, jumpgo, svans, svdecide, svspot3, svrand, toast, typeSpotReading,
     svsample, svdim, kpclose, key, bksp, advance, svcheck, typeReading,
     setComment,
     svpreview, svback, oos, sign, download, downloading,

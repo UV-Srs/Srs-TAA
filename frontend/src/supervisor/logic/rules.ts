@@ -164,8 +164,19 @@ export const sampleTotal = (ws: Workspace, l: Lot, j: number): number =>
 
 /** Item still to do: a bad item without a decision, or a sample with readings the supervisor still has to enter. */
 export const isTodo = (ws: Workspace, l: Lot, k: number): boolean => {
-  const p = l.parts[k];
-  return (!!p && p.r === 'NG' && !p.disp) || (k < nSamples(ws, l) && !sampleOwnDone(ws, l, k));
+  // A bad item (operator's, or found bad by the supervisor) with no decision yet
+  if (itemDecision(l, k) === null) return true;
+  // A sample item whose supervisor readings / checks are not all in
+  if (k < nSamples(ws, l) && !sampleOwnDone(ws, l, k)) return true;
+  // A marked spot check still missing a dimension reading the supervisor can type
+  if (l.spot?.[String(k)] && !supRejected(l, k)) {
+    return paramsOf(ws, l).some((p) => {
+      if (spotDimValue(l, p, k) != null) return false;
+      const sampleV = k < p.samples.length ? dimValue(l, p, k) : null;
+      return spotUsesSample(p, k) || sampleV == null;
+    });
+  }
+  return false;
 };
 
 /** Prototype svNextTodo: the next item to do after `from`, in item order, wrapping; -1 when none. */

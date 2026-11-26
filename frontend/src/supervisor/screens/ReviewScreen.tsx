@@ -315,6 +315,8 @@ export const ReviewScreen: React.FC<{ ws: Workspace; c: SupervisorController; lo
           <div className="grow"></div>
           <div className="actionbar">
             <span className="hint">{hint}</span>
+            <button className="btn big" onClick={() => c.svstep(-1)} disabled={i <= 0}>‹ Previous</button>
+            <button className="btn big" onClick={() => c.svstep(1)} disabled={i >= N - 1}>Next item ›</button>
             <button className="btn big" onClick={c.svrand}>Pick a random item</button>
             <button className="btn big primary" onClick={c.svpreview} disabled={!done}>Preview report ›</button>
           </div>
