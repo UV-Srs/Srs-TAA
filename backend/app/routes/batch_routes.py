@@ -3,7 +3,8 @@ import uuid
 from datetime import datetime
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
-from sqlalchemy.orm import Session
+from sqlalchemy import func, or_
+from sqlalchemy.orm import Session, object_session
 
 from backend.app.database import get_db
 from backend.app.models import (
@@ -22,8 +23,40 @@ from backend.app.live_sync import notify_live
 
 router = APIRouter(prefix="/api/batches", tags=["Batches & Cells"])
 
-def format_batch_response(b: InspectionBatch) -> dict:
+def bad_item_counts(db: Session, batch_ids: Optional[List[int]] = None) -> dict:
+    """Items the operator marked bad, per lot: {batch_id: count}.
+
+    The operator screen saves one cell per item and check (column_key = item number "1".."N").
+    An item is bad when any of the operator's pass/fail checks on it is "Fail". The rule for which
+    checks count matches is_visual / is_operator_item in supervisor_workspace.py. One query for all lots.
+    """
+    q = (
+        db.query(BatchCellResponse.batch_id, BatchCellResponse.column_key)
+        .join(TemplateControlItem, TemplateControlItem.item_id == BatchCellResponse.item_id)
+        .filter(
+            or_(TemplateControlItem.row_mode == "SERIAL_TICKBOX",
+                TemplateControlItem.html_input_type.in_(["checkbox", "pf"])),
+            func.coalesce(TemplateControlItem.assigned_role, "operator").notin_(["supervisor", "admin"]),
+            or_(TemplateControlItem.editable_by_operator.is_(None), TemplateControlItem.editable_by_operator.is_(True)),
+            or_(TemplateControlItem.visible_to_operator.is_(None), TemplateControlItem.visible_to_operator.is_(True)),
+            func.lower(func.trim(BatchCellResponse.cell_value)).in_(["fail", "false", "0"]),
+        )
+        .distinct()
+    )
+    if batch_ids is not None:
+        q = q.filter(BatchCellResponse.batch_id.in_(batch_ids))
+    counts: dict = {}
+    for batch_id, col in q.all():
+        if str(col).strip().isdigit():  # item numbers only, not lot-level columns like "val"
+            counts[batch_id] = counts.get(batch_id, 0) + 1
+    return counts
+
+
+def format_batch_response(b: InspectionBatch, bad_count: Optional[int] = None) -> dict:
     now = datetime.utcnow()
+    if bad_count is None:
+        db = object_session(b)
+        bad_count = bad_item_counts(db, [b.batch_id]).get(b.batch_id, 0) if db else 0
     is_overdue = bool(b.status == "ON_HOLD" and b.hold_due_at and b.hold_due_at <= now)
 
     decisions_list = []
@@ -67,6 +100,9 @@ def format_batch_response(b: InspectionBatch) -> dict:
         "prepared_by": b.prepared_by,
         "checked_by": b.checked_by,
         "approved_by": b.approved_by,
+        "operator_clearance": b.operator_clearance,
+        "operator_clearance_note": b.operator_clearance_note,
+        "bad_item_count": bad_count,
         "created_at": b.created_at,
         "updated_at": b.updated_at,
         "template": b.template,
@@ -85,7 +121,8 @@ def list_batches(
 ):
     check_overdue_holds(db)
     batches = db.query(InspectionBatch).order_by(InspectionBatch.created_at.desc()).all()
-    return [format_batch_response(b) for b in batches]
+    bad = bad_item_counts(db)
+    return [format_batch_response(b, bad.get(b.batch_id, 0)) for b in batches]
 
 @router.get("/{batch_id}", response_model=InspectionBatchDetail)
 def get_batch_detail(
@@ -119,6 +156,11 @@ def open_batch_workflow(
         raise HTTPException(status_code=404, detail="Batch not found")
 
     changed = False
+    # Record which operator scanned the lot, so it shows in that operator's recent lots
+    # before it is submitted. The first operator to scan it keeps it.
+    if current_user.role == "operator" and batch.operator_submitted_at is None and batch.prepared_by is None:
+        batch.prepared_by = current_user.user_id
+        changed = True
     if current_user.role == "operator" and batch.status in ["CREATED_PENDING_OPERATOR", "pending"]:
         batch.status = "OPERATOR_IN_PROGRESS"
         changed = True
@@ -234,6 +276,8 @@ def update_cell_response(
     # Auto-progress to IN_PROGRESS if pending
     if batch.status in ["CREATED_PENDING_OPERATOR", "pending"]:
         batch.status = "OPERATOR_IN_PROGRESS"
+    if current_user.role == "operator" and batch.prepared_by is None:
+        batch.prepared_by = current_user.user_id
 
     db.commit()
     db.refresh(resp)

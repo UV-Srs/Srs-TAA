@@ -304,7 +304,9 @@ def serialize_lot(db: Session, b: InspectionBatch, users: Dict[int, User]) -> Di
         "ts": iso(ts),
         "op": op,
         "opBy": op_by,
-        "clearance": {"d": clearance_text(b.operator_decision, parts), "note": ""} if b.operator_decision else None,
+        # The operator's own clearance choice; older lots (submitted before it was stored) fall back to the derived wording.
+        "clearance": ({"d": b.operator_clearance, "note": b.operator_clearance_note or ""} if b.operator_clearance
+                      else {"d": clearance_text(b.operator_decision, parts), "note": ""} if b.operator_decision else None),
         "columns": columns,
         "parts": parts,
         "supChecks": li["sup_checks"],

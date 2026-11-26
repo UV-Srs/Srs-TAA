@@ -97,6 +97,9 @@ class InspectionBatch(Base):
     operator_rejected_fields = Column(JSON, nullable=True)  # list of field item_ids or keys
     operator_submitted_at = Column(DateTime, nullable=True)
     prepared_by = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
+    # Operator's lot clearance on submit: 'Lot cleared' | 'Cleared, NG items segregated' | 'Not cleared, hold the lot'
+    operator_clearance = Column(String(60), nullable=True)
+    operator_clearance_note = Column(Text, nullable=True)
 
     # Supervisor reviews & decisions
     supervisor_reviews = Column(JSON, nullable=True)  # dict: {item_id/field_key: 'confirm' | 'overrule'}

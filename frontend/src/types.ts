@@ -124,6 +124,11 @@ export interface InspectionBatch {
   prepared_by?: number;
   checked_by?: number;
   approved_by?: number;
+  /** Operator's lot clearance, chosen on submit */
+  operator_clearance?: string | null;
+  operator_clearance_note?: string | null;
+  /** Items the operator marked bad (any check answered No) */
+  bad_item_count?: number;
   created_at?: string;
   updated_at?: string;
   template?: SheetTemplate;

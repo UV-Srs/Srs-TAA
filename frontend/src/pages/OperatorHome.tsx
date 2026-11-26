@@ -15,7 +15,8 @@ interface OperatorHomeProps {
 const WAITING_STATUSES = ['CREATED_PENDING_OPERATOR', 'OPERATOR_IN_PROGRESS', 'pending', 'op_progress'];
 const PAGE_SIZE = 10;
 
-const badCount = (b: InspectionBatch) => (Array.isArray(b.operator_rejected_fields) ? b.operator_rejected_fields.length : 0);
+// Number of items the operator marked bad (computed by the server from the saved results)
+const badCount = (b: InspectionBatch) => b.bad_item_count ?? 0;
 
 const isToday = (iso?: string | null) => {
   if (!iso) return false;
@@ -56,7 +57,8 @@ const clearanceText = (b: InspectionBatch): string => {
     case 'REJECTED':
       return 'Lot rejected';
     default:
-      return badCount(b) > 0 ? 'Cleared, NG items segregated' : 'Lot cleared';
+      // The clearance the operator chose on submit; older lots fall back to the results
+      return b.operator_clearance || (badCount(b) > 0 ? 'Cleared, NG items segregated' : 'Lot cleared');
   }
 };
 
@@ -64,12 +66,10 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({ currentUser, batches
   const [query, setQuery] = useState('');
   const [showAll, setShowAll] = useState(false);
 
-  // Lots waiting for any operator, plus lots this operator has worked on.
-  // Waiting lots come first so the next job is always at the top.
+  // Only lots this operator scanned (prepared_by is set when they scan or submit a lot).
+  // Lots still in progress come first so unfinished work is at the top.
   const myLots = useMemo(() => {
-    const relevant = batches.filter(
-      (b) => WAITING_STATUSES.includes(b.status) || b.prepared_by === currentUser.user_id
-    );
+    const relevant = batches.filter((b) => b.prepared_by === currentUser.user_id);
     const ts = (b: InspectionBatch) => new Date(b.updated_at || b.created_at || 0).getTime();
     return relevant.sort((a, b) => {
       const aw = WAITING_STATUSES.includes(a.status) ? 0 : 1;
@@ -79,14 +79,14 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({ currentUser, batches
   }, [batches, currentUser.user_id]);
 
   const today = useMemo(() => {
-    const done = myLots.filter((b) => b.prepared_by === currentUser.user_id && isToday(b.operator_submitted_at));
+    const done = myLots.filter((b) => isToday(b.operator_submitted_at));
     return {
       lots: done.length,
       items: done.reduce((sum, b) => sum + (b.lot_quantity || 0), 0),
       bad: done.reduce((sum, b) => sum + badCount(b), 0),
       total: myLots.length,
     };
-  }, [myLots, currentUser.user_id]);
+  }, [myLots]);
 
   const filtered = myLots.filter((b) => {
     const q = query.trim().toLowerCase();
