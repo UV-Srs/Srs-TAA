@@ -344,6 +344,8 @@ def generate_supervisor_report_pdf(lot: Dict[str, Any], tpl: Dict[str, Any], rev
         sample_w = min(14 * mm, (width - 140 * mm) / n_samples)
         tbl = Table(rows, colWidths=[60 * mm, 50 * mm] + [sample_w] * n_samples + [24 * mm], repeatRows=1, hAlign="LEFT")
         tbl.setStyle(_base_style(style))
+        return tbl
+
     def methods_of(plist: List[Dict[str, Any]]) -> str:
         return " / ".join(sorted({p.get("method") for p in plist if p.get("method")}))
 
