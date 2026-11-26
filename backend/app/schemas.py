@@ -472,5 +472,12 @@ class SupervisorSpotRequest(BaseModel):
     r: Optional[str] = None         # 'OK' | 'NG' | None (remove the spot check)
     ng: List[str] = []              # check ids found wrong (r == 'NG')
 
+class SupervisorSpotReadingRequest(BaseModel):
+    item_id: int                    # dimension (template control item) id
+    value: Optional[float] = None   # None clears the reading
+
+class SupervisorItemRequest(BaseModel):
+    ng: List[str] = []              # check ids the supervisor answered No (empty = all Yes)
+
 class SupervisorCommentRequest(BaseModel):
     comment: Optional[str] = None

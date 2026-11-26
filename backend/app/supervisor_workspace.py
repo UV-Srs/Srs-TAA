@@ -56,6 +56,16 @@ def lot_spots(columns: List[str], review: Optional["SupervisorLotReview"]) -> Di
     return {str(columns.index(c)): v for c, v in raw.items() if c in columns}
 
 
+def lot_answers(columns: List[str], review: Optional["SupervisorLotReview"]) -> Dict[str, Dict[str, Any]]:
+    """The supervisor's Yes/No answers that differ from the operator's, keyed by item index:
+    {index: {"ng": [check ids answered No], "d": decision or None}}. d matters for items the
+    operator marked good and the supervisor found bad (they need a decision too)."""
+    raw = (review.item_answers or {}) if review else {}
+    disp = (review.dispositions or {}) if review else {}
+    return {str(columns.index(c)): {"ng": list((v or {}).get("ng") or []), "d": disp.get(c)}
+            for c, v in raw.items() if c in columns}
+
+
 def iso(dt: Optional[datetime]) -> Optional[str]:
     """Stored times are naive UTC (datetime.utcnow); mark them as UTC for the browser."""
     return dt.isoformat() + "Z" if dt else None
@@ -177,6 +187,13 @@ def _person(user: Optional[User]) -> Optional[Dict[str, Any]]:
     return {"id": user.user_id, "name": user.full_name} if user else None
 
 
+def sample_columns(item: TemplateControlItem, n_items: int) -> List[str]:
+    """The item's sample columns that exist in this lot: sample j is measured on item j+1, so a
+    lot of 10 items has at most 10 samples even when the template lists more (S1..S11)."""
+    cols = _columns(item)
+    return cols[:n_items] if n_items else cols
+
+
 def piece_count(visual: List[TemplateControlItem], qty: Optional[int]) -> int:
     """Items in the lot: lot_quantity, else the highest numbered column of the operator's checks."""
     if qty:
@@ -222,11 +239,12 @@ def lot_items(b: InspectionBatch, review: Optional[SupervisorLotReview]) -> Dict
 
     dims = {
         str(i.item_id): [_to_float(cells[(i.item_id, c)].cell_value) if (i.item_id, c) in cells else None
-                         for c in _columns(i)]
+                         for c in sample_columns(i, len(columns))]
         for i in dims_items
     }
     # Supervisor checks: 'OK' | 'NG' | None per sample column.
-    sup_checks = {str(i.item_id): [_cell_result(cells.get((i.item_id, c))) for c in _columns(i)] for i in sup_visual}
+    sup_checks = {str(i.item_id): [_cell_result(cells.get((i.item_id, c))) for c in sample_columns(i, len(columns))]
+                  for i in sup_visual}
     return {"columns": columns, "parts": parts, "dims": dims, "visual": visual, "dims_items": dims_items,
             "sup_visual": sup_visual, "sup_checks": sup_checks}
 
@@ -312,6 +330,7 @@ def serialize_lot(db: Session, b: InspectionBatch, users: Dict[int, User]) -> Di
         "supChecks": li["sup_checks"],
         "dims": dims,
         "spot": lot_spots(columns, review),
+        "svd": lot_answers(columns, review),
         "supComment": (review.comment or "") if review else "",
         "oos": review.oos_action if review else None,
         "sup": sup,

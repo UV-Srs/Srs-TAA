@@ -216,6 +216,50 @@ def generate_supervisor_report_pdf(lot: Dict[str, Any], tpl: Dict[str, Any], rev
     oos = [(p, j, v) for p, j, v in readings if reading_status_values(p.get("min"), p.get("max"), v) == "bad"]
     spots = sorted(int(k) for k in spot if str(k).isdigit())
 
+    # The supervisor's answers where they differ from the operator's ({item index: {"ng": [...]}}).
+    svd: Dict[str, Dict[str, Any]] = lot.get("svd") or {}
+
+    def answered_no(k: int) -> set:
+        a = svd.get(str(k))
+        if a is not None:
+            return set(a.get("ng") or [])
+        p = parts[k]
+        return {n["id"] for n in p["ng"]} if p and p["r"] == "NG" else set()
+
+    def sup_rejected(k: int) -> bool:
+        """Marked good by the operator, found bad by the supervisor (a check answered No)."""
+        p = parts[k]
+        return bool(p and p["r"] == "OK" and (svd.get(str(k)) or {}).get("ng"))
+
+    def found_bad_disp(k: int) -> Optional[str]:
+        return (svd.get(str(k)) or {}).get("d")
+
+    # Summary after the supervisor's review (same rules as the preview's supSummary):
+    # bad = operator-bad items not approved + good items the supervisor found bad;
+    # readings = the supervisor's own: supervisor dimension samples, supervisor checks, spot readings.
+    n_bad = sum(1 for k, p in enumerate(parts)
+                if (p and p["r"] == "NG" and p.get("disp") != "Approved") or (sup_rejected(k) and found_bad_disp(k) != "Approved"))
+    sup_vals: List[Optional[Any]] = []
+    for p in params:
+        if p.get("editable"):
+            vals = dims.get(p["id"]) or []
+            sup_vals += [vals[j] if j < len(vals) else None for j in range(len(p["samples"]))]
+    for c in sup_checks:
+        vals = sup_res.get(c["id"]) or []
+        sup_vals += [vals[j] if j < len(vals) else None for j in range(len(c["samples"]))]
+    for k in spots:
+        if sup_rejected(k):
+            continue
+        for p in params:
+            sv = (dims.get(p["id"]) or [])
+            from_sample = k < len(p["samples"]) and (p.get("editable") or (k < len(sv) and sv[k] is not None))
+            if not from_sample:
+                v = ((spot.get(str(k)) or {}).get("dims") or {}).get(p["id"])
+                sup_vals.append(v)
+                if reading_status_values(p.get("min"), p.get("max"), v) == "bad":
+                    oos.append((p, k, v))
+    sup_filled = sum(1 for v in sup_vals if v is not None)
+
     op = lot.get("op") or {}
     sup = lot.get("sup") or {}
     op_name = short_name((op.get("by") or {}).get("name"))
@@ -235,8 +279,8 @@ def generate_supervisor_report_pdf(lot: Dict[str, Any], tpl: Dict[str, Any], rev
         else "Visual results with the supervisor's decisions, and the sample dimensions."), S_SUB))
     story.append(Spacer(1, 3 * mm))
 
-    summary = [("Items", str(n_items), INK), ("Good", str(n_items - len(bad)), OK_C),
-               ("Bad", str(len(bad)), NG_C if bad else INK), ("Readings", f"{filled}/{len(readings)}", INK)]
+    summary = [("Items", str(n_items), INK), ("Good", str(n_items - n_bad), OK_C),
+               ("Bad", str(n_bad), NG_C if n_bad else INK), ("Readings", f"{sup_filled}/{len(sup_vals)}", INK)]
     sum_tbl = Table([[Paragraph(f'<font size="13" color="{c.hexval()}">{esc(v)}</font><br/>'
                                 f'<font size="6.5" color="#677386">{esc(k)}</font>', S_SUMMARY) for k, v, c in summary]],
                     colWidths=[28 * mm] * 4, hAlign="LEFT")
@@ -257,11 +301,13 @@ def generate_supervisor_report_pdf(lot: Dict[str, Any], tpl: Dict[str, Any], rev
 
     # ---------------- samples: dimensions + supervisor checks ----------------
     story = blocks.setdefault("samples", [])
-    if n_samples:
-        head = [Paragraph("DIMENSION" if params else "CHECK", S_TH), Paragraph("SPEC", S_TH)] + \
+
+    def samples_table(plist: List[Dict[str, Any]], checks: List[Dict[str, Any]]) -> Table:
+        """One sample table: the given dimensions, then the given supervisor checks."""
+        head = [Paragraph("DIMENSION" if plist else "CHECK", S_TH), Paragraph("SPEC", S_TH)] + \
                [Paragraph(str(j + 1), S_THC) for j in range(n_samples)] + [Paragraph("RESULT", S_TH)]
         rows, style = [head], []
-        for p in params:
+        for p in plist:
             vals = (dims.get(p["id"]) or []) + [None] * n_samples
             row = [Paragraph(f"<b>{esc(p['t'])}</b>", S_TXT), Paragraph(esc(p.get("spec")), S_SMALL)]
             for j in range(n_samples):
@@ -278,10 +324,10 @@ def generate_supervisor_report_pdf(lot: Dict[str, Any], tpl: Dict[str, Any], rev
             res = "Out of spec" if "bad" in st else f"{got}/{len(own)}" if got < len(own) else "Near limit" if "warn" in st else "OK"
             row.append(Paragraph(esc(res), S_C_NG if res == "Out of spec" else S_TXT))
             rows.append(row)
-        if sup_checks and params:
+        if checks and plist:
             rows.append([Paragraph("SUPERVISOR CHECKS", S_TH)] + [""] * (n_samples + 2))
             style += [("SPAN", (0, len(rows) - 1), (-1, len(rows) - 1)), ("BACKGROUND", (0, len(rows) - 1), (-1, len(rows) - 1), SURFACE2)]
-        for c in sup_checks:
+        for c in checks:
             vals = sup_res.get(c["id"]) or []
             row = [Paragraph(f"<b>{esc(c['t'])}</b>", S_TXT), Paragraph(esc(c.get("desc")), S_SMALL)]
             for j in range(n_samples):
@@ -296,9 +342,31 @@ def generate_supervisor_report_pdf(lot: Dict[str, Any], tpl: Dict[str, Any], rev
         sample_w = min(14 * mm, (width - 140 * mm) / n_samples)
         tbl = Table(rows, colWidths=[60 * mm, 50 * mm] + [sample_w] * n_samples + [24 * mm], repeatRows=1, hAlign="LEFT")
         tbl.setStyle(_base_style(style))
-        story += _section(f"{'Dimension check' if params else 'Supervisor checks'}, samples (items 1 – {n_samples})",
-                          " / ".join(sorted({p.get("method") for p in params if p.get("method")})))
-        story.append(tbl)
+        return tbl
+
+    def methods_of(plist: List[Dict[str, Any]]) -> str:
+        return " / ".join(sorted({p.get("method") for p in plist if p.get("method")}))
+
+    if n_samples:
+        child = [p for p in params if "child" in (p.get("grp") or "").lower()]
+        main = [p for p in params if p not in child]
+        if admin or not child:
+            # One table (the admin layout is unchanged).
+            story += _section(f"{'Dimension check' if params else 'Supervisor checks'}, samples (items 1 – {n_samples})",
+                              methods_of(params))
+            story.append(samples_table(params, sup_checks))
+        else:
+            # Supervisor report: the child part's dimensions and the main part's in separate tables.
+            grp = child[0]["grp"]
+            child_name = grp.split(",", 1)[1].strip() if grp.lower().startswith("child part,") else ""
+            story += _section(f"Child part dimensions{f': {child_name}' if child_name else ''}, samples (items 1 – {n_samples})",
+                              methods_of(child))
+            story.append(samples_table(child, []))
+            if main or sup_checks:
+                story.append(Spacer(1, 2 * mm))
+                story += _section(f"{'Main part dimensions' if main else 'Supervisor checks'}, samples (items 1 – {n_samples})",
+                                  methods_of(main))
+                story.append(samples_table(main, sup_checks))
 
     # ---------------- out of spec ----------------
     story = blocks.setdefault("oos", [])
@@ -372,11 +440,15 @@ def generate_supervisor_report_pdf(lot: Dict[str, Any], tpl: Dict[str, Any], rev
                     p = parts[i]
                     if not p:
                         row.append("")
-                    elif p["r"] == "NG" and any(n["id"] == x["id"] for n in p["ng"]):
-                        row.append(Mark("cross", MARK, NG_C))
-                        style.append(("BACKGROUND", (nf + c, len(rows)), (nf + c, len(rows)), NG_BG))
                     else:
-                        row.append(Mark("tick", MARK, OK_C))
+                        # The supervisor's answer where changed (outlined), else the operator's.
+                        no = x["id"] in answered_no(i)
+                        op_no = p["r"] == "NG" and any(n["id"] == x["id"] for n in p["ng"])
+                        row.append(Mark("cross", MARK, NG_C) if no else Mark("tick", MARK, OK_C))
+                        if no:
+                            style.append(("BACKGROUND", (nf + c, len(rows)), (nf + c, len(rows)), NG_BG))
+                        if no != op_no:
+                            style.append(("BOX", (nf + c, len(rows)), (nf + c, len(rows)), 1, WARN_C))
                 row += [""] * pad + [""]
                 for k in spot_cols:
                     s = spot.get(str(k)) if k is not None else None
@@ -388,9 +460,9 @@ def generate_supervisor_report_pdf(lot: Dict[str, Any], tpl: Dict[str, Any], rev
         for c, i in enumerate(idx):
             p = parts[i]
             res_row.append("" if not p else Mark("cross", MARK, NG_C) if p["r"] == "NG" else Mark("tick", MARK, OK_C))
-            d = p.get("disp") if p and p["r"] == "NG" else None
+            d = p.get("disp") if p and p["r"] == "NG" else found_bad_disp(i) if sup_rejected(i) else None
             dec_row.append(Paragraph(f'<font color="{DEC_COLOR[d].hexval()}"><b>{DEC_LETTER[d]}</b></font>', S_C) if d
-                           else Paragraph("—", S_C) if p and p["r"] == "NG" else "")
+                           else Paragraph("—", S_C) if (p and p["r"] == "NG") or sup_rejected(i) else "")
         res_row += [""] * pad + [""]
         dec_row += [""] * pad + [""]
         for k in spot_cols:

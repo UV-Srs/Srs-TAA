@@ -13,7 +13,8 @@ from backend.app.models import (
 from backend.app.schemas import (
     SupervisorReviewRequest, SupervisorFieldReviewRequest,
     SupervisorDispositionRequest, SupervisorReadingRequest, SupervisorOosRequest,
-    SupervisorSpotRequest, SupervisorCommentRequest, SupervisorCheckRequest,
+    SupervisorSpotRequest, SupervisorCommentRequest, SupervisorCheckRequest, SupervisorItemRequest,
+    SupervisorSpotReadingRequest,
 )
 from backend.app.auth import require_supervisor
 from backend.app.audit import log_audit
@@ -22,7 +23,7 @@ from backend.app.live_sync import notify_live
 from backend.app import supervisor_locks
 from backend.app.supervisor_workspace import (
     COMPLETED, PROTO_STATUS, REVIEWABLE, SPOT_CHECKS, build_workspace, get_review, is_dimension, is_visual,
-    lot_items, reading_status, serialize_lot, serialize_template, short_name, spots_needed,
+    lot_items, reading_status, sample_columns, serialize_lot, serialize_template, short_name, spots_needed,
 )
 from backend.app.supervisor_report_pdf import generate_supervisor_report_pdf
 
@@ -282,7 +283,12 @@ def download_supervisor_report_pdf(
         raise HTTPException(status_code=422, detail={"message": "This lot has no supervisor report yet.", "status": batch.status})
     users = {u.user_id: u for u in db.query(User).all()}
     lot = serialize_lot(db, batch, users)
-    pdf = generate_supervisor_report_pdf(lot, serialize_template(batch.template), current_user.full_name,
+    tpl = serialize_template(batch.template)
+    # Samples beyond the lot's item count don't exist in this lot (sample j is item j+1).
+    n_items = len(lot["columns"])
+    for p in tpl["params"] + tpl["supChecks"]:
+        p["samples"] = p["samples"][:n_items] if n_items else p["samples"]
+    pdf = generate_supervisor_report_pdf(lot, tpl, current_user.full_name,
                                          read_only=batch.status in COMPLETED)
     full = f"{batch.lot_number}-lot-report.pdf"
     ascii_name = re.sub(r"[^A-Za-z0-9._-]+", "_", full)
@@ -337,7 +343,8 @@ def set_supervisor_disposition(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_supervisor),
 ):
-    """Prototype ACT.svdec: decision for one bad item (Approved / On hold / Rejected)."""
+    """Decision for one bad item (Approved / On hold / Rejected): an item the operator marked bad,
+    or one the operator marked good that the supervisor found bad (a check answered No)."""
     batch, review = _reviewing(db, batch_id, current_user)
     if payload.disposition is not None and payload.disposition not in DISPOSITIONS:
         raise HTTPException(status_code=422, detail="Decision must be Approved, On hold or Rejected.")
@@ -345,8 +352,9 @@ def set_supervisor_disposition(
     if column_key not in li["columns"]:
         raise HTTPException(status_code=404, detail="Item not found in this lot")
     part = li["parts"][li["columns"].index(column_key)]
-    if not part or part["r"] != "NG":
-        raise HTTPException(status_code=422, detail="Only items marked bad by the operator need a decision.")
+    found_bad = bool(part and part["r"] == "OK" and ((review.item_answers or {}).get(column_key) or {}).get("ng"))
+    if not part or (part["r"] != "NG" and not found_bad):
+        raise HTTPException(status_code=422, detail="Only bad items need a decision.")
     disp = dict(review.dispositions or {})
     if payload.disposition is None:
         disp.pop(column_key, None)
@@ -377,7 +385,7 @@ def set_supervisor_reading(
         raise HTTPException(status_code=404, detail="Dimension not found in this lot")
     if item.assigned_role != "supervisor":
         raise HTTPException(status_code=403, detail="Forbidden: this reading is assigned to the operator.")
-    if payload.sample not in [str(c) for c in (item.sample_columns or [])]:
+    if payload.sample not in sample_columns(item, len(lot_items(batch, review)["columns"])):
         raise HTTPException(status_code=422, detail="Unknown sample for this dimension")
 
     resp = db.query(BatchCellResponse).filter(
@@ -422,7 +430,7 @@ def set_supervisor_check(
         raise HTTPException(status_code=404, detail="Check not found in this lot")
     if item.assigned_role != "supervisor":
         raise HTTPException(status_code=403, detail="Forbidden: this check is assigned to the operator.")
-    if payload.sample not in [str(c) for c in (item.sample_columns or [])]:
+    if payload.sample not in sample_columns(item, len(lot_items(batch, review)["columns"])):
         raise HTTPException(status_code=422, detail="Unknown sample for this check")
     if payload.value not in (None, "OK", "NG"):
         raise HTTPException(status_code=422, detail="Result must be OK or NG.")
@@ -468,6 +476,16 @@ def set_supervisor_oos_action(
     return {"status": "success", "oos": review.oos_action}
 
 
+def _spot_ok(li, column_key: str, review) -> None:
+    """A spot check is the supervisor confirming an item the operator marked good. Bad items are
+    decided (approved / rejected) instead, and an item the supervisor rejected can't be a spot check."""
+    part = li["parts"][li["columns"].index(column_key)]
+    if not part or part["r"] != "OK":
+        raise HTTPException(status_code=422, detail="Spot checks are for items the operator marked good.")
+    if ((review.item_answers or {}).get(column_key) or {}).get("ng"):
+        raise HTTPException(status_code=422, detail="An item you rejected can't be a spot check.")
+
+
 @router.put("/lots/{batch_id}/spot/{column_key}")
 def set_supervisor_spot_check(
     batch_id: int,
@@ -477,31 +495,107 @@ def set_supervisor_spot_check(
     current_user: User = Depends(require_supervisor),
 ):
     """
-    Prototype ACT.svspot / svspotf / svspotdel: the supervisor's own check of an item the
-    operator marked good. At most 3 per lot; r=None removes it.
+    Mark / unmark a spot check: the supervisor's own check of an item the operator marked good.
+    At most 3 per lot; r=None removes it (with its readings). The result is always OK, and every
+    dimension must be measured on the item before the lot can be saved (sample or spot readings).
     """
     batch, review = _reviewing(db, batch_id, current_user)
     li = lot_items(batch, review)
     if column_key not in li["columns"]:
         raise HTTPException(status_code=404, detail="Item not found in this lot")
-    spots = dict(review.spot_checks or {})
+    spots = {c: dict(v) for c, v in (review.spot_checks or {}).items()}
     if payload.r is None:
         spots.pop(column_key, None)
     else:
-        if payload.r not in ("OK", "NG"):
-            raise HTTPException(status_code=422, detail="Spot check result must be OK or NG.")
-        part = li["parts"][li["columns"].index(column_key)]
-        if not part or part["r"] != "OK":
-            raise HTTPException(status_code=422, detail="Spot checks are for items the operator marked good.")
+        if payload.r != "OK":
+            raise HTTPException(status_code=422, detail="A spot check confirms a good item. Rejected items can't be spot checks.")
+        _spot_ok(li, column_key, review)
         if column_key not in spots and len([c for c in spots if c in li["columns"]]) >= SPOT_CHECKS:
             raise HTTPException(status_code=422, detail=f"Only {SPOT_CHECKS} spot checks per lot.")
-        check_ids = {str(i.item_id) for i in li["visual"]}
-        ng = [x for x in dict.fromkeys(payload.ng) if x in check_ids] if payload.r == "NG" else []
-        spots[column_key] = {"r": payload.r, "ng": ng}
+        spots[column_key] = {"r": "OK", "ng": [], "dims": (spots.get(column_key) or {}).get("dims") or {}}
     review.spot_checks = spots
     db.commit()
     notify_live("BATCH_UPDATED", {"batch_id": batch.batch_id, "status": batch.status, "round": batch.round})
     return {"status": "success", "spot": spots}
+
+
+@router.put("/lots/{batch_id}/spot/{column_key}/readings")
+def set_supervisor_spot_reading(
+    batch_id: int,
+    column_key: str,
+    payload: SupervisorSpotReadingRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_supervisor),
+):
+    """One dimension reading the supervisor measured on a spot-checked item; None clears it."""
+    batch, review = _reviewing(db, batch_id, current_user)
+    li = lot_items(batch, review)
+    if column_key not in li["columns"]:
+        raise HTTPException(status_code=404, detail="Item not found in this lot")
+    spots = {c: dict(v) for c, v in (review.spot_checks or {}).items()}
+    if column_key not in spots:
+        raise HTTPException(status_code=422, detail="Mark the item as a spot check first.")
+    pid = str(payload.item_id)
+    if pid not in {str(i.item_id) for i in li["dims_items"]}:
+        raise HTTPException(status_code=404, detail="Dimension not found in this lot")
+    dims = dict(spots[column_key].get("dims") or {})
+    if payload.value is None:
+        dims.pop(pid, None)
+    else:
+        dims[pid] = payload.value
+    spots[column_key]["dims"] = dims
+    review.spot_checks = spots
+    db.commit()
+    notify_live("BATCH_UPDATED", {"batch_id": batch.batch_id, "status": batch.status, "round": batch.round})
+    return {"status": "success", "dims": dims}
+
+
+@router.put("/lots/{batch_id}/items/{column_key}")
+def save_supervisor_item_answers(
+    batch_id: int,
+    column_key: str,
+    payload: SupervisorItemRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_supervisor),
+):
+    """
+    The supervisor's Yes/No answers for one checked item, saved on every tap (no Save button).
+    On an item the operator marked good, any No means the supervisor found it bad: the item then
+    needs a decision like a bad item, and can no longer be a spot check (an existing one is removed).
+    On a bad item the answers are kept for the report; its decision is set separately
+    (dispositions: Approved / On hold / Rejected).
+    """
+    batch, review = _reviewing(db, batch_id, current_user)
+    li = lot_items(batch, review)
+    if column_key not in li["columns"]:
+        raise HTTPException(status_code=404, detail="Item not found in this lot")
+    part = li["parts"][li["columns"].index(column_key)]
+    if not part:
+        raise HTTPException(status_code=422, detail="The operator has not checked this item.")
+    check_ids = [str(i.item_id) for i in li["visual"]]
+    ng = [x for x in check_ids if x in set(payload.ng)]
+    operator_ng = sorted(n["id"] for n in part.get("ng", []))
+
+    answers = dict(review.item_answers or {})
+    if sorted(ng) == operator_ng:
+        answers.pop(column_key, None)          # same as the operator: nothing to keep
+    else:
+        answers[column_key] = {"ng": ng}
+    review.item_answers = answers
+    if part["r"] == "OK" and not ng and column_key in (review.dispositions or {}):
+        # Back to good: the item no longer needs (or has) a decision.
+        disp = dict(review.dispositions or {})
+        disp.pop(column_key, None)
+        review.dispositions = disp
+    removed_spot = False
+    if part["r"] == "OK" and ng and column_key in (review.spot_checks or {}):
+        spots = dict(review.spot_checks or {})
+        spots.pop(column_key, None)
+        review.spot_checks = spots
+        removed_spot = True
+    db.commit()
+    notify_live("BATCH_UPDATED", {"batch_id": batch.batch_id, "status": batch.status, "round": batch.round})
+    return {"status": "success", "ng": ng, "removedSpot": removed_spot}
 
 
 @router.put("/lots/{batch_id}/comment")
@@ -534,28 +628,54 @@ def sign_supervisor_lot(
     parts, columns = li["parts"], li["columns"]
 
     # Same completeness rules the prototype enforces before Save is reachable.
+    answers = {c: v for c, v in (review.item_answers or {}).items() if c in columns}
+    dispositions = review.dispositions or {}
+    # Bad items: marked bad by the operator, or marked good and found bad by the supervisor.
+    # Both need a decision; found-bad items carry theirs in dispositions too.
     bad = [(columns[i], p) for i, p in enumerate(parts) if p and p["r"] == "NG"]
+    bad += [(c, {**p, "disp": dispositions.get(c), "ng": [{"id": x} for x in answers[c]["ng"]]})
+            for c, p in zip(columns, parts) if p and p["r"] == "OK" and (answers.get(c) or {}).get("ng")]
     undecided = [c for c, p in bad if p.get("disp") not in DISPOSITIONS]
     missing = sum(1 for it in li["dims_items"] if it.assigned_role == "supervisor"
                   for v in li["dims"][str(it.item_id)] if v is None)
     missing += sum(1 for vals in li["sup_checks"].values() for v in vals if v is None)
     out_of_spec = [(it, v) for it in li["dims_items"] for v in li["dims"][str(it.item_id)]
                    if reading_status(it, v) == "bad"]
-    spots = {c: v for c, v in (review.spot_checks or {}).items() if c in columns}
+    # Spot checks: good items only, never one the supervisor rejected (any check answered No).
+    spots = {c: v for c, v in (review.spot_checks or {}).items()
+             if c in columns and not (answers.get(c) or {}).get("ng")}
+    # Every dimension must be measured on a spot-checked item: its sample reading (items 1..n)
+    # or the supervisor's own spot reading.
+    spot_vals = []
+    for c, v in spots.items():
+        k = columns.index(c)
+        for it in li["dims_items"]:
+            vals = li["dims"][str(it.item_id)]
+            val = vals[k] if k < len(vals) and vals[k] is not None else ((v or {}).get("dims") or {}).get(str(it.item_id))
+            spot_vals.append((c, it, val))
+    spot_missing = sorted({columns.index(c) + 1 for c, _, val in spot_vals if val is None})
+    out_of_spec += [(it, val) for _, it, val in spot_vals if reading_status(it, val) == "bad"]
     if undecided:
         raise HTTPException(status_code=422, detail=f"{len(undecided)} bad item(s) still need a decision.")
     if len(spots) < spots_needed(parts):
         raise HTTPException(status_code=422, detail=f"{spots_needed(parts) - len(spots)} spot check(s) still to do.")
     if missing:
         raise HTTPException(status_code=422, detail=f"{missing} reading(s) or check(s) still to do.")
+    if spot_missing:
+        raise HTTPException(status_code=422, detail="Spot-checked item(s) " + ", ".join(map(str, spot_missing))
+                            + " need every dimension reading.")
     if out_of_spec and not review.oos_action:
         raise HTTPException(status_code=422, detail="Say what was done about the out-of-spec readings.")
 
     now = datetime.utcnow()
     held = [c for c, p in bad if p.get("disp") == "On hold"]
+    # Rejected: bad items (operator's or found bad by the supervisor) the supervisor rejected.
     rejected = [c for c, p in bad if p.get("disp") == "Rejected"]
+    # The checks behind each rejection: the supervisor's saved answers, else the operator's.
+    rej_ids = {x for c in rejected for x in ((answers.get(c) or {}).get("ng")
+                                             or [n["id"] for n in (parts[columns.index(c)] or {}).get("ng", [])])}
     names = {str(i.item_id): i.control_item_name for i in li["visual"]}
-    rejected_checks = sorted({names.get(n["id"], n["id"]) for c, p in bad if p.get("disp") == "Rejected" for n in p["ng"]})
+    rejected_checks = sorted({names.get(x, x) for x in rej_ids})
     me = short_name(current_user.full_name)
 
     batch.checked_by = current_user.user_id
@@ -593,7 +713,7 @@ def sign_supervisor_lot(
     db.add(InspectionDecision(
         batch_id=batch.batch_id, round=batch.round or 1, stage=stage, decided_by=current_user.user_id,
         role=current_user.role, decision=decision, rejected_fields=rejected_checks,
-        rejected_item_ids=sorted({int(n["id"]) for c, p in bad if p.get("disp") == "Rejected" for n in p["ng"]}),
+        rejected_item_ids=sorted({int(x) for x in rej_ids if str(x).isdigit()}),
         remarks="; ".join(remarks) or None, decided_at=now,
     ))
     supervisor_locks.release(review)

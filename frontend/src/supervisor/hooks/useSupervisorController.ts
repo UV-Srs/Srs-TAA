@@ -3,8 +3,8 @@ import { onBatchCreated, onBatchUpdated, onCellUpdated } from '../../liveSync';
 import { SPOT_CHECKS, supervisorService, type CheckResult, type Disposition, type Lot, type SpotCheck, type Workspace } from '../data';
 import { shortName } from '../logic/format';
 import {
-  REVIEWABLE_STATUSES, STATUS_TXT, SUPERVISOR_STATUSES, badIdx, dimValue, lotTs, nItems, nSamples, paramsOf,
-  spotsOf, supChecksOf, supLots,
+  REVIEWABLE_STATUSES, STATUS_TXT, SUPERVISOR_STATUSES, badIdx, dimValue, effAns, lotTs, nItems, nSamples, paramsOf,
+  itemDecision, spotUsesSample, spotsOf, supChecksOf, supLots, supRejected, svStatusItem, svVisibleItems, templateOf, type ItemFilter,
 } from '../logic/rules';
 
 /** Prototype svView, plus 'scan' (the supervisor Scan screen). */
@@ -24,6 +24,9 @@ const COMMENT_SEND_MS = 700;
 
 /** Prototype `sel`: the dimension tile (p = index into the template's params) of sample s. */
 export interface DimSel { p: number; s: number }
+
+
+const TOAST_MS = 3200;
 
 /**
  * The prototype's supervisor UI state and ACT handlers (svnav, svgo, svclearpre, svopen, svlots,
@@ -48,6 +51,16 @@ export function useSupervisorController() {
   const [saving, setSaving] = useState(false);
   /** Errors from saving review changes (not in the prototype, which saved to localStorage). */
   const [errMsg, setErrMsg] = useState('');
+  /** Prototype svFilt2: the item list filter. */
+  const [svFilt, setSvFiltState] = useState<ItemFilter>('all');
+  /** Prototype showToast */
+  const [toast, setToast] = useState<{ text: string; kind: 'ok' | 'bad' } | null>(null);
+  const toastTimer = useRef<number | undefined>();
+  const showToast = (text: string, kind: 'ok' | 'bad' = 'ok') => {
+    setToast({ text, kind });
+    window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(null), TOAST_MS);
+  };
 
   // Refs mirror state for the keyboard handler and chained writes.
   const wsRef = useRef<Workspace | null>(null);
@@ -139,6 +152,7 @@ export function useSupervisorController() {
   const enterReview = (lot: Lot) => {
     setErrMsg('');
     setSupId(lot.id);
+    setSvFiltState('all');
     // Prototype: start on the first undecided bad item, else item 1; dimensions on sample 1.
     const b = badIdx(lot).find((k) => { const p = lot.parts[k]; return !!p && p.r === 'NG' && !p.disp; });
     setSvItem(b ?? 0);
@@ -195,26 +209,111 @@ export function useSupervisorController() {
     return { error: await svopen(lot) };
   };
 
-  // ---------------- items ----------------
+  // ---------------- items (prototype v2 svReview) ----------------
 
-  /** ACT.svitem (sidebar row, bad-item row, spot-check row). A sample item also selects its sample for the dimension tiles. */
-  const svitem = (k: number) => {
+  /** Open item k. A sample item also selects its sample for the readings. */
+  const openItem = (k: number) => {
     const L = lotOf(supId);
     const w = wsRef.current;
     if (!L || !w || k < 0 || k >= nItems(w, L)) return;
+    flushReadings();
     setSvItem(k);
-    if (k < nSamples(w, L) && !kpRef.current) setSelBoth({ p: selRef.current.p, s: k });
+    setKp(false);
+    setBuf('');
+    if (k < nSamples(w, L)) setSelBoth({ p: selRef.current.p, s: k });
   };
 
-  /** ACT.svdec: decide one bad item; tapping the current decision again clears it. */
-  const svdec = (k: number, v: Disposition) => {
+  /** ACT.svitem (item list row) */
+  const svitem = (k: number) => { if (k !== svItemRef.current) openItem(k); };
+
+  /** ACT.svfilt2: filter the item list; opens the first shown item when the open one is hidden. */
+  const svfilt = (f: ItemFilter) => {
+    setSvFiltState(f);
+    const L = lotOf(supId);
+    const w = wsRef.current;
+    if (!L || !w) return;
+    const vis = svVisibleItems(w, L, f);
+    if (vis.length && !vis.includes(svItemRef.current ?? -1)) openItem(vis[0]);
+  };
+
+  /** ACT.jumpgo: "Go to item #" (shows all items). Returns 'bad' when the number is out of range, else ''. */
+  const jumpgo = (raw: string): string => {
+    const L = lotOf(supId);
+    const w = wsRef.current;
+    if (!L || !w) return '';
+    const n = parseInt(raw, 10);
+    const N = nItems(w, L);
+    if (!(n >= 1 && n <= N)) { showToast(`Enter an item number from 1 to ${N}.`, 'bad'); return 'bad'; }
+    setSvFiltState('all');
+    openItem(n - 1);
+    return '';
+  };
+
+  /**
+   * ACT.svans: answer one check Yes / No on the open item; saved at once (no Save button).
+   * On a good item any No rejects it, and a rejected item can't stay a spot check.
+   */
+  const svans = (checkId: string, v: 'Y' | 'N') => {
     const L = supLotNow();
-    if (!L) return;
-    const cur = L.parts[k];
-    if (!cur || cur.r !== 'NG') return;
-    const next = cur.disp === v ? null : v;
-    patchLot(L.id, (l) => ({ ...l, parts: l.parts.map((p, i) => (i === k && p && p.r === 'NG' ? { ...p, disp: next } : p)) }));
-    void enqueue(() => supervisorService.setDisposition(L.id, L.columns[k], next));
+    const w = wsRef.current;
+    const k = svItemRef.current;
+    if (!L || !w || k == null) return;
+    const p = L.parts[k];
+    if (!p) return;
+    const cur = effAns(L, k);
+    if (v === 'N') cur.add(checkId); else cur.delete(checkId);
+    const ng = (templateOf(w, L)?.items ?? []).map((x) => x.id).filter((id) => cur.has(id));
+    const opNg = p.r === 'NG' ? p.ng.map((n) => n.id).sort().join() : '';
+    const key = String(k);
+    const svd = { ...(L.svd ?? {}) };
+    // A good item found bad keeps its decision while it stays bad; back to all Yes drops it.
+    if ([...ng].sort().join() === opNg) delete svd[key]; else svd[key] = { ng, d: p.r === 'OK' ? svd[key]?.d ?? null : null };
+    const dropSpot = p.r === 'OK' && ng.length > 0 && !!L.spot?.[key];
+    const spot = { ...(L.spot ?? {}) };
+    if (dropSpot) delete spot[key];
+    patchLot(L.id, (l) => ({ ...l, svd, spot }));
+    void enqueue(() => supervisorService.saveItem(L.id, L.columns[k], ng));
+    if (dropSpot) showToast(`Item ${k + 1} is now a bad item, so it is no longer a spot check. Decide it below.`, 'bad');
+  };
+
+  /** Prototype nextTodoAfter: the next bad item without a decision after `from`, wrapping; -1 when none. */
+  const nextTodoAfter = (L: Lot, from: number) => {
+    const n = L.parts.length;
+    for (let d = 1; d < n; d++) {
+      const k = (from + d) % n;
+      if (svStatusItem(L, k) === 'todo') return k;
+    }
+    return -1;
+  };
+
+  /**
+   * Decide the open bad item (marked bad by the operator, or found bad by the supervisor):
+   * Approved / On hold / Rejected, saved at once; tapping the current decision again clears it.
+   * A new decision opens the next item that still needs one.
+   */
+  const svdecide = (v: Disposition) => {
+    const L = supLotNow();
+    const k = svItemRef.current;
+    if (!L || k == null) return;
+    const p = L.parts[k];
+    const cur = itemDecision(L, k);
+    if (!p || cur === undefined) return;
+    const d = cur === v ? null : v;
+    const key = String(k);
+    const next: Lot = p.r === 'NG'
+      ? { ...L, parts: L.parts.map((q, i) => (i === k && q && q.r === 'NG' ? { ...q, disp: d } : q)) }
+      : { ...L, svd: { ...(L.svd ?? {}), [key]: { ng: L.svd?.[key]?.ng ?? [], d } } };
+    patchLot(L.id, () => next);
+    void enqueue(() => supervisorService.setDisposition(L.id, L.columns[k], d));
+    if (!d) return;
+    const res = `Item ${k + 1} ${d === 'On hold' ? 'kept on hold' : d.toLowerCase()}.`;
+    const n = nextTodoAfter(next, k);
+    if (n >= 0) {
+      openItem(n);
+      showToast(`${res} Opened item ${n + 1}, which needs a decision.`);
+    } else {
+      showToast(res);
+    }
   };
 
   // ---------------- spot checks ----------------
@@ -228,44 +327,52 @@ export function useSupervisorController() {
     void enqueue(() => supervisorService.setSpot(L.id, L.columns[k], spot));
   };
 
-  /** ACT.svspot: spot check the open item ("Agree, good" / "Found a problem"). */
-  const svspot = (r: 'OK' | 'NG') => {
+  /** ACT.svspot3: mark / unmark the open item as a spot check. Good items the supervisor hasn't rejected only. */
+  const svspot3 = () => {
     const L = supLotNow();
     const k = svItemRef.current;
     if (!L || k == null) return;
     const p = L.parts[k];
     if (!p || p.r !== 'OK') return;
-    const cur = L.spot?.[String(k)];
-    if (!cur && spotsOf(L).length >= SPOT_CHECKS) return;
-    writeSpot(L, k, r === 'OK' ? { r: 'OK', ng: [] } : { r: 'NG', ng: cur && cur.r === 'NG' ? cur.ng : [] });
+    if (L.spot?.[String(k)]) { writeSpot(L, k, null); return; }
+    if (supRejected(L, k)) { showToast('An item you rejected can’t be a spot check.', 'bad'); return; }
+    if (spotsOf(L).length >= SPOT_CHECKS) { showToast(`Only ${SPOT_CHECKS} spot checks per lot. Remove one first.`, 'bad'); return; }
+    writeSpot(L, k, { r: 'OK', ng: [], dims: {} });
   };
 
-  /** ACT.svspotf: toggle one check as wrong on the open item's spot check. */
-  const svspotf = (checkId: string) => {
-    const L = supLotNow();
-    const k = svItemRef.current;
-    if (!L || k == null) return;
-    const cur = L.spot?.[String(k)];
-    if (!cur || cur.r !== 'NG') return;
-    writeSpot(L, k, { r: 'NG', ng: cur.ng.includes(checkId) ? cur.ng.filter((x) => x !== checkId) : [...cur.ng, checkId] });
-  };
-
-  /** ACT.svspotdel */
-  const svspotdel = (k: number) => {
-    const L = supLotNow();
-    if (L && L.spot?.[String(k)]) writeSpot(L, k, null);
-  };
-
-  /** ACT.svspotrand: open a random good item (not a sample, not already spot checked). */
-  const svspotrand = () => {
+  /** ACT.svrand (Pick a random item): a good item to spot check (not rejected, not spot checked), preferring non-sample items. */
+  const svrand = () => {
     const L = supLotNow();
     const w = wsRef.current;
     if (!L || !w) return;
-    const used = new Set(spotsOf(L));
-    const good = L.parts.map((p, k) => (p && p.r === 'OK' && !used.has(k) ? k : -1)).filter((k) => k >= 0);
     const S = nSamples(w, L);
-    const pool = good.filter((k) => k >= S).length ? good.filter((k) => k >= S) : good;
-    if (pool.length) svitem(pool[Math.floor(Math.random() * pool.length)]);
+    const cur = svItemRef.current;
+    const open = L.parts.map((p, k) => (p && p.r === 'OK' && svStatusItem(L, k) === 'none' && k !== cur ? k : -1)).filter((k) => k >= 0);
+    const pool = open.filter((k) => k >= S).length ? open.filter((k) => k >= S) : open;
+    if (pool.length) { setSvFiltState('all'); openItem(pool[Math.floor(Math.random() * pool.length)]); }
+    else showToast('No good item is left to spot check.', 'bad');
+  };
+
+  /**
+   * A reading typed into a spot-checked item's dimension box. Goes into the item's sample cell when
+   * the item is a sample item and that cell is the supervisor's; otherwise into the spot check.
+   */
+  const typeSpotReading = (pi: number, v: number | null) => {
+    const L = supLotNow();
+    const w = wsRef.current;
+    const k = svItemRef.current;
+    if (!L || !w || k == null || !L.spot?.[String(k)]) return;
+    const p = paramsOf(w, L)[pi];
+    if (!p) return;
+    if (spotUsesSample(p, k)) { setReadingLocal(L, pi, k, v); return; }
+    patchLot(L.id, (l) => {
+      const sp = l.spot?.[String(k)];
+      if (!sp) return l;
+      return { ...l, spot: { ...l.spot, [String(k)]: { ...sp, dims: { ...(sp.dims ?? {}), [p.id]: v } } } };
+    });
+    pendingReadings.current.set(`${L.id}|spot|${k}|${p.id}`, () => supervisorService.setSpotReading(L.id, L.columns[k], p.id, v));
+    window.clearTimeout(readingTimer.current);
+    readingTimer.current = window.setTimeout(flushReadings, READING_SEND_MS);
   };
 
   // ---------------- dimension check (sample chips, tiles, keypad) ----------------
@@ -306,6 +413,12 @@ export function useSupervisorController() {
     pendingReadings.current.set(`${L.id}|${p.id}|${s}`, () => supervisorService.setReading(L.id, p.id, p.samples[s], v));
     window.clearTimeout(readingTimer.current);
     readingTimer.current = window.setTimeout(flushReadings, READING_SEND_MS);
+  };
+
+  /** Prototype v2 .dvin input: a reading typed into a dimension box of sample s (null clears it). */
+  const typeReading = (pi: number, s: number, v: number | null) => {
+    const L = supLotNow();
+    if (L) setReadingLocal(L, pi, s, v);
   };
 
   /** Prototype advance(): next empty reading in this sample, else the next sample's first empty one. */
@@ -487,9 +600,8 @@ export function useSupervisorController() {
     svView, svPre, svOp, setSvOp, supQ, setSupQ, supMsg, setSupMsg, supId, supLot, reviewable,
     svItem, sel, kpOpen, buf,
     svnav, svlots, svgo, svclearpre, svopen, openFromList, openFromSearch, scan,
-    svitem, svdec,
-    svspot, svspotf, svspotdel, svspotrand,
-    svsample, svdim, kpclose, key, bksp, advance, svcheck,
+    svitem, svFilt, svfilt, jumpgo, svans, svdecide, svspot3, svrand, toast, typeSpotReading,
+    svsample, svdim, kpclose, key, bksp, advance, svcheck, typeReading,
     setComment,
     svpreview, svback, oos, sign, download, downloading,
   };

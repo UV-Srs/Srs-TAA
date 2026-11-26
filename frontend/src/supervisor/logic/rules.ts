@@ -1,4 +1,4 @@
-import { SPOT_CHECKS, type CheckItem, type CheckResult, type DimensionParam, type Lot, type Part, type ProtoStatus, type SupervisorCheck, type TemplateRef, type Workspace } from '../data/types';
+import { SPOT_CHECKS, type CheckItem, type Disposition, type CheckResult, type DimensionParam, type Lot, type Part, type ProtoStatus, type SupervisorCheck, type TemplateRef, type Workspace } from '../data/types';
 import { lotTsMs } from './format';
 
 /**
@@ -16,9 +16,33 @@ export const SUPERVISOR_STATUSES: ProtoStatus[] = ['supervisor', 'onhold', 'comp
 export const REVIEWABLE_STATUSES: ProtoStatus[] = ['supervisor', 'onhold'];
 
 export const templateOf = (ws: Workspace, l: Lot): TemplateRef | undefined => ws.templates[l.sheetId];
-export const paramsOf = (ws: Workspace, l: Lot): DimensionParam[] => templateOf(ws, l)?.params ?? [];
+
+/** Items in the lot (prototype L.qty). */
+export const lotSize = (l: Lot): number => l.qty || l.parts.length;
+
+/**
+ * Sample j is measured on item j+1, so a lot has at most lotSize samples even when the template
+ * lists more (e.g. S1..S11 on a lot of 10). Trimmed copies are cached per template and size so
+ * the same lot always gets the same objects (screens compare them by identity).
+ */
+const trimCache = new WeakMap<TemplateRef, Map<number, { params: DimensionParam[]; supChecks: SupervisorCheck[] }>>();
+function trimmed(ws: Workspace, l: Lot) {
+  const t = templateOf(ws, l);
+  if (!t) return { params: [], supChecks: [] };
+  const n = lotSize(l);
+  let byN = trimCache.get(t);
+  if (!byN) { byN = new Map(); trimCache.set(t, byN); }
+  let v = byN.get(n);
+  if (!v) {
+    const cut = <T extends { samples: string[] }>(x: T): T => (n && x.samples.length > n ? { ...x, samples: x.samples.slice(0, n) } : x);
+    v = { params: t.params.map(cut), supChecks: t.supChecks.map(cut) };
+    byN.set(n, v);
+  }
+  return v;
+}
+export const paramsOf = (ws: Workspace, l: Lot): DimensionParam[] => trimmed(ws, l).params;
 /** Supervisor-assigned pass/fail checks of the lot's template. */
-export const supChecksOf = (ws: Workspace, l: Lot): SupervisorCheck[] => templateOf(ws, l)?.supChecks ?? [];
+export const supChecksOf = (ws: Workspace, l: Lot): SupervisorCheck[] => trimmed(ws, l).supChecks;
 
 /** Prototype itemById, across all templates (item ids are unique). */
 export function itemById(ws: Workspace, id: string): CheckItem | undefined {
@@ -49,6 +73,11 @@ export interface Reading { p: DimensionParam; v: number | null; j: number; s: Re
 export function stats(ws: Workspace, l: Lot) {
   const all: Reading[] = [];
   paramsOf(ws, l).forEach((p) => (l.dims[p.id] || []).forEach((v, j) => all.push({ p, v, j, s: st(p, v) })));
+  // The supervisor's own readings on spot-checked items (j = item index) count for out-of-spec too.
+  Object.entries(l.spot ?? {}).forEach(([k, sp]) => paramsOf(ws, l).forEach((p) => {
+    const v = sp.dims?.[p.id];
+    if (v != null) all.push({ p, v, j: Number(k), s: st(p, v) });
+  }));
   return {
     filled: all.filter((x) => x.v != null).length,
     warn: all.filter((x) => x.s === 'warn'),
@@ -88,7 +117,8 @@ export const nSamples = (ws: Workspace, l: Lot): number =>
   [...paramsOf(ws, l), ...supChecksOf(ws, l)].reduce((m, p) => Math.max(m, p.samples.length), 0);
 
 /** Number of items in the lot (prototype: L.qty). Items past parts.length are not checked. */
-export const nItems = (ws: Workspace, l: Lot): number => Math.max(l.qty || 0, l.parts.length, nSamples(ws, l));
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export const nItems = (_ws: Workspace, l: Lot): number => lotSize(l);
 
 /** Dimensions that have a sample j (prototype: all 6 PARAMS). */
 export const sampleParams = (ws: Workspace, l: Lot, j: number): DimensionParam[] =>
@@ -145,9 +175,124 @@ export const spotsOf = (l: Lot): number[] =>
 export const spotsNeeded = (l: Lot): number =>
   Math.min(SPOT_CHECKS, l.parts.filter((p) => p && p.r === 'OK').length);
 
+// ---------------------------------------------------------------------------
+// Prototype v2 review: every item of the lot in the list, with the supervisor's status.
+// ---------------------------------------------------------------------------
+
+export type ItemStatus = 'todo' | 'rejected' | 'hold' | 'spot' | 'approved' | 'none';
+
+/** The supervisor answered No to a check on an item the operator marked good: found bad (needs a decision). */
+export const supRejected = (l: Lot, k: number): boolean => {
+  const p = l.parts[k];
+  return !!p && p.r === 'OK' && (l.svd?.[String(k)]?.ng.length ?? 0) > 0;
+};
+
+/**
+ * Decision on bad item k: an item the operator marked bad, or one the supervisor found bad.
+ * undefined = not a bad item; null = still to decide.
+ */
+export function itemDecision(l: Lot, k: number): Disposition | null | undefined {
+  const p = l.parts[k];
+  if (p && p.r === 'NG') return p.disp ?? null;
+  if (supRejected(l, k)) return l.svd?.[String(k)]?.d ?? null;
+  return undefined;
+}
+
+/**
+ * The supervisor's status of item k. Bad items (the operator's, or good items the supervisor found
+ * bad) are decided: Approved / On hold / Rejected. Other good items can be spot checked.
+ */
+export function svStatusItem(l: Lot, k: number): ItemStatus {
+  const d = itemDecision(l, k);
+  if (d !== undefined) {
+    if (!d) return 'todo';
+    return d === 'Rejected' ? 'rejected' : d === 'On hold' ? 'hold' : 'approved';
+  }
+  if (l.spot?.[String(k)]) return 'spot';
+  return 'none';
+}
+
+/** Prototype SV_TAG: [pill class, text] for the item list. */
+export const SV_TAG: Partial<Record<ItemStatus, [string, string]>> = {
+  // A good spot check reads as Approved; the ★ next to the item already marks it as a spot check.
+  todo: ['ng', '✕ Decide'], rejected: ['ng', 'Rejected'], hold: ['warn', 'On hold'], spot: ['ok', 'Approved'], approved: ['ok', 'Approved'],
+};
+
+/** Prototype effAns: the checks answered No for item k (the supervisor's answers, else the operator's). */
+export function effAns(l: Lot, k: number): Set<string> {
+  const p = l.parts[k];
+  const saved = l.svd?.[String(k)];
+  if (saved) return new Set(saved.ng);
+  if (p && p.r === 'NG') return new Set(p.ng.map((n) => n.id));
+  return new Set();
+}
+
+/**
+ * Reading of dimension p on spot-checked item k: its sample reading when item k is a sample
+ * item and has one, else the supervisor's spot reading.
+ */
+export function spotDimValue(l: Lot, p: DimensionParam, k: number): number | null {
+  const sv = k < p.samples.length ? dimValue(l, p, k) : null;
+  return sv ?? l.spot?.[String(k)]?.dims?.[p.id] ?? null;
+}
+
+/** The supervisor types this spot reading into the sample (the sample cell is theirs), else into the spot check. */
+export const spotUsesSample = (p: DimensionParam, k: number): boolean => k < p.samples.length && p.editable;
+
+/** Dimension readings still missing on spot-checked item k (every dimension is required). */
+export const spotMissing = (ws: Workspace, l: Lot, k: number): number =>
+  paramsOf(ws, l).filter((p) => spotDimValue(l, p, k) == null).length;
+
+/**
+ * Report summary after the supervisor's review (same rules as the report PDF):
+ * - bad: items the operator marked bad and the supervisor hasn't approved (rejected, on hold or
+ *   undecided), plus items the operator marked good and the supervisor found bad;
+ * - readings: the supervisor's own readings: sample cells of supervisor dimensions, supervisor
+ *   checks, and spot-check readings not taken from a sample cell.
+ */
+export function supSummary(ws: Workspace, l: Lot) {
+  const n = l.parts.length;
+  const bad = l.parts.reduce((a, _p, k) => { const d = itemDecision(l, k); return a + (d !== undefined && d !== 'Approved' ? 1 : 0); }, 0);
+  let filled = 0;
+  let total = 0;
+  const count = (v: unknown) => { total++; if (v != null) filled++; };
+  paramsOf(ws, l).filter((p) => p.editable).forEach((p) => p.samples.forEach((_, j) => count(dimValue(l, p, j))));
+  supChecksOf(ws, l).forEach((c) => c.samples.forEach((_, j) => count(checkValue(l, c, j))));
+  spotsOf(l).filter((k) => !supRejected(l, k)).forEach((k) => paramsOf(ws, l).forEach((p) => {
+    const fromSample = k < p.samples.length && (p.editable || dimValue(l, p, k) != null);
+    if (!fromSample) count(l.spot[String(k)]?.dims?.[p.id] ?? null);
+  }));
+  return { items: n, good: n - bad, bad, filled, total };
+}
+
+/** Spot checks that count: good items not rejected by the supervisor, with every dimension measured. */
+export const spotsDone = (ws: Workspace, l: Lot): number =>
+  spotsOf(l).filter((k) => !supRejected(l, k) && spotMissing(ws, l, k) === 0).length;
+
+export type ItemFilter = 'all' | 'approved' | 'todo' | 'rejected' | 'hold' | 'spot' | 'measured';
+
+export const ITEM_FILTERS: [ItemFilter, string][] = [
+  ['all', 'All items'], ['approved', 'Approved'], ['todo', 'To decide'], ['rejected', 'Rejected'],
+  ['hold', 'On hold'], ['spot', 'Spot check'], ['measured', 'Measured'],
+];
+
+/** Prototype svFilt2 filter: the item indexes shown in the list. Measured = the sample items. */
+export function svVisibleItems(ws: Workspace, l: Lot, f: ItemFilter): number[] {
+  const n = nItems(ws, l);
+  const S = nSamples(ws, l);
+  const all = Array.from({ length: n }, (_, k) => k);
+  if (f === 'all') return all;
+  if (f === 'measured') return all.filter((k) => k < S);
+  if (f === 'spot') return all.filter((k) => !!l.spot?.[String(k)]);
+  // Good spot checks are tagged Approved, so they are listed under Approved too.
+  if (f === 'approved') return all.filter((k) => ['approved', 'spot'].includes(svStatusItem(l, k)));
+  return all.filter((k) => svStatusItem(l, k) === f);
+}
+
 /** Prototype svProgress */
 export function svProgress(ws: Workspace, l: Lot) {
-  const b = badIdx(l);
+  // Bad items to decide: the operator's, plus good items the supervisor found bad.
+  const b = l.parts.map((_p, k) => (itemDecision(l, k) !== undefined ? k : -1)).filter((k) => k >= 0);
   const n = nSamples(ws, l);
   let samp = 0;
   let opMissing = 0;
@@ -160,11 +305,12 @@ export function svProgress(ws: Workspace, l: Lot) {
     });
     sampleChecks(ws, l, s).forEach((c) => { if (checkValue(l, c, s) == null) ownMissing++; });
   }
-  const dec = b.filter((i) => (l.parts[i] as { disp: unknown }).disp).length;
-  const spot = spotsOf(l).length;
+  const dec = b.filter((i) => !!itemDecision(l, i)).length;
+  const spot = spotsDone(ws, l);
   const spotNeed = spotsNeeded(l);
   return {
-    bad: b.length, dec, samp, nSamples: n, spot, spotNeed,
+    /** spot = spot checks complete (every dimension measured); spotMarked = items marked as spot checks. */
+    bad: b.length, dec, samp, nSamples: n, spot, spotMarked: spotsOf(l).length, spotNeed,
     /** Readings the operator didn't enter (the supervisor can't enter them). */
     opMissing,
     /** Everything the supervisor can do is done (what Save requires). */
