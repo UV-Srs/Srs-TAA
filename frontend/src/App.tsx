@@ -27,7 +27,7 @@ function isMobileDevice() {
 export const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authChecked, setAuthChecked] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<string>('sheet');
+  const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [currentBatchId, setCurrentBatchId] = useState<number | null>(null);
   const [batches, setBatches] = useState<InspectionBatch[]>([]);
   // Phones: operators inspect directly; they can opt into "phone as scanner for a desktop" mode
@@ -131,7 +131,7 @@ export const App: React.FC = () => {
   // not on a sheet left open by whoever was signed in before.
   const resetSession = () => {
     setCurrentBatchId(null);
-    setActiveTab('sheet');
+    setActiveTab('dashboard'); // admins always land on the dashboard
     setPhoneScannerMode(false);
     setBatches([]);
   };

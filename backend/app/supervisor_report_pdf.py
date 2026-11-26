@@ -259,7 +259,16 @@ def generate_supervisor_report_pdf(lot: Dict[str, Any], tpl: Dict[str, Any], rev
 
     # ---------------- samples: dimensions + supervisor checks ----------------
     story = blocks.setdefault("samples", [])
-    if n_samples:
+    is_child = lambda p: "child" in (p.get("grp") or "").lower()
+    child_params = [p for p in params if is_child(p)]
+    parent_params = [p for p in params if not is_child(p)]
+    # Admin report: child part and parent part dimensions are shown as two separate tables.
+    if admin and child_params and parent_params:
+        tables = [(child_params, "Child part", False), (parent_params, "Parent part", True)]
+    else:
+        tables = [(params, None, True)]
+
+    def build_samples(params, label, with_sup):
         head = [Paragraph("DIMENSION" if params else "CHECK", S_TH), Paragraph("SPEC", S_TH)] + \
                [Paragraph(str(j + 1), S_THC) for j in range(n_samples)] + [Paragraph("RESULT", S_TH)]
         rows, style = [head], []
@@ -280,10 +289,11 @@ def generate_supervisor_report_pdf(lot: Dict[str, Any], tpl: Dict[str, Any], rev
             res = "Out of spec" if "bad" in st else f"{got}/{len(own)}" if got < len(own) else "Near limit" if "warn" in st else "OK"
             row.append(Paragraph(esc(res), S_C_NG if res == "Out of spec" else S_TXT))
             rows.append(row)
-        if sup_checks and params:
+        checks_here = sup_checks if with_sup else []
+        if checks_here and params:
             rows.append([Paragraph("SUPERVISOR CHECKS", S_TH)] + [""] * (n_samples + 2))
             style += [("SPAN", (0, len(rows) - 1), (-1, len(rows) - 1)), ("BACKGROUND", (0, len(rows) - 1), (-1, len(rows) - 1), SURFACE2)]
-        for c in sup_checks:
+        for c in checks_here:
             vals = sup_res.get(c["id"]) or []
             row = [Paragraph(f"<b>{esc(c['t'])}</b>", S_TXT), Paragraph(esc(c.get("desc")), S_SMALL)]
             for j in range(n_samples):
@@ -298,9 +308,17 @@ def generate_supervisor_report_pdf(lot: Dict[str, Any], tpl: Dict[str, Any], rev
         sample_w = min(14 * mm, (width - 140 * mm) / n_samples)
         tbl = Table(rows, colWidths=[60 * mm, 50 * mm] + [sample_w] * n_samples + [24 * mm], repeatRows=1, hAlign="LEFT")
         tbl.setStyle(_base_style(style))
-        story += _section(f"{'Dimension check' if params else 'Supervisor checks'}, samples (items 1 – {n_samples})",
-                          " / ".join(sorted({p.get("method") for p in params if p.get("method")})))
+        base = 'Dimension check' if params else 'Supervisor checks'
+        title = f"{base} ({label.lower()})" if label else base
+        story.extend(_section(f"{title}, samples (items 1 – {n_samples})",
+                              " / ".join(sorted({p.get("method") for p in params if p.get("method")}))))
         story.append(tbl)
+
+    if n_samples:
+        for i, (plist, label, with_sup) in enumerate(tables):
+            if i:
+                story.append(Spacer(1, 4 * mm))
+            build_samples(plist, label, with_sup)
 
     # ---------------- out of spec ----------------
     story = blocks.setdefault("oos", [])
@@ -430,8 +448,7 @@ def generate_supervisor_report_pdf(lot: Dict[str, Any], tpl: Dict[str, Any], rev
 
     if admin:
         blocks["changes"] = _review_changes(lot, parts, bad, spots, spot, title_of, oos, sup_name, width)
-        blocks["child"] = _child_card(params, n_samples, width)
-        order = ["head", "changes", "child", "samples", "oos", "items", "sign"]
+        order = ["head", "changes", "samples", "oos", "items", "sign"]
     else:
         order = ["head", "samples", "oos", "bad", "spot", "items", "comment", "sign"]
     story = [f for name in order for f in blocks.get(name, [])]

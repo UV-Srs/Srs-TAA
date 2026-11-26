@@ -63,6 +63,15 @@ const isOutOfSpec = (item: ControlItem, val?: string | null) => {
   return isFailValue(val);
 };
 
+// crypto.randomUUID only exists on secure origins (https / localhost); fall back for plain-http LAN access
+const newId = (): string =>
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (ch) => {
+        const r = (Math.random() * 16) | 0;
+        return (ch === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+      });
+
 const formatDate = (iso?: string) => {
   if (!iso) return '—';
   const d = new Date(iso);
@@ -238,7 +247,7 @@ export const OperatorInspection: React.FC<OperatorInspectionProps> = ({
     const mutations: OfflineMutation[] = [];
     const nextCells: Record<string, CellResponse> = {};
     for (const e of entries) {
-      const id = crypto.randomUUID();
+      const id = newId();
       const m: OfflineMutation = {
         client_mutation_id: id, batch_id: batch.batch_id, item_id: e.item.item_id!,
         column_key: e.column, cell_value: e.value, checker_initials: initials, timestamp: now,
@@ -310,6 +319,8 @@ export const OperatorInspection: React.FC<OperatorInspectionProps> = ({
       const nextOpen = after.findIndex((s) => s === 'unchecked') + 1;
       if (nextOpen === 0) goTo('finish');
       else goTo(current < pieceCount ? current + 1 : nextOpen);
+    } catch (err: any) {
+      setMsg(`!Could not save item ${current}: ${err?.message || 'unknown error'}`);
     } finally {
       setIsSaving(false);
     }
@@ -928,7 +939,7 @@ const FinishPanel: React.FC<FinishPanelProps> = ({
         <h3>Lot clearance</h3>
         <p className="opi-pv-sub">{readOnly ? 'Given by the operator on submit.' : 'Pre-selected from the results. Change it if needed.'}</p>
         <div className="opi-cbs">
-          {CLEARANCE_OPTIONS.map(({ value, desc }) => {
+          {CLEARANCE_OPTIONS.filter(({ value }) => !readOnly || value === clearance).map(({ value, desc }) => {
             const on = clearance === value;
             const enabled = !readOnly && clearanceAllowed(value);
             return (
@@ -1088,7 +1099,9 @@ const ApprovalRecord: React.FC<{ batch: InspectionBatch }> = ({ batch }) => {
                 <span className="mt-1.5 w-2 h-2 rounded-full bg-slate-300 shrink-0" />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-baseline gap-x-2 text-sm">
-                    <span className={`font-semibold ${tone}`}>{d.decision}</span>
+                    <span className={`font-semibold ${tone}`}>
+                      {String(d.role || '').toLowerCase() === 'operator' && dec.includes('reject') ? 'Not good items' : d.decision}
+                    </span>
                     <span className="text-slate-700">{d.stage}</span>
                     <span className="text-slate-500">by {d.decided_by_name || 'Unknown'} ({d.role})</span>
                   </div>
