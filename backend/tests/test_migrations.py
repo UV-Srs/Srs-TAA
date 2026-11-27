@@ -20,7 +20,7 @@ from backend.app.db_base import Base
 ROOT = Path(__file__).resolve().parents[2]
 SERVER = make_url(os.environ["TAA_TEST_DATABASE_URL"])
 APP_TABLES = set(Base.metadata.tables)
-HEAD = "0004"  # the newest migration; bump this when a new one is added
+HEAD = "0005"  # the newest migration; bump this when a new one is added
 
 
 @pytest.fixture

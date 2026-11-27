@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 from backend.app.database import get_db
 from backend.app.models import User, AuditLog
@@ -41,8 +42,15 @@ def _record_failed_login(db: Session, username: str, known: User | None, reason:
 
 @router.post("/login", response_model=TokenResponse)
 def login(payload: UserLogin, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.username == payload.username).first()
-    if not user or not verify_password(payload.password, user.password_hash):
+    lookup_name = payload.username.strip().lower()
+    user = db.query(User).filter(
+        or_(User.username == lookup_name, func.lower(User.employee_id) == lookup_name)
+    ).first()
+    # Passwords are stored trimmed, so a stray space typed at sign-in must not lock the user out.
+    if not user or not (
+        verify_password(payload.password, user.password_hash)
+        or verify_password(payload.password.strip(), user.password_hash)
+    ):
         _record_failed_login(db, payload.username, user, "Wrong username or password")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

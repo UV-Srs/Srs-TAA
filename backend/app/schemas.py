@@ -11,13 +11,22 @@ class UserLogin(BaseModel):
 
 class UserCreate(BaseModel):
     username: str
+    employee_id: Optional[str] = None
     full_name: str
     password: str
     role: str  # 'admin', 'supervisor', 'operator'
 
+class UserUpdate(BaseModel):
+    username: Optional[str] = None
+    employee_id: Optional[str] = None
+    full_name: Optional[str] = None
+    password: Optional[str] = None  # blank / omitted keeps the current password
+    role: Optional[str] = None
+
 class UserResponse(BaseModel):
     user_id: int
     username: str
+    employee_id: Optional[str] = None
     full_name: str
     role: str
     is_active: bool

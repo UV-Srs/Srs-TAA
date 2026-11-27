@@ -13,6 +13,7 @@ export type BatchStatus =
 export interface User {
   user_id: number;
   username: string;
+  employee_id?: string | null;
   full_name: string;
   role: UserRole;
   is_active: boolean;

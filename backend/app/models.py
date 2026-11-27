@@ -11,6 +11,7 @@ class User(Base):
 
     user_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     username = Column(String(100), unique=True, nullable=False, index=True)
+    employee_id = Column(String(50), unique=True, nullable=True, index=True)
     full_name = Column(String(150), nullable=False)
     password_hash = Column(Text, nullable=False)
     role = Column(String(20), nullable=False)  # 'admin', 'supervisor', 'operator'

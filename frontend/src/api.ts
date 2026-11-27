@@ -63,10 +63,17 @@ export async function apiRequest<T>(
 
 // --- Auth ---
 export async function loginUser(username: string, password: string): Promise<{ access_token: string; user: User }> {
-  const res = await apiRequest<{ access_token: string; user: User }>('/api/auth/login', {
+  // Use fetch directly — apiRequest redirects on 401, but a login 401 means wrong password, not expired session.
+  const response = await fetch('/api/auth/login', {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password }),
   });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.detail || 'Invalid username or password');
+  }
+  const res = await response.json();
   localStorage.setItem('taa_jwt_token', res.access_token);
   localStorage.setItem('taa_user', JSON.stringify(res.user));
   return res;
@@ -94,9 +101,19 @@ export async function fetchUsers(): Promise<User[]> {
   return apiRequest<User[]>('/api/admin/users');
 }
 
-export async function createUser(data: { username: string; full_name: string; password: string; role: string }): Promise<User> {
+export async function createUser(data: { username: string; employee_id?: string; full_name: string; password: string; role: string }): Promise<User> {
   return apiRequest<User>('/api/admin/users', {
     method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateUser(
+  userId: number,
+  data: { username?: string; employee_id?: string; full_name?: string; password?: string; role?: string }
+): Promise<User> {
+  return apiRequest<User>(`/api/admin/users/${userId}`, {
+    method: 'PUT',
     body: JSON.stringify(data),
   });
 }

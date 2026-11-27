@@ -23,7 +23,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     try {
       setIsLoading(true);
       setErrorMsg(null);
-      const res = await loginUser(username.trim(), password);
+      const res = await loginUser(username.trim().toLowerCase(), password);
       onLoginSuccess(res.user);
     } catch (err: any) {
       setErrorMsg(err.message || 'Login failed. Please check your username and password.');
@@ -51,7 +51,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
         {/* Login Form */}
         <form onSubmit={handleSubmit} className="space-y-4 text-xs">
           <div className="space-y-1.5">
-            <label className="block font-semibold text-slate-700">Username</label>
+            <label className="block font-semibold text-slate-700">Username or Employee ID</label>
             <div className="relative">
               <input
                 type="text"
@@ -98,21 +98,25 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           </button>
         </form>
 
-        {/* Quick-fill usernames (no passwords) */}
+        {/* Quick-fill usernames + passwords */}
         <div className="pt-4 border-t border-slate-100 space-y-2.5">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
             Quick fill username
           </span>
           <div className="grid grid-cols-3 gap-2">
-            {['operator', 'supervisor', 'admin'].map((role) => (
+            {[
+              { label: 'Operator',   username: 'operator',   password: 'oper123'  },
+              { label: 'Supervisor', username: 'supervisor', password: 'super123' },
+              { label: 'Admin',      username: 'admin',      password: 'admin123' },
+            ].map(({ label, username: u, password: p }) => (
               <button
-                key={role}
+                key={u}
                 type="button"
-                onClick={() => setUsername(role)}
+                onClick={() => { setUsername(u); setPassword(p); }}
                 className="p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200/80 rounded-xl text-left transition-all group cursor-pointer"
               >
-                <div className="text-[11px] font-bold text-slate-800 group-hover:text-black capitalize">{role}</div>
-                <div className="text-[10px] text-slate-500 font-mono mt-0.5 truncate">{role}</div>
+                <div className="text-[11px] font-bold text-slate-800 group-hover:text-black">{label}</div>
+                <div className="text-[10px] text-slate-500 font-mono mt-0.5 truncate">{u}</div>
               </button>
             ))}
           </div>
