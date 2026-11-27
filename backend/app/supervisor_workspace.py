@@ -56,6 +56,16 @@ def lot_spots(columns: List[str], review: Optional["SupervisorLotReview"]) -> Di
     return {str(columns.index(c)): v for c, v in raw.items() if c in columns}
 
 
+def lot_answers(columns: List[str], review: Optional["SupervisorLotReview"]) -> Dict[str, Dict[str, Any]]:
+    """The supervisor's Yes/No answers that differ from the operator's, keyed by item index:
+    {index: {"ng": [check ids answered No], "d": decision or None}}. d matters for items the
+    operator marked good and the supervisor found bad (they need a decision too)."""
+    raw = (review.item_answers or {}) if review else {}
+    disp = (review.dispositions or {}) if review else {}
+    return {str(columns.index(c)): {"ng": list((v or {}).get("ng") or []), "d": disp.get(c)}
+            for c, v in raw.items() if c in columns}
+
+
 def iso(dt: Optional[datetime]) -> Optional[str]:
     """Stored times are naive UTC (datetime.utcnow); mark them as UTC for the browser."""
     return dt.isoformat() + "Z" if dt else None
@@ -177,6 +187,13 @@ def _person(user: Optional[User]) -> Optional[Dict[str, Any]]:
     return {"id": user.user_id, "name": user.full_name} if user else None
 
 
+def sample_columns(item: TemplateControlItem, n_items: int) -> List[str]:
+    """The item's sample columns that exist in this lot: sample j is measured on item j+1, so a
+    lot of 10 items has at most 10 samples even when the template lists more (S1..S11)."""
+    cols = _columns(item)
+    return cols[:n_items] if n_items else cols
+
+
 def piece_count(visual: List[TemplateControlItem], qty: Optional[int]) -> int:
     """Items in the lot: lot_quantity, else the highest numbered column of the operator's checks."""
     if qty:
@@ -222,13 +239,53 @@ def lot_items(b: InspectionBatch, review: Optional[SupervisorLotReview]) -> Dict
 
     dims = {
         str(i.item_id): [_to_float(cells[(i.item_id, c)].cell_value) if (i.item_id, c) in cells else None
-                         for c in _columns(i)]
+                         for c in sample_columns(i, len(columns))]
         for i in dims_items
     }
     # Supervisor checks: 'OK' | 'NG' | None per sample column.
-    sup_checks = {str(i.item_id): [_cell_result(cells.get((i.item_id, c))) for c in _columns(i)] for i in sup_visual}
+    sup_checks = {str(i.item_id): [_cell_result(cells.get((i.item_id, c))) for c in sample_columns(i, len(columns))]
+                  for i in sup_visual}
     return {"columns": columns, "parts": parts, "dims": dims, "visual": visual, "dims_items": dims_items,
             "sup_visual": sup_visual, "sup_checks": sup_checks}
+
+
+def final_bad_count(
+    parts: List[Optional[Dict[str, Any]]],
+    spot: Dict[str, Dict[str, Any]],
+    svd: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> int:
+    """Overall (final) bad items in a lot, after the supervisor's review:
+      * items the operator marked bad, unless the supervisor changed them to good (Approved);
+      * items the operator marked good but the supervisor found bad (a check answered No in the
+        review), unless then Approved (`svd`: {item index: {"ng": [...], "d": decision}});
+      * problems recorded by older spot checks (r == "NG"), for items not already counted above.
+    Rejected, on-hold and undecided items stay bad. One rule for the lot report (PDF and screen) and
+    the admin dashboard."""
+    svd = svd or {}
+    bad = 0
+    for k, p in enumerate(parts):
+        if p and p["r"] == "NG":
+            bad += p.get("disp") != "Approved"
+        elif p and p["r"] == "OK" and (svd.get(str(k)) or {}).get("ng"):
+            bad += svd[str(k)].get("d") != "Approved"
+        elif ((spot or {}).get(str(k)) or {}).get("r") == "NG":
+            bad += 1
+    return bad
+
+
+def lot_bad_summary(b: InspectionBatch, review: Optional[SupervisorLotReview]) -> Dict[str, int]:
+    """Counts for one lot, worked out fresh from the stored inspection cells every time:
+    items_checked - pieces the operator has checked (all pieces once the operator has submitted),
+    operator_ng - pieces the operator marked bad, ng_count - overall bad after the supervisor's review."""
+    li = lot_items(b, review)
+    parts = li["parts"]
+    spot = lot_spots(li["columns"], review)
+    checked = len(parts) if b.operator_submitted_at else sum(1 for p in parts if p)
+    return {
+        "items_checked": checked,
+        "operator_ng": sum(1 for p in parts if p and p["r"] == "NG"),
+        "ng_count": final_bad_count(parts, spot, lot_answers(li["columns"], review)),
+    }
 
 
 def clearance_text(decision: Optional[str], parts: List[Optional[Dict[str, Any]]]) -> str:
@@ -304,12 +361,15 @@ def serialize_lot(db: Session, b: InspectionBatch, users: Dict[int, User]) -> Di
         "ts": iso(ts),
         "op": op,
         "opBy": op_by,
-        "clearance": {"d": clearance_text(b.operator_decision, parts), "note": ""} if b.operator_decision else None,
+        # The operator's own clearance choice; older lots (submitted before it was stored) fall back to the derived wording.
+        "clearance": ({"d": b.operator_clearance, "note": b.operator_clearance_note or ""} if b.operator_clearance
+                      else {"d": clearance_text(b.operator_decision, parts), "note": ""} if b.operator_decision else None),
         "columns": columns,
         "parts": parts,
         "supChecks": li["sup_checks"],
         "dims": dims,
         "spot": lot_spots(columns, review),
+        "svd": lot_answers(columns, review),
         "supComment": (review.comment or "") if review else "",
         "oos": review.oos_action if review else None,
         "sup": sup,

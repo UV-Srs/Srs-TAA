@@ -4,7 +4,7 @@ from sqlalchemy import (
     ForeignKey, Float, JSON, UniqueConstraint
 )
 from sqlalchemy.orm import relationship
-from backend.app.database import Base
+from backend.app.db_base import Base
 
 class User(Base):
     __tablename__ = "users"
@@ -18,7 +18,8 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
-    audit_logs = relationship("AuditLog", back_populates="user", cascade="all, delete-orphan", passive_deletes=True)
+    # No delete cascade: audit history is kept when a user is removed (the DB sets user_id to NULL).
+    audit_logs = relationship("AuditLog", back_populates="user", passive_deletes=True)
     decisions = relationship("InspectionDecision", back_populates="user")
     attachments = relationship("InspectionAttachment", back_populates="user")
     notifications = relationship("InAppNotification", back_populates="user", cascade="all, delete-orphan")
@@ -97,6 +98,9 @@ class InspectionBatch(Base):
     operator_rejected_fields = Column(JSON, nullable=True)  # list of field item_ids or keys
     operator_submitted_at = Column(DateTime, nullable=True)
     prepared_by = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
+    # Operator's lot clearance on submit: 'Lot cleared' | 'Cleared, NG items segregated' | 'Not cleared, hold the lot'
+    operator_clearance = Column(String(60), nullable=True)
+    operator_clearance_note = Column(Text, nullable=True)
 
     # Supervisor reviews & decisions
     supervisor_reviews = Column(JSON, nullable=True)  # dict: {item_id/field_key: 'confirm' | 'overrule'}
@@ -198,24 +202,40 @@ class InAppNotification(Base):
     batch_id = Column(Integer, ForeignKey("inspection_batches.batch_id", ondelete="CASCADE"), nullable=True)
     batch_code = Column(String(100), nullable=True)
     text = Column(Text, nullable=False)
-    is_read = Column(Boolean, default=False)
+    is_read = Column(Boolean, default=False)  # only used for notifications addressed to one user
+    kind = Column(String(30), nullable=False, default="info", server_default="info")  # batch, hold, review, user, security, info
+    severity = Column(String(10), nullable=False, default="info", server_default="info")  # info, warn, critical
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
     user = relationship("User", back_populates="notifications")
     batch = relationship("InspectionBatch")
 
+
+class NotificationRead(Base):
+    """Which user has read which notification (role-wide notifications are read per user)."""
+    __tablename__ = "notification_reads"
+
+    notification_id = Column(Integer, ForeignKey("in_app_notifications.notification_id", ondelete="CASCADE"), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.user_id", ondelete="CASCADE"), primary_key=True, index=True)
+    read_at = Column(DateTime, default=datetime.utcnow)
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 
     log_id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True, index=True)
     role = Column(String(20), nullable=True)
-    action_type = Column(String(100), nullable=False)
+    action_type = Column(String(100), nullable=False, index=True)
     sheet_id = Column(String(64), nullable=True)
     batch_id = Column(Integer, nullable=True)
     details = Column(JSON, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    # Who did it, copied at the time, so the history still identifies them after the user is removed.
+    actor_name = Column(String(150), nullable=True)
+    actor_username = Column(String(100), nullable=True)
+    ip_address = Column(String(64), nullable=True)
+    user_agent = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
     # Relationships
     user = relationship("User", back_populates="audit_logs")
@@ -225,7 +245,7 @@ class SupervisorLotReview(Base):
     Supervisor review state for one lot and inspection round (supervisor UI).
     Holds what inspection_batches has no field for: per-item decisions, the review
     lock, the out-of-spec action and the admin's reopen note.
-    New table, so Base.metadata.create_all() creates it without a migration.
+    Added by migration 0001 (the baseline).
     """
     __tablename__ = "supervisor_lot_reviews"
     __table_args__ = (UniqueConstraint("batch_id", "round", name="uq_supervisor_lot_review_round"),)
@@ -241,6 +261,10 @@ class SupervisorLotReview(Base):
     oos_action = Column(String(50), nullable=True)
     # Supervisor spot checks (prototype L.spot): {item column key: {"r": "OK"|"NG", "ng": [check ids]}}
     spot_checks = Column(JSON, nullable=True)
+    # Supervisor's Yes/No answers where they differ from the operator's (saved on every tap):
+    # {item column key: {"ng": [check ids answered No]}}. A good item with any No is rejected
+    # by the supervisor. Migration 0003.
+    item_answers = Column(JSON, nullable=True)
     # Supervisor comments for the report (prototype L.supComment)
     comment = Column(Text, nullable=True)
     reopen_note = Column(Text, nullable=True)

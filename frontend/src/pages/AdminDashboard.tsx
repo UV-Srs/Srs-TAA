@@ -4,6 +4,7 @@ import {
   downloadBatchReport, handleReportDownloadClick
 } from '../api';
 import { SheetTemplate } from '../types';
+import { onBatchCreated, onBatchUpdated, onCellUpdated, onSheetUpdated } from '../liveSync';
 import {
   Plus, ExternalLink, Printer, RefreshCw, AlertCircle, Search, Filter
 } from 'lucide-react';
@@ -29,6 +30,7 @@ interface LotItem {
   operator_name: string;
   supervisor_name: string;
   ng_count: number | null;
+  items_checked: number;
   rev: number;
   updated_at?: string;
   updated_short: string;
@@ -47,36 +49,65 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch })
   const [selectedSheetId, setSelectedSheetId] = useState<string>('');
   const [lotNumber, setLotNumber] = useState<string>('');
   const [lotQuantity, setLotQuantity] = useState<number>(450);
-  const [inspectionMode, setInspectionMode] = useState<string>('IFM');
   const [isCreating, setIsCreating] = useState<boolean>(false);
 
   const [printSheetId, setPrintSheetId] = useState<string | null>(null);
 
   const tableRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-    loadDashboard();
-  }, []);
+  // Only the newest request may update the screen, so a slow older answer can't overwrite a newer one.
+  const requestSeq = useRef(0);
 
-  const loadDashboard = async () => {
+  /** `silent` refreshes in the background (live updates): no spinner, and a failed refresh keeps what is shown. */
+  const loadDashboard = async (silent = false) => {
+    const seq = ++requestSeq.current;
     try {
-      setIsLoading(true);
-      setErrorMsg(null);
+      if (!silent) {
+        setIsLoading(true);
+        setErrorMsg(null);
+      }
       const [prog, sList] = await Promise.all([
         fetchProgressDashboard().catch(() => null),
-        fetchSheets().catch(() => []),
+        fetchSheets().catch(() => null),
       ]);
-      setData(prog);
-      setSheets(sList);
-      if (sList.length > 0 && !selectedSheetId) {
-        setSelectedSheetId(sList[0].sheet_id);
+      if (seq !== requestSeq.current) return;
+      if (prog || !silent) setData(prog);
+      if (sList) {
+        setSheets(sList);
+        setSelectedSheetId((cur) => cur || (sList.length > 0 ? sList[0].sheet_id : ''));
       }
     } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to load dashboard.');
+      if (!silent) setErrorMsg(err.message || 'Failed to load dashboard.');
     } finally {
-      setIsLoading(false);
+      if (seq === requestSeq.current && !silent) setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadDashboard();
+
+    // Live: any lot, cell or template change on the server refreshes the numbers. Bursts of events
+    // (an operator ticking many cells) are merged into one refresh.
+    let timer: number | undefined;
+    const refreshSoon = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => loadDashboard(true), 600);
+    };
+    const unsubs = [onBatchCreated(refreshSoon), onBatchUpdated(refreshSoon), onCellUpdated(refreshSoon), onSheetUpdated(refreshSoon)];
+
+    // Safety net if the live connection drops: refresh every 30 s while the tab is visible,
+    // and straight away when the tab becomes visible again.
+    const poll = window.setInterval(() => { if (!document.hidden) loadDashboard(true); }, 30000);
+    const onVisible = () => { if (!document.hidden) loadDashboard(true); };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      window.clearTimeout(timer);
+      window.clearInterval(poll);
+      document.removeEventListener('visibilitychange', onVisible);
+      unsubs.forEach((u) => u());
+    };
+  }, []);
 
   const handleCreateBatch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -87,7 +118,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch })
         sheet_id: selectedSheetId,
         lot_number: lotNumber,
         lot_quantity: Number(lotQuantity),
-        inspection_mode: inspectionMode,
       });
       setIsNewBatchOpen(false);
       setLotNumber('');
@@ -125,6 +155,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch })
         operator_name: b.operator_name || '—',
         supervisor_name: b.supervisor_name || '—',
         ng_count: typeof b.ng_count === 'number' ? b.ng_count : null,
+        items_checked: typeof b.items_checked === 'number' ? b.items_checked : 0,
         rev: b.round || 1,
         updated_at: b.updated_at || b.created_at,
         updated_short: shortDate,
@@ -134,9 +165,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch })
 
   // ── KPI Calculations (real data only, 0 when empty) ──────────────────────
   const lotsInspected = allLots.filter((l) => l.status_category !== 'registered').length;
-  const itemsChecked = allLots
-    .filter((l) => l.status_category !== 'registered')
-    .reduce((sum, l) => sum + (l.lot_quantity || 0), 0);
+  // Items actually checked (from the server), and overall bad items after the supervisor's review.
+  const itemsChecked = allLots.reduce((sum, l) => sum + (l.items_checked || 0), 0);
   const badItemsFound = allLots.reduce(
     (sum, l) => sum + (typeof l.ng_count === 'number' ? l.ng_count : 0), 0
   );
@@ -204,7 +234,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch })
           <p className="sub mt-0.5">Shop-floor inspection metrics and real-time lot status</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <button onClick={loadDashboard} className="btn sm" title="Refresh">
+          <button onClick={() => loadDashboard()} className="btn sm" title="Refresh">
             <RefreshCw className="w-3.5 h-3.5" />
           </button>
           <button onClick={() => setIsNewBatchOpen(true)} className="btn primary sm">
@@ -615,19 +645,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectBatch })
                   required
                   className="w-full border border-[var(--line2)] rounded-xl px-3 py-2 bg-[var(--surface)] text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
                 />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="block font-semibold text-[var(--ink)]">Inspection Mode</label>
-                <select
-                  value={inspectionMode}
-                  onChange={(e) => setInspectionMode(e.target.value)}
-                  className="w-full border border-[var(--line2)] rounded-xl px-3 py-2 bg-[var(--surface)] text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] appearance-none cursor-pointer"
-                >
-                  <option value="IFM">IFM</option>
-                  <option value="FULL">Full</option>
-                  <option value="SAMPLE">Sample</option>
-                </select>
               </div>
 
               <div className="flex gap-2 pt-1">

@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Check, ChevronDown, X, AlertCircle, Loader2, Lock } from 'lucide-react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeft, Check, X, Loader2, Lock } from 'lucide-react';
+import './operatorInspection.css';
 import { InspectionBatch, User, ControlItem, CellResponse, OfflineMutation } from '../types';
 import { fetchBatchDetail, submitOperatorBatch, syncOfflineQueue } from '../api';
 import {
@@ -30,6 +31,17 @@ interface OperatorInspectionProps {
 type PassFail = 'Pass' | 'Fail';
 type PieceState = 'unchecked' | 'good' | 'bad';
 
+// Lot clearance options. The wording is stored as-is and shown to the supervisor as "Operator clearance".
+const CLEARANCE_CLEARED = 'Lot cleared';
+const CLEARANCE_SEGREGATED = 'Cleared, NG items segregated';
+const CLEARANCE_HOLD = 'Not cleared, hold the lot';
+type Clearance = typeof CLEARANCE_CLEARED | typeof CLEARANCE_SEGREGATED | typeof CLEARANCE_HOLD;
+const CLEARANCE_OPTIONS: { value: Clearance; desc: string }[] = [
+  { value: CLEARANCE_CLEARED, desc: 'All items passed the checks.' },
+  { value: CLEARANCE_SEGREGATED, desc: 'Bad items are tagged and kept aside.' },
+  { value: CLEARANCE_HOLD, desc: 'A repeating problem or too many bad items.' },
+];
+
 const isFailValue = (v?: string | null) => !!v && ['fail', 'false', '0'].includes(String(v).trim().toLowerCase());
 const hasValue = (c?: CellResponse) => !!c && c.cell_value !== null && c.cell_value !== undefined && String(c.cell_value).trim() !== '';
 
@@ -51,6 +63,15 @@ const isOutOfSpec = (item: ControlItem, val?: string | null) => {
   return isFailValue(val);
 };
 
+// crypto.randomUUID only exists on secure origins (https / localhost); fall back for plain-http LAN access
+const newId = (): string =>
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (ch) => {
+        const r = (Math.random() * 16) | 0;
+        return (ch === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+      });
+
 const formatDate = (iso?: string) => {
   if (!iso) return '—';
   const d = new Date(iso);
@@ -68,13 +89,18 @@ export const OperatorInspection: React.FC<OperatorInspectionProps> = ({
 
   const [current, setCurrent] = useState(1);
   const [draft, setDraft] = useState<Record<number, PassFail>>({});
-  const [view, setView] = useState<'piece' | 'finish'>('piece');
+  // piece = "Item n of N"; finish = lot clearance (or summary when read-only); preview = full lot report
+  const [view, setView] = useState<'piece' | 'finish' | 'preview'>('piece');
   const [isSaving, setIsSaving] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [remarks, setRemarks] = useState('');
-  const [isListOpen, setIsListOpen] = useState(false);
+  const [clearance, setClearance] = useState<Clearance | null>(null);
+  const [clearanceNote, setClearanceNote] = useState('');
+  const [msg, setMsg] = useState('');
+  const [jumpText, setJumpText] = useState('');
   const initialisedFor = useRef<number | null>(null);
-  const listRef = useRef<HTMLDivElement | null>(null);
+  const listRef = useRef<HTMLUListElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const mainRef = useRef<HTMLDivElement | null>(null);
 
   const initials = currentUser.username.substring(0, 2).toUpperCase();
 
@@ -160,6 +186,17 @@ export const OperatorInspection: React.FC<OperatorInspectionProps> = ({
   const badPieces = pieceStates.map((s, i) => (s === 'bad' ? i + 1 : 0)).filter(Boolean);
   const firstUnchecked = pieceStates.findIndex((s) => s === 'unchecked') + 1; // 0 = none
 
+  // ---------- Lot clearance ----------
+  // "Lot cleared" is only possible with no bad items, "NG items segregated" only with some;
+  // "hold the lot" is always possible but needs a reason. Pre-selected from the results.
+  const clearanceAllowed = (c: Clearance) =>
+    c === CLEARANCE_HOLD || (c === CLEARANCE_CLEARED ? badCount === 0 : badCount > 0);
+  const defaultClearance: Clearance = badCount > 0 ? CLEARANCE_SEGREGATED : CLEARANCE_CLEARED;
+  const chosenClearance: string = isLocked
+    ? batch?.operator_clearance || defaultClearance
+    : clearance && clearanceAllowed(clearance) ? clearance : defaultClearance;
+  const needsHoldReason = !isLocked && chosenClearance === CLEARANCE_HOLD && !clearanceNote.trim();
+
   // Start on the first unchecked piece (or the finish screen when everything is done)
   useEffect(() => {
     if (!batch || initialisedFor.current === batch.batch_id || checks.length === 0) return;
@@ -172,21 +209,35 @@ export const OperatorInspection: React.FC<OperatorInspectionProps> = ({
   // Keep the current piece visible in the item list
   useEffect(() => {
     listRef.current?.querySelector(`[data-piece="${current}"]`)?.scrollIntoView({ block: 'nearest' });
-  }, [current, isListOpen]);
+  }, [current]);
 
-  const valueFor = (item: ControlItem, n: number, useDraft = true): PassFail => {
-    if (useDraft && n === current && draft[item.item_id!]) return draft[item.item_id!];
+  // The screen fills the window below the app header; the side list and the checks scroll on their own
+  useLayoutEffect(() => {
+    const setTop = () => {
+      const el = rootRef.current;
+      if (el) el.style.setProperty('--opi-top', `${Math.max(0, el.getBoundingClientRect().top + window.scrollY)}px`);
+    };
+    setTop();
+    window.addEventListener('resize', setTop);
+    return () => window.removeEventListener('resize', setTop);
+  }, [!!batch]);
+
+  /** The saved answer for a check on piece n, or null if it hasn't been answered yet. */
+  const savedAnswer = (item: ControlItem, n: number): PassFail | null => {
     const cell = cells[`${item.item_id}_${n}`];
-    return hasValue(cell) && isFailValue(cell!.cell_value) ? 'Fail' : 'Pass';
-  };
-  const currentProblems = checks.filter((c) => valueFor(c, current) === 'Fail').length;
-  const cardState = (item: ControlItem): 'pass' | 'fail' => {
-    if (isLocked && !hasValue(cells[`${item.item_id}_${current}`])) {
+    if (hasValue(cell)) return isFailValue(cell!.cell_value) ? 'Fail' : 'Pass';
+    if (isLocked) {
+      // Older submitted lots only have lot-level results for each check
       const cols = Array.isArray(item.sample_columns) ? item.sample_columns : [];
-      return cols.some((col) => isFailValue(cells[`${item.item_id}_${col}`]?.cell_value)) ? 'fail' : 'pass';
+      return cols.some((col) => isFailValue(cells[`${item.item_id}_${col}`]?.cell_value)) ? 'Fail' : 'Pass';
     }
-    return valueFor(item, current) === 'Fail' ? 'fail' : 'pass';
+    return null;
   };
+  /** Every check starts unanswered: the operator taps Yes or No (or Select all) for each one. */
+  const answerFor = (item: ControlItem, n: number): PassFail | null =>
+    (n === current ? draft[item.item_id!] : undefined) || savedAnswer(item, n);
+  const currentProblems = checks.filter((c) => answerFor(c, current) === 'Fail').length;
+  const unanswered = checks.filter((c) => answerFor(c, current) === null).length;
 
   // ---------- Saving ----------
   /** Save cells locally (IndexedDB queue) first, then push them to the server in one request. */
@@ -196,7 +247,7 @@ export const OperatorInspection: React.FC<OperatorInspectionProps> = ({
     const mutations: OfflineMutation[] = [];
     const nextCells: Record<string, CellResponse> = {};
     for (const e of entries) {
-      const id = crypto.randomUUID();
+      const id = newId();
       const m: OfflineMutation = {
         client_mutation_id: id, batch_id: batch.batch_id, item_id: e.item.item_id!,
         column_key: e.column, cell_value: e.value, checker_initials: initials, timestamp: now,
@@ -221,43 +272,77 @@ export const OperatorInspection: React.FC<OperatorInspectionProps> = ({
     }
   };
 
-  /** Commit the current piece (defaults to Pass for anything not tapped). Only writes what changed. */
-  const commitPiece = async (n: number, force: boolean) => {
-    if (isLocked) return;
-    const isChecked = pieceStates[n - 1] !== 'unchecked';
-    if (!force && (!isChecked || Object.keys(draft).length === 0)) return;
-    const entries = checks
-      .map((c) => ({ item: c, column: String(n), value: valueFor(c, n) as string }))
-      .filter((e) => {
-        const saved = cells[`${e.item.item_id}_${n}`];
-        return !hasValue(saved) || (isFailValue(saved!.cell_value) ? 'Fail' : 'Pass') !== e.value;
-      });
+  /** Save piece n once every check has an answer. Only writes what changed. Returns false if incomplete. */
+  const commitPiece = async (n: number): Promise<boolean> => {
+    if (isLocked) return false;
+    const answers = checks.map((c) => ({ item: c, value: answerFor(c, n) }));
+    if (answers.some((a) => a.value === null)) return false;
+    const entries = answers
+      .map((a) => ({ item: a.item, column: String(n), value: a.value as string }))
+      .filter((e) => savedAnswer(e.item, n) !== e.value);
     await saveCells(entries);
+    return true;
   };
 
-  const navigate = async (target: number | 'finish', commitCurrent: boolean) => {
+  const goTo = (target: number | 'finish') => {
+    setDraft({});
+    if (target === 'finish') setView('finish');
+    else { setCurrent(Math.min(Math.max(1, target), pieceCount)); setView('piece'); }
+    mainRef.current?.scrollTo({ top: 0 });
+    window.scrollTo({ top: 0 });
+  };
+
+  /** Previous / jump: changes to an already-checked item are kept; a half-answered new item is dropped. */
+  const leaveTo = async (target: number | 'finish') => {
     if (isSaving) return;
     setIsSaving(true);
     try {
-      if (view === 'piece') await commitPiece(current, commitCurrent);
-      setDraft({});
-      if (target === 'finish') setView('finish');
-      else { setCurrent(Math.min(Math.max(1, target), pieceCount)); setView('piece'); }
-      setIsListOpen(false);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      if (view === 'piece' && pieceStates[current - 1] !== 'unchecked' && Object.keys(draft).length > 0) {
+        await commitPiece(current);
+      }
+      setMsg('');
+      goTo(target);
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleNext = () => navigate(current < pieceCount ? current + 1 : 'finish', true);
-  const handlePrev = () => navigate(current - 1, false);
-  const handleJump = (n: number) => navigate(n, false);
+  const handleNext = async () => {
+    if (isSaving) return;
+    if (isLocked) { goTo(current < pieceCount ? current + 1 : 'finish'); return; }
+    if (unanswered > 0) return;
+    setIsSaving(true);
+    try {
+      if (!(await commitPiece(current))) return;
+      setMsg(`Item ${current} saved as ${currentProblems ? 'bad' : 'good'}.`);
+      const after = pieceStates.map((s, i) => (i === current - 1 ? 'done' : s));
+      const nextOpen = after.findIndex((s) => s === 'unchecked') + 1;
+      if (nextOpen === 0) goTo('finish');
+      else goTo(current < pieceCount ? current + 1 : nextOpen);
+    } catch (err: any) {
+      setMsg(`!Could not save item ${current}: ${err?.message || 'unknown error'}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+  const handlePrev = () => leaveTo(current - 1);
+  const handleJump = (n: number) => leaveTo(n);
+  const handleJumpInput = () => {
+    const n = parseInt(jumpText, 10);
+    if (!(n >= 1 && n <= pieceCount)) { setMsg(`!Enter an item number from 1 to ${pieceCount}.`); return; }
+    setJumpText('');
+    handleJump(n);
+  };
 
-  const toggleCheck = (item: ControlItem) => {
+  const setAnswer = (item: ControlItem, value: PassFail) => {
     if (isLocked) return;
-    const next: PassFail = valueFor(item, current) === 'Pass' ? 'Fail' : 'Pass';
-    setDraft((d) => ({ ...d, [item.item_id!]: next }));
+    setDraft((d) => ({ ...d, [item.item_id!]: value }));
+    setMsg('');
+  };
+  const answerAllYes = () => {
+    if (isLocked) return;
+    setDraft(Object.fromEntries(checks.map((c) => [c.item_id!, 'Pass' as PassFail])));
+    setMsg('');
   };
 
   // ---------- Lot-level fields (measurements / notes) ----------
@@ -276,7 +361,7 @@ export const OperatorInspection: React.FC<OperatorInspectionProps> = ({
   };
 
   // ---------- Submit ----------
-  const canSubmit = firstUnchecked === 0 && missingLotFields.length === 0 && !isSubmitting;
+  const canSubmit = firstUnchecked === 0 && missingLotFields.length === 0 && !needsHoldReason && !isSubmitting;
 
   const handleSubmit = async () => {
     if (!batch || !canSubmit) return;
@@ -320,13 +405,16 @@ export const OperatorInspection: React.FC<OperatorInspectionProps> = ({
       const ngNote = badPieces.length
         ? `NG items: ${badPieces.slice(0, 50).map((n) => `#${n}`).join(', ')}${badPieces.length > 50 ? ` (+${badPieces.length - 50} more)` : ''} — ${badPieces.length} of ${pieceCount} segregated.`
         : '';
-      const fullRemarks = [ngNote, remarks.trim()].filter(Boolean).join('\n');
+      const note = clearanceNote.trim();
+      const fullRemarks = [ngNote, note].filter(Boolean).join('\n');
 
       await submitOperatorBatch(batch.batch_id, {
         decision: failedIds.length === 0 ? 'APPROVE' : 'REJECT',
         rejected_item_ids: failedIds.length ? failedIds : undefined,
         remarks: fullRemarks || undefined,
         cells: lotCells.map((c) => ({ ...c, checker_initials: initials })),
+        clearance: chosenClearance,
+        clearance_note: note || undefined,
       });
 
       onBatchUpdated?.();
@@ -367,257 +455,225 @@ export const OperatorInspection: React.FC<OperatorInspectionProps> = ({
 
   const template = batch.template;
   const partLabel = [template.part_no, batch.product_name || template.part_name].filter(Boolean).join(' · ') || template.document_title;
-  const pct = pieceCount ? Math.round((checkedCount / pieceCount) * 100) : 0;
+  const pct = pieceCount ? (checkedCount / pieceCount) * 100 : 0;
+  const isLast = current >= pieceCount;
 
-  // ---------- Pieces list (sidebar on desktop, collapsible on mobile) ----------
-  const pieceList = (
-    <div ref={listRef} className="overflow-y-auto overscroll-contain">
-      {pieceStates.map((state, i) => {
-        const n = i + 1;
-        const isNow = view === 'piece' && n === current;
-        return (
-          <button
-            key={n}
-            type="button"
-            data-piece={n}
-            onClick={() => handleJump(n)}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left text-sm transition-colors ${
-              isNow ? 'bg-brand-soft text-brand font-semibold' : 'text-slate-700 hover:bg-slate-50'
-            }`}
-          >
-            <StatusBox state={state} />
-            <span className="flex-1">Item {n}</span>
-            <span className={`text-xs font-semibold ${isNow ? 'text-brand' : state === 'bad' ? 'text-red-600' : state === 'good' ? 'text-emerald-600' : 'text-slate-400'}`}>
-              {isNow ? 'Now' : state === 'bad' ? 'Bad' : state === 'good' ? 'Good' : ''}
-            </span>
-          </button>
-        );
-      })}
-    </div>
-  );
+  const openPreview = () => {
+    setView('preview');
+    mainRef.current?.scrollTo({ top: 0 });
+    window.scrollTo({ top: 0 });
+  };
+  const backToClearance = () => {
+    setView('finish');
+    mainRef.current?.scrollTo({ top: 0 });
+  };
 
-  const progressBlock = (
-    <>
-      <div className="text-sm text-slate-500">Progress</div>
-      <div className="flex items-baseline gap-2 mt-1">
-        <span className="text-4xl lg:text-5xl font-light text-slate-900 tabular-nums">{checkedCount}</span>
-        <span className="text-xl lg:text-2xl font-light text-slate-500">/ {pieceCount}</span>
-      </div>
-      <div className="mt-3 h-2 rounded-full bg-slate-200 overflow-hidden" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
-        <div className="h-full bg-emerald-500 transition-all" style={{ width: `${pct}%` }} />
-      </div>
-      <div className="flex gap-2 mt-3">
-        <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700">{goodCount} good</span>
-        <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${badCount ? 'bg-red-50 text-red-700' : 'bg-slate-100 text-slate-600'}`}>{badCount} bad</span>
-      </div>
-    </>
-  );
+  const hint = view === 'preview'
+    ? (isLocked ? 'The lot report as recorded.' : <><b>Report correct?</b> Submit to send this lot to the supervisor.</>)
+    : isLocked
+    ? 'This lot has been submitted. Results are read-only.'
+    : view === 'finish'
+    ? (firstUnchecked
+      ? `${pieceCount - checkedCount} item${pieceCount - checkedCount > 1 ? 's' : ''} still to check.`
+      : needsHoldReason
+      ? 'Add a short reason for holding the lot.'
+      : <><b>Next:</b> check the full report before submitting.</>)
+    : msg.startsWith('!')
+    ? <b className="ng">{msg.slice(1)}</b>
+    : unanswered
+    ? 'Answer Yes or No for every check. Select all sets them all to Yes.'
+    : msg;
 
   return (
-    <div className="bg-canvas">
-      {/* ---------- Lot strip ---------- */}
-      <div className="bg-white border-b border-slate-200">
-        <div className="grid grid-cols-3 lg:flex lg:items-stretch">
-          <div className="col-span-3 lg:col-auto flex items-center gap-3 px-4 pt-3 pb-1 sm:py-3 sm:border-b lg:border-b-0 border-slate-100">
-            <button
-              type="button"
-              onClick={onBack}
-              title="Back to my lots"
-              aria-label="Back to my lots"
-              className="w-10 h-10 shrink-0 rounded-lg bg-brand-soft text-brand hover:bg-brand hover:text-white flex items-center justify-center transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-            <div className="min-w-0">
-              <div className="text-[11px] font-medium tracking-wider uppercase text-slate-500">Lot barcode</div>
-              <div className="text-base sm:text-lg font-semibold text-slate-900 truncate">{batch.lot_number}</div>
-            </div>
-          </div>
-          <StripCell label="Line" value={batch.line_name || '—'} className="hidden sm:block lg:border-l" />
-          <StripCell label="Part" value={partLabel} className="col-span-3 sm:col-span-2 lg:col-auto lg:flex-1 lg:border-l" />
-          <StripCell label="Items" value={String(pieceCount)} className="hidden lg:block lg:border-l" />
-          <StripCell label="Date" value={formatDate(batch.created_at)} className="hidden sm:block lg:border-l" />
-          <StripCell label="Checked" value={`${checkedCount} / ${pieceCount}`} className="hidden lg:block lg:border-l" valueClass="text-brand" />
+    <div className="opi" ref={rootRef}>
+      {/* ---------- Lot bar ---------- */}
+      <div className="opi-lotbar">
+        <div>
+          <button type="button" className="opi-backlink" onClick={onBack}>‹ Lots</button>
         </div>
+        <div className="opi-lb-code">
+          <span className="opi-lb-ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18"><path d="M4 6v12M7 6v12M10 6v12M14 6v12M17 6v12M20 6v12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+          </span>
+          <div><small>Lot barcode</small><b>{batch.lot_number}</b></div>
+        </div>
+        <div className="opi-wide"><small>Part</small><b title={partLabel}>{partLabel}</b></div>
+        <div><small>Items</small><b>{pieceCount}</b></div>
+        <div><small>Date</small><b>{formatDate(batch.created_at)}</b></div>
+        <div className="opi-lb-prog"><small>Checked</small><b>{checkedCount} / {pieceCount}</b></div>
       </div>
 
       {isLocked && <LockedBanner batch={batch} />}
 
-      <div className="lg:flex">
-        {/* ---------- Sidebar (lg+) ---------- */}
-        <aside className="hidden lg:flex flex-col w-72 xl:w-80 shrink-0 bg-white border-r border-slate-200 sticky top-20 self-start h-[calc(100dvh-5rem)]">
-          <div className="p-5 border-b border-slate-100">{progressBlock}</div>
-          <div className="flex-1 min-h-0 flex flex-col p-2">{pieceList}</div>
-          <div className="p-3 border-t border-slate-100">
-            <button
-              type="button"
-              onClick={() => navigate('finish', false)}
-              className={`w-full py-2.5 rounded-xl text-sm font-semibold transition-colors ${
-                view === 'finish' ? 'bg-brand text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-              }`}
-            >
-              {isLocked ? 'Summary' : <>Review &amp; submit</>}
-            </button>
+      <section className={`opi-layout ${view !== 'piece' ? 'opi-full' : ''}`}>
+        {/* ---------- Side: progress + item list (not on the clearance screen) ---------- */}
+        {view === 'piece' && <aside className="opi-side">
+          <div className="opi-sub">Progress</div>
+          <div className="opi-bignum">{checkedCount}<span> / {pieceCount}</span></div>
+          <div className="opi-progress" role="progressbar" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}>
+            <i style={{ width: `${pct}%` }} />
           </div>
-        </aside>
+          <div className="opi-counts">
+            <span className="opi-pill ok">{goodCount} good</span>
+            <span className={`opi-pill ${badCount ? 'ng' : 'neutral'}`}>{badCount} bad</span>
+          </div>
+          <div className="opi-jump">
+            <input
+              inputMode="numeric"
+              placeholder="Go to item #"
+              aria-label="Go to item number"
+              value={jumpText}
+              onChange={(e) => setJumpText(e.target.value.replace(/[^0-9]/g, ''))}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleJumpInput(); } }}
+            />
+            <button type="button" className="opi-btn" onClick={handleJumpInput}>Go</button>
+          </div>
+          <ul className="opi-ilist" ref={listRef}>
+            {pieceStates.map((state, i) => {
+              const n = i + 1;
+              const isNow = view === 'piece' && n === current;
+              const cls = state === 'good' ? 'good' : state === 'bad' ? 'bad' : isNow ? 'now' : '';
+              return (
+                <li key={n} className={`opi-irow ${cls} ${isNow ? 'cur' : ''}`} data-piece={n}>
+                  <button type="button" className="opi-ilabel" onClick={() => handleJump(n)} aria-current={isNow ? 'step' : undefined}>
+                    <span>Item {n}</span>
+                    <span className="opi-ist">{state === 'good' ? '✓ Good' : state === 'bad' ? '✕ Bad' : isNow ? 'Now' : '—'}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </aside>}
 
         {/* ---------- Main ---------- */}
-        <main className="flex-1 min-w-0 flex flex-col">
-          {/* Mobile / tablet progress + item list */}
-          <div className="lg:hidden bg-white border-b border-slate-200 px-4 py-3">
-            {/* Compact one-row progress: the full progress block lives in the lg+ sidebar */}
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex-1 min-w-0">
-                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                  <span className="text-2xl font-semibold text-slate-900 tabular-nums">{checkedCount}</span>
-                  <span className="text-sm text-slate-500">/ {pieceCount} checked</span>
-                  <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700">{goodCount} good</span>
-                  <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${badCount ? 'bg-red-50 text-red-700' : 'bg-slate-100 text-slate-600'}`}>{badCount} bad</span>
-                </div>
-                <div className="mt-2 h-1.5 rounded-full bg-slate-200 overflow-hidden" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
-                  <div className="h-full bg-emerald-500 transition-all" style={{ width: `${pct}%` }} />
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsListOpen(!isListOpen)}
-                aria-expanded={isListOpen}
-                className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-100 text-slate-700 text-sm font-medium"
-              >
-                All items
-                <ChevronDown className={`w-4 h-4 transition-transform ${isListOpen ? 'rotate-180' : ''}`} />
-              </button>
-            </div>
-            {isListOpen && (
-              <div className="mt-3 max-h-72 flex flex-col border border-slate-200 rounded-xl p-1.5">
-                {pieceList}
-                <button
-                  type="button"
-                  onClick={() => navigate('finish', false)}
-                  className="mt-1.5 w-full py-2.5 rounded-lg bg-slate-100 text-slate-700 text-sm font-semibold"
-                >
-                  {isLocked ? 'Summary' : <>Review &amp; submit</>}
-                </button>
-              </div>
-            )}
-          </div>
+        <div className="opi-main" ref={mainRef}>
+          {(errorMsg || syncNote) && <div className={`opi-note ${errorMsg ? 'err' : 'warn'}`}>{errorMsg || syncNote}</div>}
 
-          <div className="flex-1 px-4 sm:px-8 py-4 sm:py-8">
-            {(errorMsg || syncNote) && (
-              <div className={`mb-5 p-3 rounded-xl text-sm flex items-start gap-2 border ${errorMsg ? 'bg-red-50 text-red-700 border-red-200' : 'bg-amber-50 text-amber-800 border-amber-200'}`}>
-                <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-                <span>{errorMsg || syncNote}</span>
+          {view === 'piece' ? (
+            <>
+              <div className="opi-ckhead">
+                <div>
+                  <h2>Item {current} <span className="opi-of">of {pieceCount}</span></h2>
+                  <p>
+                    {isLocked
+                      ? (currentProblems ? <b>{currentProblems} problem{currentProblems > 1 ? 's' : ''}</b> : 'All checks Yes')
+                      : unanswered
+                      ? `${unanswered} of ${checks.length} checks not answered yet`
+                      : currentProblems
+                      ? <b>{currentProblems} problem{currentProblems > 1 ? 's' : ''} marked</b>
+                      : 'All checks answered Yes'}
+                  </p>
+                </div>
+                {!isLocked && (
+                  <button type="button" className="opi-btn opi-selall" onClick={answerAllYes}>✓ Select all</button>
+                )}
               </div>
-            )}
 
+              <div className="opi-fsec">Visual checks</div>
+              <div className="opi-fgrid">
+                {checks.map((item, idx) => (
+                  <CheckCard
+                    key={item.item_id}
+                    index={idx + 1}
+                    item={item}
+                    answer={answerFor(item, current)}
+                    readOnly={isLocked}
+                    onAnswer={(v) => setAnswer(item, v)}
+                  />
+                ))}
+              </div>
+            </>
+          ) : view === 'preview' ? (
+            <ReportPreview
+              batch={batch}
+              checks={checks}
+              cells={cells}
+              pieceCount={pieceCount}
+              pieceStates={pieceStates}
+              goodCount={goodCount}
+              badCount={badCount}
+              inspectedBy={(isLocked && batch.prepared_user_name) || currentUser.full_name || currentUser.username}
+              submittedAt={batch.operator_submitted_at}
+            />
+          ) : (
+            <FinishPanel
+              pieceCount={pieceCount}
+              goodCount={goodCount}
+              badPieces={badPieces}
+              firstUnchecked={firstUnchecked}
+              uncheckedCount={pieceCount - checkedCount}
+              lotFieldCells={lotFieldCells}
+              cells={cells}
+              fieldDrafts={fieldDrafts}
+              setFieldDraft={(key, v) => setFieldDrafts((d) => ({ ...d, [key]: v }))}
+              saveLotField={saveLotField}
+              missingCount={missingLotFields.length}
+              clearance={chosenClearance}
+              clearanceAllowed={clearanceAllowed}
+              onClearance={setClearance}
+              clearanceNote={isLocked ? batch.operator_clearance_note || '' : clearanceNote}
+              setClearanceNote={setClearanceNote}
+              onJump={handleJump}
+              readOnly={isLocked}
+              batch={batch}
+              checks={checks}
+              pieceStates={pieceStates}
+            />
+          )}
+
+          <div className="opi-grow" />
+
+          {/* ---------- Action bar ---------- */}
+          <div className="opi-actionbar no-print">
+            <span className="opi-hint">{hint}</span>
             {view === 'piece' ? (
               <>
-                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2 sm:gap-3 mb-4 sm:mb-6">
-                  <div>
-                    <h2 className="text-2xl sm:text-4xl font-semibold text-slate-900 tracking-tight">
-                      Item {current} <span className="font-normal text-slate-500">of {pieceCount}</span>
-                    </h2>
-                    <p className="mt-1 text-slate-500">
-                      {pieceStates[current - 1] === 'unchecked'
-                        ? isLocked ? 'Showing the lot result for each check' : 'Not checked yet'
-                        : currentProblems > 0
-                        ? `Checked · ${currentProblems} problem${currentProblems > 1 ? 's' : ''}`
-                        : 'Checked · good'}
-                    </p>
-                  </div>
-                  {isLocked ? (
-                    <span className="self-start inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-slate-200/70 text-slate-600 text-sm font-medium">
-                      <Lock className="w-3.5 h-3.5" /> Read-only
-                    </span>
-                  ) : (
-                    <span className="self-start px-4 py-2 rounded-full bg-brand-soft text-brand text-sm font-medium">
-                      Look at the part. Tap only what's wrong.
-                    </span>
-                  )}
-                </div>
-
-                <h3 className="text-xs font-semibold tracking-widest uppercase text-slate-500 mb-3">Visual checks</h3>
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-                  {checks.map((item, idx) => (
-                    <CheckCard key={item.item_id} index={idx + 1} item={item} state={cardState(item)} readOnly={isLocked} onToggle={() => toggleCheck(item)} />
-                  ))}
-                </div>
-              </>
-            ) : (
-              <FinishPanel
-                pieceCount={pieceCount}
-                goodCount={goodCount}
-                badPieces={badPieces}
-                firstUnchecked={firstUnchecked}
-                uncheckedCount={pieceCount - checkedCount}
-                lotFieldCells={lotFieldCells}
-                cells={cells}
-                fieldDrafts={fieldDrafts}
-                setFieldDraft={(key, v) => setFieldDrafts((d) => ({ ...d, [key]: v }))}
-                saveLotField={saveLotField}
-                missingCount={missingLotFields.length}
-                remarks={remarks}
-                setRemarks={setRemarks}
-                onJump={handleJump}
-                readOnly={isLocked}
-                batch={batch}
-                checks={checks}
-                pieceStates={pieceStates}
-              />
-            )}
-          </div>
-
-          {/* ---------- Sticky action bar ---------- */}
-          <div className="sticky bottom-0 bg-white/95 backdrop-blur border-t border-slate-200 px-4 sm:px-8 py-3 flex items-center justify-end gap-3 no-print">
-            {view === 'piece' ? (
-              <>
-                <button
-                  type="button"
-                  onClick={handlePrev}
-                  disabled={current <= 1 || isSaving}
-                  className="flex-1 sm:flex-none sm:w-40 py-3.5 rounded-xl border border-slate-200 text-slate-600 font-semibold hover:bg-slate-50 disabled:opacity-40 transition-colors"
-                >
+                <button type="button" className="opi-btn big" onClick={handlePrev} disabled={current <= 1 || isSaving}>
                   ‹ Previous
                 </button>
                 <button
                   type="button"
+                  className={`opi-btn big opi-nextbtn ${isLocked ? 'primary' : unanswered ? 'primary' : currentProblems ? 'isbad' : 'isgood'}`}
                   onClick={handleNext}
-                  disabled={isSaving}
-                  className={`flex-[2] sm:flex-none sm:w-64 py-3.5 rounded-xl text-white font-semibold transition-colors disabled:opacity-70 ${
-                    isLocked ? 'bg-brand hover:bg-brand-dark' : currentProblems > 0 ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'
-                  }`}
+                  disabled={isSaving || (!isLocked && unanswered > 0)}
                 >
-                  {isSaving ? 'Saving…' : current < pieceCount ? 'Next item ›' : isLocked ? 'Summary ›' : 'Review & submit ›'}
+                  {isSaving ? 'Saving…' : !isLast ? 'Next item ›' : isLocked ? 'Summary ›' : 'Review & submit ›'}
                 </button>
+              </>
+            ) : view === 'preview' ? (
+              <>
+                <button type="button" className="opi-btn big" onClick={backToClearance}>
+                  {isLocked ? '‹ Back to summary' : '‹ Back to clearance'}
+                </button>
+                {!isLocked && (
+                  <button
+                    type="button"
+                    className="opi-btn big primary opi-nextbtn"
+                    onClick={handleSubmit}
+                    disabled={!canSubmit}
+                  >
+                    {isSubmitting ? 'Submitting…' : 'Submit to supervisor'}
+                  </button>
+                )}
               </>
             ) : (
               <>
+                <button type="button" className="opi-btn big" onClick={() => handleJump(isLocked ? 1 : firstUnchecked || pieceCount)}>
+                  {isLocked ? 'View items ›' : '‹ Back to items'}
+                </button>
                 <button
                   type="button"
-                  onClick={() => handleJump(isLocked ? 1 : firstUnchecked || pieceCount)}
-                  className="flex-1 sm:flex-none sm:w-40 py-3.5 rounded-xl border border-slate-200 text-slate-600 font-semibold hover:bg-slate-50 transition-colors"
+                  className="opi-btn big primary opi-nextbtn"
+                  onClick={openPreview}
+                  disabled={!isLocked && !canSubmit}
                 >
-                  {isLocked ? 'View items ›' : '‹ Items'}
+                  {isLocked ? 'View report ›' : 'Preview report ›'}
                 </button>
-                {!isLocked && <button
-                  type="button"
-                  onClick={handleSubmit}
-                  disabled={!canSubmit}
-                  className={`flex-[2] sm:flex-none sm:w-72 py-3.5 rounded-xl text-white font-semibold transition-colors disabled:opacity-40 ${
-                    badPieces.length ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'
-                  }`}
-                >
-                  {isSubmitting
-                    ? 'Submitting…'
-                    : badPieces.length
-                    ? `Submit · ${badPieces.length} bad item${badPieces.length > 1 ? 's' : ''}`
-                    : 'Submit · lot cleared'}
-                </button>}
               </>
             )}
           </div>
-        </main>
-      </div>
+        </div>
+      </section>
     </div>
   );
 };
@@ -634,60 +690,176 @@ const BackButton: React.FC<{ onBack: () => void }> = ({ onBack }) => (
   </button>
 );
 
-const StripCell: React.FC<{ label: string; value: string; className?: string; valueClass?: string }> = ({ label, value, className = '', valueClass = '' }) => (
-  <div className={`px-4 py-3 border-slate-200 min-w-0 ${className}`}>
-    <div className="text-[11px] font-medium tracking-wider uppercase text-slate-500">{label}</div>
-    <div className={`text-sm sm:text-base font-semibold text-slate-900 truncate ${valueClass}`} title={value}>{value}</div>
-  </div>
-);
-
-const StatusBox: React.FC<{ state: PieceState }> = ({ state }) => (
-  <span
-    className={`w-7 h-7 shrink-0 rounded-md border flex items-center justify-center ${
-      state === 'good' ? 'bg-emerald-600 border-emerald-600 text-white'
-      : state === 'bad' ? 'bg-red-600 border-red-600 text-white'
-      : 'bg-white border-slate-300'
-    }`}
-  >
-    {state === 'good' && <Check className="w-4 h-4" strokeWidth={3} />}
-    {state === 'bad' && <X className="w-4 h-4" strokeWidth={3} />}
-  </span>
-);
-
-const CheckCard: React.FC<{ index: number; item: ControlItem; state: 'pass' | 'fail'; readOnly?: boolean; onToggle: () => void }> = ({ index, item, state, readOnly, onToggle }) => {
-  const failed = state === 'fail';
+const CheckCard: React.FC<{
+  index: number;
+  item: ControlItem;
+  answer: PassFail | null;
+  readOnly?: boolean;
+  onAnswer: (v: PassFail) => void;
+}> = ({ index, item, answer, readOnly, onAnswer }) => {
   const limits = item.min_val !== null && item.min_val !== undefined && item.max_val !== null && item.max_val !== undefined
     ? `${item.min_val} – ${item.max_val}${item.unit ? ` ${item.unit}` : ''}` : null;
+  const yes = answer === 'Pass';
+  const no = answer === 'Fail';
   return (
-    <button
-      type="button"
-      onClick={readOnly ? undefined : onToggle}
-      disabled={readOnly}
-      aria-pressed={readOnly ? undefined : failed}
-      aria-label={readOnly
-        ? `${item.control_item_name}: ${failed ? 'bad' : 'good'}`
-        : `${item.control_item_name}: ${failed ? 'marked bad, tap to mark good' : 'good, tap to mark bad'}`}
-      className={`w-full text-left rounded-2xl border p-4 sm:p-5 flex items-start gap-3 sm:gap-4 transition-colors disabled:cursor-default ${
-        failed ? 'bg-red-50 border-red-300' : `bg-white border-emerald-200 ${readOnly ? '' : 'hover:border-emerald-400'}`
-      }`}
-    >
-      <span className={`w-7 h-7 shrink-0 rounded-full flex items-center justify-center text-xs font-semibold ${failed ? 'bg-red-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
-        {index}
+    <div className={`opi-fcard ${no ? 'bad' : yes ? 'good' : ''}`}>
+      <span className="opi-fn">{index}</span>
+      <span className="opi-fb">
+        <b>{item.control_item_name}</b>
+        {item.specification_content && <span>{item.specification_content}</span>}
+        {limits && <span>Limits: {limits}</span>}
+        {item.application_method && <small>{item.application_method}</small>}
       </span>
-      <span className="flex-1 min-w-0">
-        <span className={`block text-base sm:text-lg font-semibold ${failed ? 'text-red-700' : 'text-slate-900'}`}>{item.control_item_name}</span>
-        {item.specification_content && (
-          <span className={`block mt-1 text-sm leading-relaxed ${failed ? 'text-red-600' : 'text-slate-600'}`}>{item.specification_content}</span>
-        )}
-        {limits && <span className={`block mt-1 text-xs font-medium ${failed ? 'text-red-600' : 'text-slate-500'}`}>Limits: {limits}</span>}
-        {item.application_method && (
-          <span className={`block mt-1.5 text-xs ${failed ? 'text-red-500' : 'text-slate-400'}`}>{item.application_method}</span>
-        )}
+      <span className="opi-ynb" role="group" aria-label={`${item.control_item_name}: yes or no`}>
+        <button
+          type="button"
+          className={`opi-yb ${yes ? 'on' : ''}`}
+          aria-pressed={yes}
+          aria-label={`Yes, ${item.control_item_name} is OK`}
+          title="Yes"
+          disabled={readOnly}
+          onClick={() => onAnswer('Pass')}
+        >
+          ✓
+        </button>
+        <button
+          type="button"
+          className={`opi-nb ${no ? 'on' : ''}`}
+          aria-pressed={no}
+          aria-label={`No, ${item.control_item_name} is not OK`}
+          title="No"
+          disabled={readOnly}
+          onClick={() => onAnswer('Fail')}
+        >
+          ✕
+        </button>
       </span>
-      <span className={`w-8 h-8 shrink-0 rounded-lg flex items-center justify-center ${failed ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white'}`}>
-        {failed ? <X className="w-5 h-5" strokeWidth={3} /> : <Check className="w-5 h-5" strokeWidth={3} />}
-      </span>
-    </button>
+    </div>
+  );
+};
+
+// ---------- Lot report preview ("Preview the lot report") ----------
+const REPORT_PER_PAGE = 30;
+
+const ReportPreview: React.FC<{
+  batch: InspectionBatch;
+  checks: ControlItem[];
+  cells: Record<string, CellResponse>;
+  pieceCount: number;
+  pieceStates: PieceState[];
+  goodCount: number;
+  badCount: number;
+  inspectedBy: string;
+  submittedAt?: string | null;
+}> = ({ batch, checks, cells, pieceCount, pieceStates, goodCount, badCount, inspectedBy, submittedAt }) => {
+  const t = batch.template!;
+  const pages = Math.max(1, Math.ceil(pieceCount / REPORT_PER_PAGE));
+  const resultCell = (item: ControlItem, n: number) => {
+    const cell = cells[`${item.item_id}_${n}`];
+    if (!hasValue(cell)) return <td key={n} className="c" />;
+    return isFailValue(cell!.cell_value)
+      ? <td key={n} className="c ng" aria-label="Not OK">✕</td>
+      : <td key={n} className="c ok" aria-label="OK">✓</td>;
+  };
+  const meta: [string, React.ReactNode][] = [
+    ['Part no.', t.part_no || '—'],
+    ['Part name', batch.product_name || t.part_name || '—'],
+    ['Model', t.model_name || '—'],
+    ['Vendor', t.vendor_name || '—'],
+    ['Lot barcode', batch.lot_number],
+    ['Date', formatDate(batch.created_at)],
+    ['Items', pieceCount],
+    ['Inspected by', inspectedBy],
+  ];
+
+  return (
+    <div className="opi-pv space-y-4">
+      <div className="opi-pvhead">
+        <div>
+          <h2 className="opi-pv-title">Preview the lot report</h2>
+          <p className="opi-pv-sub">Every item and every check, as it will be recorded. Read it through, then submit.</p>
+        </div>
+        <div className="opi-pvsum">
+          <span><b>{pieceCount}</b>Items</span>
+          <span className="g"><b>{goodCount}</b>Good</span>
+          <span className={badCount ? 'r' : ''}><b>{badCount}</b>Bad</span>
+        </div>
+      </div>
+
+      <div className="opi-card">
+        <dl className="opi-dl">
+          {meta.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}
+        </dl>
+      </div>
+
+      {Array.from({ length: pages }, (_, k) => {
+        const from = k * REPORT_PER_PAGE + 1;
+        const to = Math.min(pieceCount, (k + 1) * REPORT_PER_PAGE);
+        const nums = Array.from({ length: to - from + 1 }, (_, i) => from + i);
+        const pad = Array.from({ length: REPORT_PER_PAGE - nums.length }, (_, i) => i);
+        return (
+          <section key={k} className="opi-rblock">
+            <div className="opi-rb-head"><b>Items {from} – {to}</b><span>Page {k + 1} of {pages}</span></div>
+            <div className="opi-rb-scroll">
+              <table className="opi-rt">
+                <colgroup>
+                  <col style={{ width: 34 }} /><col style={{ width: 150 }} /><col style={{ width: 190 }} /><col style={{ width: 86 }} />
+                  {Array.from({ length: REPORT_PER_PAGE }, (_, i) => <col key={i} />)}
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>S.No</th><th>Control item</th><th>Content</th><th>Method</th>
+                    {nums.map((n) => <th key={n} className="c">{n}</th>)}
+                    {pad.map((i) => <th key={`p${i}`} className="c" />)}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="rg"><td colSpan={4 + REPORT_PER_PAGE}>Visual checks</td></tr>
+                  {checks.map((item, idx) => (
+                    <tr key={item.item_id}>
+                      <td className="c">{idx + 1}</td>
+                      <td><b>{item.control_item_name}</b></td>
+                      <td className="ds">{item.specification_content}</td>
+                      <td className="ds">{item.application_method || '—'}</td>
+                      {nums.map((n) => resultCell(item, n))}
+                      {pad.map((i) => <td key={`p${i}`} className="c" />)}
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td colSpan={4}>Item result</td>
+                    {nums.map((n) => {
+                      const s = pieceStates[n - 1];
+                      return s === 'bad'
+                        ? <td key={n} className="c ng" aria-label="Item not OK">✕</td>
+                        : s === 'good'
+                        ? <td key={n} className="c ok" aria-label="Item OK">✓</td>
+                        : <td key={n} className="c" />;
+                    })}
+                    {pad.map((i) => <td key={`p${i}`} className="c" />)}
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </section>
+        );
+      })}
+
+      <div className="opi-card opi-signoff">
+        <table>
+          <tbody>
+            <tr>
+              <th>Checked by</th>
+              <td>
+                {inspectedBy}{' '}
+                <span>Operator, {submittedAt ? new Date(submittedAt).toLocaleString() : 'on submitting'}</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 };
 
@@ -703,8 +875,11 @@ interface FinishPanelProps {
   setFieldDraft: (key: string, v: string) => void;
   saveLotField: (item: ControlItem, col: string) => void;
   missingCount: number;
-  remarks: string;
-  setRemarks: (v: string) => void;
+  clearance: string;
+  clearanceAllowed: (c: Clearance) => boolean;
+  onClearance: (c: Clearance) => void;
+  clearanceNote: string;
+  setClearanceNote: (v: string) => void;
   onJump: (n: number) => void;
   readOnly: boolean;
   batch: InspectionBatch;
@@ -714,7 +889,7 @@ interface FinishPanelProps {
 
 const FinishPanel: React.FC<FinishPanelProps> = ({
   pieceCount, goodCount, badPieces, firstUnchecked, uncheckedCount, lotFieldCells, cells,
-  fieldDrafts, setFieldDraft, saveLotField, missingCount, remarks, setRemarks, onJump,
+  fieldDrafts, setFieldDraft, saveLotField, missingCount, clearance, clearanceAllowed, onClearance, clearanceNote, setClearanceNote, onJump,
   readOnly, batch, checks, pieceStates,
 }) => {
   // Per-check result: from per-piece cells, or (older lots) from the template's own columns
@@ -735,13 +910,13 @@ const FinishPanel: React.FC<FinishPanelProps> = ({
   }, {});
 
   return (
-    <div className="space-y-5 max-w-4xl">
+    <div className="opi-pv space-y-4">
       <div>
-        <h2 className="text-2xl sm:text-4xl font-semibold text-slate-900 tracking-tight">
-          {readOnly ? 'Inspection summary' : <>Review &amp; submit</>}
+        <h2 className="opi-pv-title">
+          {readOnly ? 'Inspection summary' : uncheckedCount > 0 ? `${pieceCount - uncheckedCount} of ${pieceCount} items checked` : `All ${pieceCount} items checked`}
         </h2>
-        <p className="mt-1 text-slate-500">
-          {readOnly ? 'This lot has been submitted. Results are read-only.' : 'Check the summary, then submit the lot to the supervisor.'}
+        <p className="opi-pv-sub">
+          {readOnly ? 'This lot has been submitted. Results are read-only.' : 'Give the lot clearance, then submit the lot.'}
         </p>
       </div>
 
@@ -754,11 +929,47 @@ const FinishPanel: React.FC<FinishPanelProps> = ({
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-3">
-        <SummaryTile value={pieceCount} label="Items" />
-        <SummaryTile value={goodCount} label="Good" tone="good" />
-        <SummaryTile value={badPieces.length} label="Bad" tone={badPieces.length ? 'bad' : undefined} />
+      <div className="opi-statrow">
+        <div><b>{pieceCount - uncheckedCount}</b><span>Items checked</span></div>
+        <div className="isok"><b>{goodCount}</b><span>Good</span></div>
+        <div className={badPieces.length ? 'isng' : ''}><b>{badPieces.length}</b><span>Bad</span></div>
       </div>
+
+      <section className="opi-card">
+        <h3>Lot clearance</h3>
+        <p className="opi-pv-sub">{readOnly ? 'Given by the operator on submit.' : 'Pre-selected from the results. Change it if needed.'}</p>
+        <div className="opi-cbs">
+          {CLEARANCE_OPTIONS.filter(({ value }) => !readOnly || value === clearance).map(({ value, desc }) => {
+            const on = clearance === value;
+            const enabled = !readOnly && clearanceAllowed(value);
+            return (
+              <button
+                key={value}
+                type="button"
+                className={`opi-cb ${on ? 'on' : ''}`}
+                role="checkbox"
+                aria-checked={on}
+                disabled={!enabled && !on}
+                onClick={() => { if (enabled) onClearance(value); }}
+              >
+                <span className="opi-cbox" aria-hidden="true">{on ? '✓' : ''}</span>
+                <span><b>{value}</b><span>{desc}</span></span>
+              </button>
+            );
+          })}
+        </div>
+        <textarea
+          className="opi-textarea"
+          value={clearanceNote}
+          readOnly={readOnly}
+          onChange={(e) => setClearanceNote(e.target.value)}
+          placeholder={clearance === CLEARANCE_HOLD ? 'Why is the lot not cleared? (required)' : 'Note for the supervisor (optional)'}
+          aria-label="Note for the supervisor"
+        />
+        {!readOnly && badPieces.length > 0 && (
+          <p className="opi-pv-sub" style={{ fontSize: 13 }}>The bad item numbers are sent to the supervisor automatically.</p>
+        )}
+      </section>
 
       {readOnly && (
         <section className="bg-white border border-slate-200 rounded-2xl p-5">
@@ -842,22 +1053,7 @@ const FinishPanel: React.FC<FinishPanelProps> = ({
         </section>
       )}
 
-      {readOnly ? <ApprovalRecord batch={batch} /> : (
-      <section className="bg-white border border-slate-200 rounded-2xl p-5">
-        <label className="block text-sm font-semibold text-slate-900" htmlFor="op-remarks">Remarks (optional)</label>
-        <textarea
-          id="op-remarks"
-          value={remarks}
-          onChange={(e) => setRemarks(e.target.value)}
-          rows={3}
-          placeholder="Anything the supervisor should know"
-          className="mt-2 w-full px-3 py-2.5 rounded-lg border border-slate-300 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20"
-        />
-        {badPieces.length > 0 && (
-          <p className="mt-2 text-xs text-slate-500">The bad item numbers are added to the remarks automatically.</p>
-        )}
-      </section>
-      )}
+      {readOnly && <ApprovalRecord batch={batch} />}
     </div>
   );
 };
@@ -903,7 +1099,9 @@ const ApprovalRecord: React.FC<{ batch: InspectionBatch }> = ({ batch }) => {
                 <span className="mt-1.5 w-2 h-2 rounded-full bg-slate-300 shrink-0" />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-baseline gap-x-2 text-sm">
-                    <span className={`font-semibold ${tone}`}>{d.decision}</span>
+                    <span className={`font-semibold ${tone}`}>
+                      {String(d.role || '').toLowerCase() === 'operator' && dec.includes('reject') ? 'Not good items' : d.decision}
+                    </span>
                     <span className="text-slate-700">{d.stage}</span>
                     <span className="text-slate-500">by {d.decided_by_name || 'Unknown'} ({d.role})</span>
                   </div>
@@ -921,12 +1119,5 @@ const ApprovalRecord: React.FC<{ batch: InspectionBatch }> = ({ batch }) => {
     </section>
   );
 };
-
-const SummaryTile: React.FC<{ value: number; label: string; tone?: 'good' | 'bad' }> = ({ value, label, tone }) => (
-  <div className="bg-white border border-slate-200 rounded-2xl px-4 py-4">
-    <div className={`text-3xl font-light tabular-nums ${tone === 'good' ? 'text-emerald-600' : tone === 'bad' ? 'text-red-600' : 'text-slate-900'}`}>{value}</div>
-    <div className="text-sm text-slate-500">{label}</div>
-  </div>
-);
 
 export default OperatorInspection;

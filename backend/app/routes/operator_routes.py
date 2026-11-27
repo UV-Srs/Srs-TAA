@@ -13,8 +13,13 @@ from backend.app.auth import require_operator
 from backend.app.audit import log_audit
 from backend.app.notifications import send_notification
 from backend.app.live_sync import notify_live
+from backend.app.routes.batch_routes import bad_item_counts
 
 router = APIRouter(prefix="/api/operator", tags=["Operator Workflow"])
+
+CLEARANCE_CLEARED = "Lot cleared"
+CLEARANCE_SEGREGATED = "Cleared, NG items segregated"
+CLEARANCE_HOLD = "Not cleared, hold the lot"
 
 @router.post("/batches/{batch_id}/submit")
 def submit_operator_inspection(
@@ -135,9 +140,33 @@ def submit_operator_inspection(
                 detail="FR-027 Violation: Rejecting a batch requires multi-selecting one or more failed items."
             )
 
+    # 4b. Lot clearance. "Lot cleared" only when no item is bad; "Cleared, NG items segregated" only
+    # when some are; "Not cleared, hold the lot" is always allowed but needs a reason.
+    clearance = (payload.clearance or "").strip() or None
+    clearance_note = (payload.clearance_note or "").strip() or None
+    if clearance is not None:
+        bad_items = bad_item_counts(db, [batch_id]).get(batch_id, 0)
+        allowed = {
+            CLEARANCE_CLEARED: bad_items == 0,
+            CLEARANCE_SEGREGATED: bad_items > 0,
+            CLEARANCE_HOLD: True,
+        }
+        if not allowed.get(clearance):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"'{clearance}' can't be used for this lot ({bad_items} bad item{'s' if bad_items != 1 else ''})."
+            )
+        if clearance == CLEARANCE_HOLD and not clearance_note:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Add a short reason for holding the lot."
+            )
+
     now = datetime.utcnow()
     batch.operator_submitted_at = now
     batch.prepared_by = current_user.user_id
+    batch.operator_clearance = clearance
+    batch.operator_clearance_note = clearance_note
     batch.operator_decision = "Approved" if decision_norm == "APPROVE" else "Rejected"
     batch.updated_at = now
 
@@ -182,7 +211,8 @@ def submit_operator_inspection(
         roles=["supervisor", "admin"],
         text=notif_text,
         batch_id=batch.batch_id,
-        batch_code=batch.lot_number
+        batch_code=batch.lot_number,
+        kind="review",
     )
 
     # 7. Audit log
@@ -198,7 +228,9 @@ def submit_operator_inspection(
             "round": batch.round,
             "rejected_item_ids": payload.rejected_item_ids,
             "rejected_fields": rejected_names,
-            "remarks": payload.remarks
+            "remarks": payload.remarks,
+            "clearance": clearance,
+            "clearance_note": clearance_note,
         }
     )
 

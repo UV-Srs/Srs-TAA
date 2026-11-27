@@ -124,6 +124,11 @@ export interface InspectionBatch {
   prepared_by?: number;
   checked_by?: number;
   approved_by?: number;
+  /** Operator's lot clearance, chosen on submit */
+  operator_clearance?: string | null;
+  operator_clearance_note?: string | null;
+  /** Items the operator marked bad (any check answered No) */
+  bad_item_count?: number;
   created_at?: string;
   updated_at?: string;
   template?: SheetTemplate;
@@ -143,8 +148,48 @@ export interface InAppNotification {
   batch_id?: number;
   batch_code?: string;
   text: string;
+  kind?: string;
+  severity?: string;
   is_read: boolean;
   created_at: string;
+}
+
+export interface NotificationPage {
+  items: InAppNotification[];
+  total: number;
+  unread_total: number;
+  offset: number;
+  limit: number;
+}
+
+export interface AuditLogEntry {
+  log_id: number;
+  user_id?: number | null;
+  role?: string | null;
+  action_type: string;
+  sheet_id?: string | null;
+  batch_id?: number | null;
+  details?: Record<string, unknown> | null;
+  actor_name?: string | null;
+  actor_username?: string | null;
+  ip_address?: string | null;
+  user_agent?: string | null;
+  created_at?: string | null;
+}
+
+export interface AuditLogPage {
+  items: AuditLogEntry[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface AuditLogFilters {
+  q?: string;
+  role?: string;
+  action_type?: string;
+  date_from?: string;
+  date_to?: string;
 }
 
 export interface QRResolveResult {

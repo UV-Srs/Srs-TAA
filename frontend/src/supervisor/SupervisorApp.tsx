@@ -48,6 +48,8 @@ export const SupervisorApp: React.FC<SupervisorAppProps> = ({ currentUser, onLog
   const lotReviewable = !!L && REVIEWABLE_STATUSES.includes(L.status);
 
   let body: React.ReactNode;
+  /** A lot sheet is open (review, preview or saved report): the left nav collapses to icons. */
+  let lotOpen = false;
   if (v === 'scan') {
     // Needs no preloaded data: each scan looks the code up in fresh data.
     body = <ScanScreen onScan={c.scan} />;
@@ -57,10 +59,13 @@ export const SupervisorApp: React.FC<SupervisorAppProps> = ({ currentUser, onLog
       : <section className="empty"><p className="sub">Loading…</p></section>;
   } else if (v === 'review' && L && lotReviewable) {
     body = <ReviewScreen ws={c.ws} c={c} lot={L} />;
+    lotOpen = true;
   } else if (v === 'preview' && L && lotReviewable) {
     body = <ReportScreen ws={c.ws} c={c} lot={L} readOnly={false} />;
+    lotOpen = true;
   } else if (v === 'saved' && L && L.status === 'completed') {
     body = <ReportScreen ws={c.ws} c={c} lot={L} readOnly />;
+    lotOpen = true;
   } else if (v === 'dash') {
     body = <DashboardScreen ws={c.ws} onGo={c.svgo} />;
   } else {
@@ -80,18 +85,18 @@ export const SupervisorApp: React.FC<SupervisorAppProps> = ({ currentUser, onLog
         />
       </div>
       <div className="sv-root" style={{ '--hdr': `${hdr}px` } as React.CSSProperties}>
-        <div className="svshell">
+        <div className={`svshell${lotOpen ? ' compact' : ''}`}>
           <nav className="svnav2" aria-label="Supervisor">
             <div className="nv-sec">Supervisor</div>
-            <button className={v === 'dash' ? 'on' : ''} onClick={() => c.svnav('dash')}>
+            <button className={v === 'dash' ? 'on' : ''} onClick={() => c.svnav('dash')} title="Dashboard">
               <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /></svg>
               <span>Dashboard</span>
             </button>
-            <button className={v === 'scan' ? 'on' : ''} onClick={() => c.svnav('scan')}>
+            <button className={v === 'scan' ? 'on' : ''} onClick={() => c.svnav('scan')} title="Scan">
               <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 6v12M7 6v12M10 6v12M14 6v12M17 6v12M20 6v12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
               <span>Scan</span>
             </button>
-            <button className={v !== 'dash' && v !== 'scan' ? 'on' : ''} onClick={() => c.svnav('lots')}>
+            <button className={v !== 'dash' && v !== 'scan' ? 'on' : ''} onClick={() => c.svnav('lots')} title="Lots">
               <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
               <span>Lots</span>
               {nWaiting > 0 && <em className="nb">{nWaiting}</em>}

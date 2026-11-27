@@ -248,6 +248,16 @@ export const Header: React.FC<HeaderProps> = ({
                   )}
                 </div>
 
+                {user.role === 'admin' && (
+                  <button
+                    type="button"
+                    onClick={() => { setIsNotifOpen(false); setActiveTab('notifications'); }}
+                    className="w-full px-3.5 py-2 text-left text-[12px] font-medium text-[var(--primary)] hover:bg-[var(--surface2)] border-b border-[var(--line)] cursor-pointer"
+                  >
+                    View all notifications
+                  </button>
+                )}
+
                 <div className="max-h-80 overflow-y-auto divide-y divide-[var(--line)]">
                   {notifications.length === 0 ? (
                     <div className="p-6 text-center text-[var(--muted)]">

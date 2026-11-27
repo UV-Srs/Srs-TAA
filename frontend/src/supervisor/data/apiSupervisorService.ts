@@ -1,6 +1,6 @@
 import { apiRequest, downloadAuthenticatedFile } from '../../api';
 import type { SupervisorDataService } from './SupervisorDataService';
-import type { OpenLotResult, PersonRef, ProtoStatus, Workspace } from './types';
+import type { ItemAnswer, OpenLotResult, PersonRef, ProtoStatus, Workspace } from './types';
 
 const getAuthHeader = (): Record<string, string> => {
   const token = localStorage.getItem('taa_jwt_token');
@@ -49,6 +49,18 @@ export const apiSupervisorService: SupervisorDataService = {
 
   setSpot(lotId, columnKey, spot) {
     return put(`/api/supervisor/lots/${lotId}/spot/${encodeURIComponent(columnKey)}`, spot ?? { r: null, ng: [] });
+  },
+
+  async saveItem(lotId, columnKey, ng) {
+    const res = await apiRequest<ItemAnswer>(
+      `/api/supervisor/lots/${lotId}/items/${encodeURIComponent(columnKey)}`,
+      { method: 'PUT', body: JSON.stringify({ ng }) },
+    );
+    return { ng: res.ng };
+  },
+
+  setSpotReading(lotId, columnKey, paramId, value) {
+    return put(`/api/supervisor/lots/${lotId}/spot/${encodeURIComponent(columnKey)}/readings`, { item_id: Number(paramId), value });
   },
 
   setComment(lotId, comment) {

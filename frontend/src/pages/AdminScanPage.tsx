@@ -46,7 +46,7 @@ export const AdminScanPage: React.FC<AdminScanPageProps> = ({ onBatchResolved, o
   };
 
   return (
-    <div className="sv-root" style={{ background: 'transparent' }}>
+    <div className="sv-root admin-scan" style={{ background: 'transparent' }}>
       <ScanScreen onScan={onScan} />
     </div>
   );

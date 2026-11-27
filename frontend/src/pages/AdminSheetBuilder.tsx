@@ -1,614 +1,447 @@
-import React, { useState, useEffect } from 'react';
-import { SheetTemplate, ControlItem } from '../types';
-import { fetchSheets, createSheet, updateSheet } from '../api';
-import { Plus, Trash2, Save, Printer, QrCode, CheckCircle2, AlertCircle } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AlertCircle, CheckCircle2, X } from 'lucide-react';
+import type { InspectionBatch, SheetTemplate } from '../types';
+import { createSheet, fetchBatches, fetchSheets, updateSheet, type ApiError } from '../api';
+import { registerNavGuard } from '../lib/navGuard';
 import { PrintLabelModal } from '../components/PrintLabelModal';
 import { TFTScannerModal } from '../components/TFTScannerModal';
+import { TemplateList } from '../components/templates/TemplateList';
+import { TemplateEditor } from '../components/templates/TemplateEditor';
+import { ConfirmDialog } from '../components/templates/ui';
+import {
+  applyKind, blankTemplate, createItem, duplicateItem, generateSheetId, mapServerErrors, moveWithinSection, standardItems,
+  snapshot, toDraft, toPayload, validate, withServerErrors,
+  type CheckKind, type DraftItem, type DraftTemplate, type FieldErrors, type Section, type ServerErrors,
+} from '../components/templates/templateModel';
 
+type Banner = { type: 'success' | 'error'; text: string; kind?: 'validation' } | null;
+
+/**
+ * Admin → Templates.
+ *
+ * Talks only to GET/POST/PUT /api/admin/sheets and GET /api/batches. After every save the list is
+ * re-read from the server, so what is on screen is what was stored. Rows are sent with their
+ * item_id, so the server updates them in place and recorded inspection values stay attached.
+ */
 export const AdminSheetBuilder: React.FC = () => {
-  const [sheetsList, setSheetsList] = useState<SheetTemplate[]>([]);
-  const [selectedSheetId, setSelectedSheetId] = useState<string>('');
-  const [isNewSheet, setIsNewSheet] = useState<boolean>(false);
+  const [sheets, setSheets] = useState<SheetTemplate[]>([]);
+  const [batches, setBatches] = useState<InspectionBatch[] | null>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Form State
-  const [sheetId, setSheetId] = useState<string>('');
-  const [documentTitle, setDocumentTitle] = useState<string>('DAILY INITIAL FLOW MANAGEMENT CONTROL ITEMS MONITORING CHECKSHEET (PRODUCT PARAMETER)');
-  const [partNo, setPartNo] = useState<string>('18351M62Q50');
-  const [partName, setPartName] = useState<string>('PIPE, PURGE LINE (RH)');
-  const [modelName, setModelName] = useState<string>('YTA MC26 Fuel Line');
-  const [vendorName, setVendorName] = useState<string>('Bundy India Ltd.');
-  const [customerName, setCustomerName] = useState<string>('MSIL');
-  const [partCategory, setPartCategory] = useState<string>('MAIN PART');
-  const [controlItems, setControlItems] = useState<ControlItem[]>([]);
+  const [selectedId, setSelectedId] = useState('');
+  const [isNew, setIsNew] = useState(false);
+  const [editorKey, setEditorKey] = useState(0);
+  const [draft, setDraft] = useState<DraftTemplate>(blankTemplate());
+  const [baseline, setBaseline] = useState<string>(snapshot(blankTemplate()));
+  // Latest list of templates, readable inside callbacks without making them change identity.
+  const sheetsRef = useRef<SheetTemplate[]>([]);
+  sheetsRef.current = sheets;
+  // What a brand-new template looked like when it was opened (part number empty). Used to tell
+  // whether the admin has filled in anything besides the part number.
+  const pristineNew = useRef('');
 
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isSaving, setIsSaving] = useState<boolean>(false);
-  const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const findByPartNo = (partNo: string) => {
+    const p = partNo.trim().toLowerCase();
+    return p ? sheetsRef.current.find((s) => (s.part_no || '').trim().toLowerCase() === p) : undefined;
+  };
 
-  // Modals
-  const [isPrintModalOpen, setIsPrintModalOpen] = useState<boolean>(false);
-  const [isTFTScanOpen, setIsTFTScanOpen] = useState<boolean>(false);
+  const [showErrors, setShowErrors] = useState(false);
+  const [serverErrors, setServerErrors] = useState<ServerErrors | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [errorJump, setErrorJump] = useState(0);
+  const [banner, setBanner] = useState<Banner>(null);
 
-  useEffect(() => {
-    loadSheets();
+  const [pendingDiscard, setPendingDiscard] = useState<(() => void) | null>(null);
+  const [deleteUid, setDeleteUid] = useState<string | null>(null);
+  const [isPrintOpen, setIsPrintOpen] = useState(false);
+  const [isScanOpen, setIsScanOpen] = useState(false);
+
+  const clientValidation = useMemo(() => validate(draft, isNew), [draft, isNew]);
+  const validation = useMemo(() => withServerErrors(clientValidation, draft, serverErrors), [clientValidation, draft, serverErrors]);
+  const serverBasic: FieldErrors = serverErrors?.basic ?? {};
+  const dirty = useMemo(() => snapshot(draft) !== baseline, [draft, baseline]);
+
+  // Batches that use the open template (informational: saving keeps what was recorded on them).
+  const usage = useMemo(() => {
+    if (isNew || batches === null) return null;
+    const mine = batches.filter((b) => b.sheet_id === draft.sheet_id);
+    return { total: mine.length, inspected: mine.filter((b) => b.status !== 'CREATED_PENDING_OPERATOR').length };
+  }, [batches, draft.sheet_id, isNew]);
+
+  const open = useCallback((s: SheetTemplate) => {
+    const d = toDraft(s);
+    setDraft(d);
+    setBaseline(snapshot(d));
+    setSelectedId(s.sheet_id);
+    setIsNew(false);
+    setShowErrors(false);
+    setServerErrors(null);
+    setEditorKey((k) => k + 1);
   }, []);
 
-  const loadSheets = async () => {
-    try {
-      setIsLoading(true);
-      const list = await fetchSheets();
-      setSheetsList(list || []);
-      if (list && list.length > 0) {
-        populateForm(list[0]);
-      } else {
-        handleStartBlank();
+  const openBlank = useCallback((partNo = '') => {
+    const d = blankTemplate();
+    d.items = standardItems();
+    d.part_no = partNo;
+    // The Sheet ID is always random. It is not derived from the part number.
+    d.sheet_id = generateSheetId(sheetsRef.current.map((s) => s.sheet_id));
+    pristineNew.current = snapshot({ ...d, part_no: '' });
+    setBaseline(snapshot(blankTemplate()));
+    setDraft(d);
+    setSelectedId('');
+    setIsNew(true);
+    setShowErrors(false);
+    setServerErrors(null);
+    setEditorKey((k) => k + 1);
+  }, []);
+
+  /** Loads templates and batches from the server. `selectId` opens that template afterwards. */
+  const load = useCallback(async (selectId?: string) => {
+    const [list, bs] = await Promise.all([
+      fetchSheets(),
+      fetchBatches().catch(() => null),
+    ]);
+    const sorted = list || [];
+    setSheets(sorted);
+    setBatches(bs);
+    const target = sorted.find((s) => s.sheet_id === selectId);
+    if (target) open(target);
+    return sorted;
+  }, [open]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        setLoading(true);
+        setLoadError(null);
+        const list = await load();
+        if (list.length > 0) open(list[0]);
+        else openBlank();
+      } catch (err: any) {
+        setLoadError(err?.message || 'Could not load templates.');
+      } finally {
+        setLoading(false);
       }
+    })();
+  }, [load, open, openBlank]);
+
+  // Success messages fade on their own. Errors stay until dismissed.
+  useEffect(() => {
+    if (banner?.type !== 'success') return;
+    const t = window.setTimeout(() => setBanner(null), 6000);
+    return () => window.clearTimeout(t);
+  }, [banner]);
+
+  // The "fix the highlighted items" message goes away once nothing is left to fix.
+  useEffect(() => {
+    if (banner?.kind === 'validation' && validation.total === 0) setBanner(null);
+  }, [banner, validation.total]);
+
+  // Warn before closing or reloading the browser tab with unsaved edits.
+  useEffect(() => {
+    if (!dirty) return;
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [dirty]);
+
+  // Warn before leaving through the sidebar, header, logout, etc. (see lib/navGuard.ts).
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  useEffect(
+    () =>
+      registerNavGuard((proceed) => {
+        if (!dirtyRef.current) return false;
+        // If several navigations arrive at once, the first one wins.
+        setPendingDiscard((prev) => prev ?? proceed);
+        return true;
+      }),
+    [],
+  );
+
+  const guard = (action: () => void) => (dirty ? setPendingDiscard((prev) => prev ?? action) : action());
+
+  // ── Editing ──────────────────────────────────────────────────────────────
+  const patchItems = (fn: (items: DraftItem[]) => DraftItem[]) =>
+    setDraft((d) => ({ ...d, items: fn(d.items) }));
+
+  /** Editing a row clears what the server last said about it. */
+  const clearServerItemErrors = (uid: string) =>
+    setServerErrors((s) => {
+      if (!s || !s.items[uid]) return s;
+      const { [uid]: _gone, ...rest } = s.items;
+      return { ...s, items: rest };
+    });
+
+  const handleBasicChange = (field: Exclude<keyof DraftTemplate, 'items'>, value: string) => {
+    setServerErrors((s) => {
+      if (!s || !s.basic[field]) return s;
+      const { [field]: _gone, ...rest } = s.basic;
+      return { ...s, basic: rest };
+    });
+    // The Sheet ID is generated and read-only, so only other fields can change here.
+    if (field === 'sheet_id') return;
+    setDraft((d) => ({ ...d, [field]: value }));
+  };
+
+  /**
+   * One template per part number. When a new template's part number already has a template, that
+   * template is opened instead. If the admin has already filled in other fields, they are asked
+   * before those are discarded.
+   */
+  const handlePartNoBlur = () => {
+    if (!isNew) return;
+    const existing = findByPartNo(draft.part_no);
+    if (!existing) return;
+    const untouched = snapshot({ ...draft, part_no: '' }) === pristineNew.current;
+    const reuse = () => {
+      open(existing);
+      setBanner({ type: 'success', text: `Part number ${draft.part_no.trim()} already has a template. Opened it.` });
+    };
+    if (untouched) reuse();
+    else setPendingDiscard((prev) => prev ?? reuse);
+  };
+
+  const handleLoadStandard = () => patchItems(() => standardItems());
+
+  const handleAdd = (section: Section, stageArg?: string): string => {
+    const stage = stageArg ?? [...draft.items].reverse().find((i) => (i.assigned_role === 'supervisor') === (section === 'supervisor'))?.stage_name ?? '';
+    const item = createItem(section, section === 'operator' ? 'yesno' : 'numeric', stage.trim());
+    patchItems((items) => [...items, item]);
+    return item._uid;
+  };
+
+  const handleDuplicate = (uid: string): string => {
+    const src = draft.items.find((i) => i._uid === uid);
+    if (!src) return uid;
+    const copy = duplicateItem(src);
+    patchItems((items) => {
+      const idx = items.findIndex((i) => i._uid === uid);
+      return [...items.slice(0, idx + 1), copy, ...items.slice(idx + 1)];
+    });
+    return copy._uid;
+  };
+
+  const itemToDelete = draft.items.find((i) => i._uid === deleteUid);
+
+  // ── Saving ───────────────────────────────────────────────────────────────
+  const persist = async () => {
+    setSaving(true);
+    setBanner(null);
+    setServerErrors(null);
+    let sent = draft; // the rows are located by their position in what was sent
+    try {
+      let saved: SheetTemplate;
+      if (isNew) {
+        // A generated Sheet ID is very unlikely to collide, but if the server says it does, draw a new one.
+        for (let attempt = 0; ; attempt++) {
+          try {
+            saved = await createSheet(toPayload(sent));
+            break;
+          } catch (e: any) {
+            const collided = e?.status === 400 && /sheet id/i.test(e?.message || '') && !/part number/i.test(e?.message || '');
+            if (!collided || attempt >= 3) throw e;
+            sent = { ...sent, sheet_id: generateSheetId(sheetsRef.current.map((s) => s.sheet_id)) };
+          }
+        }
+      } else {
+        saved = await updateSheet(sent.sheet_id, toPayload(sent));
+      }
+      await load(saved.sheet_id); // re-read from the server so the screen shows what was stored
+      setBanner({ type: 'success', text: `Template '${saved.sheet_id}' ${isNew ? 'created' : 'saved'}.` });
     } catch (err: any) {
-      console.error('Failed to load sheets:', err);
+      const apiErr = err as ApiError;
+      const msg: string = apiErr?.message || 'Could not save the template.';
+      const mapped = mapServerErrors(apiErr?.detail, sent);
+      // Duplicate part number / Sheet ID arrive as plain 400 messages.
+      if (apiErr?.status === 400 && /part number/i.test(msg)) mapped.basic.part_no = msg;
+      else if (apiErr?.status === 400 && /sheet id/i.test(msg)) mapped.basic.sheet_id = msg;
+
+      const hasFieldErrors = Object.keys(mapped.basic).length > 0 || Object.keys(mapped.items).length > 0;
+      if (hasFieldErrors) {
+        setServerErrors(mapped);
+        setShowErrors(true);
+        setErrorJump((j) => j + 1);
+      }
+      if (apiErr?.status === 422) {
+        setBanner({
+          type: 'error',
+          text: mapped.general.length ? mapped.general.join(' ') : 'The server rejected some fields. Fix the highlighted items and save again.',
+        });
+      } else if (apiErr?.status === 409) {
+        setBanner({ type: 'error', text: msg });
+      } else if (!(apiErr?.status === 400 && hasFieldErrors)) {
+        setBanner({ type: 'error', text: msg });
+      }
     } finally {
-      setIsLoading(false);
+      setSaving(false);
     }
   };
 
-  const populateForm = (s: SheetTemplate) => {
-    setIsNewSheet(false);
-    setSelectedSheetId(s.sheet_id);
-    setSheetId(s.sheet_id);
-    setDocumentTitle(s.document_title);
-    setPartNo(s.part_no || '');
-    setPartName(s.part_name || '');
-    setModelName(s.model_name || '');
-    if (s.vendor_name) setVendorName(s.vendor_name);
-    if (s.customer_name) setCustomerName(s.customer_name);
-    setPartCategory(s.part_category || 'MAIN PART');
-    setControlItems(s.control_items || []);
-    setStatusMsg(null);
-  };
-
-  const handleStartBlank = () => {
-    setIsNewSheet(true);
-    setSelectedSheetId('');
-    setSheetId(`IFM-CUSTOM-${Date.now().toString().slice(-4)}`);
-    setDocumentTitle('INITIAL FLOW MANAGEMENT CONTROL ITEMS MONITORING CHECKSHEET');
-    setPartNo('');
-    setPartName('');
-    setModelName('');
-    setVendorName('');
-    setCustomerName('');
-    setPartCategory('MAIN PART');
-    setControlItems([
-      {
-        serial_no: 1,
-        stage_name: 'Appearance',
-        control_item_name: 'Visual Flaw Check',
-        specification_content: 'Be free from scratch, rust, damage',
-        application_method: 'Visual',
-        normal_frequency: '100%',
-        ifm_frequency: '200%',
-        row_mode: 'SERIAL_TICKBOX',
-        html_input_type: 'checkbox',
-        sample_columns: ['1', '2', '3', '4', '5'],
-        assigned_role: 'operator',
-        visible_to_operator: true,
-        editable_by_operator: true,
-        visible_to_supervisor: true,
-        is_required: true,
-        display_order: 1,
-      },
-      {
-        serial_no: 2,
-        stage_name: 'Measurement',
-        control_item_name: 'Outer Diameter',
-        specification_content: '8.00 ± 0.10 mm',
-        application_method: 'Micrometer',
-        normal_frequency: 'n=5/lot',
-        ifm_frequency: 'n=10/lot',
-        row_mode: 'NUMERIC_SAMPLE',
-        html_input_type: 'number',
-        sample_columns: ['S1', 'S2', 'S3', 'S4', 'S5'],
-        min_val: 7.90,
-        max_val: 8.10,
-        assigned_role: 'operator',
-        visible_to_operator: true,
-        editable_by_operator: true,
-        visible_to_supervisor: true,
-        is_required: true,
-        display_order: 2,
-      }
-    ]);
-  };
-
-  const handleAddRow = () => {
-    const nextSerial = controlItems.length + 1;
-    const newItem: ControlItem = {
-      serial_no: nextSerial,
-      stage_name: 'Inspection',
-      control_item_name: `Control Item #${nextSerial}`,
-      specification_content: 'Technical criteria',
-      application_method: 'Visual',
-      normal_frequency: '100%',
-      ifm_frequency: '200%',
-      row_mode: 'SERIAL_TICKBOX',
-      html_input_type: 'checkbox',
-      sample_columns: ['1', '2', '3', '4', '5'],
-      min_val: null,
-      max_val: null,
-      assigned_role: 'operator',
-      visible_to_operator: true,
-      editable_by_operator: true,
-      visible_to_supervisor: true,
-      is_required: true,
-      display_order: nextSerial,
-    };
-    setControlItems([...controlItems, newItem]);
-  };
-
-  const handleRemoveRow = (index: number) => {
-    const updated = controlItems.filter((_, i) => i !== index);
-    const reindexed = updated.map((it, idx) => ({ ...it, serial_no: idx + 1, display_order: idx + 1 }));
-    setControlItems(reindexed);
-  };
-
-  const handleUpdateItem = (index: number, field: keyof ControlItem, val: any) => {
-    const updated = [...controlItems];
-    updated[index] = { ...updated[index], [field]: val };
-    setControlItems(updated);
-  };
-
-  const handleSave = async () => {
-    if (!sheetId.trim() || !documentTitle.trim()) {
-      setStatusMsg({ type: 'error', text: 'Sheet ID and Document Title are required.' });
+  const handleSave = () => {
+    setShowErrors(true);
+    if (clientValidation.total > 0) {
+      setBanner({ type: 'error', kind: 'validation', text: 'Some fields need attention. Fix the highlighted items before saving.' });
       return;
     }
-
-    try {
-      setIsSaving(true);
-      setStatusMsg(null);
-      const payload: SheetTemplate = {
-        sheet_id: sheetId.trim(),
-        document_title: documentTitle,
-        part_no: partNo,
-        part_name: partName,
-        model_name: modelName,
-        vendor_name: vendorName,
-        customer_name: customerName,
-        part_category: partCategory,
-        control_items: controlItems,
-      };
-
-      if (isNewSheet) {
-        await createSheet(payload);
-        setStatusMsg({ type: 'success', text: `Template '${sheetId}' created successfully.` });
-      } else {
-        await updateSheet(sheetId, payload);
-        setStatusMsg({ type: 'success', text: `Template '${sheetId}' updated successfully.` });
-      }
-
-      await loadSheets();
-    } catch (err: any) {
-      setStatusMsg({ type: 'error', text: err.message || 'Failed to save template.' });
-    } finally {
-      setIsSaving(false);
+    // One template per part number: stop before the server has to refuse it.
+    const duplicate = isNew ? findByPartNo(draft.part_no) : undefined;
+    if (duplicate) {
+      setServerErrors({
+        basic: { part_no: `Part number '${draft.part_no.trim()}' already has the template '${duplicate.document_title || duplicate.sheet_id}'. Open that template instead.` },
+        items: {},
+        general: [],
+      });
+      setErrorJump((j) => j + 1);
+      setBanner({ type: 'error', text: `Part number '${draft.part_no.trim()}' already has a template, so a second one can't be created.` });
+      return;
     }
+    void persist();
   };
 
-  const handleQRScannedForSheetID = (res: any) => {
-    if (res.sheet_id) {
-      const existing = sheetsList.find((sheet) => sheet.sheet_id === res.sheet_id);
+  // ── Scan ─────────────────────────────────────────────────────────────────
+  const handlePartScanned = (code: string) => {
+    const part = code.trim();
+    const existing = sheets.find((s) => (s.part_no || '').trim().toLowerCase() === part.toLowerCase());
+    guard(() => {
       if (existing) {
-        populateForm(existing);
-        setStatusMsg({ type: 'success', text: `Loaded sheet for part number ${existing.part_no || res.sheet_id}.` });
-        return;
+        open(existing);
+        setBanner({ type: 'success', text: `Opened the existing template for part number ${part}.` });
+      } else {
+        openBlank(part);
+        setBanner({ type: 'success', text: `Part number ${part} added to a new template. Complete it and save.` });
       }
-      setSheetId(res.sheet_id);
-      setStatusMsg({ type: 'success', text: `Scanned Sheet ID populated: ${res.sheet_id}` });
-    }
+    });
   };
 
-  const handlePartNumberScanned = (scannedCode: string) => {
-    const scannedPartNo = scannedCode.trim();
-    handleStartBlank();
-    setDocumentTitle('');
-    setPartName('');
-    setModelName('');
-    setVendorName('');
-    setCustomerName('');
-    setControlItems([]);
-    const normalizedId = scannedPartNo
-      .toUpperCase()
-      .replace(/[^A-Z0-9-]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 55);
-    setIsNewSheet(true);
-    setSelectedSheetId('');
-    setSheetId(`IFM-${normalizedId || Date.now().toString()}`);
-    setPartNo(scannedPartNo);
-    setStatusMsg({ type: 'success', text: `Part number ${scannedPartNo} added to the new sheet. Complete the form and save it.` });
-  };
-
-  if (isLoading) {
+  // ── Render ───────────────────────────────────────────────────────────────
+  if (loading) {
     return (
-      <div className="py-24 text-center">
+      <div className="py-24 text-center" role="status">
         <div className="w-7 h-7 border-2 border-[var(--line2)] border-t-[var(--primary)] rounded-full animate-spin mx-auto mb-3" />
-        <p className="text-sm text-[var(--muted)]">Loading template builder...</p>
+        <p className="text-sm text-[var(--muted)]">Loading templates...</p>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="sv-card max-w-md mx-auto text-center space-y-3 !p-6">
+        <AlertCircle className="w-8 h-8 text-[var(--ng)] mx-auto" />
+        <p className="text-sm font-semibold text-[var(--ink)]">Could not load templates</p>
+        <p className="sub">{loadError}</p>
+        <button type="button" className="btn primary sm" onClick={() => window.location.reload()}>Try again</button>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* ── Page Header: Title + Select + Actions ─────────────────────────── */}
-      <div className="flex flex-wrap items-center justify-between gap-4 pb-3 border-b border-[var(--line)]">
-        <div>
-          <h2>Templates</h2>
-          <p className="sub mt-0.5">
-            Configure checksheet templates, control items, tolerances, and generate linked QR codes
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-          {/* Template Select Dropdown */}
-          <select
-            value={selectedSheetId}
-            onChange={(e) => {
-              const found = sheetsList.find((s) => s.sheet_id === e.target.value);
-              if (found) populateForm(found);
-            }}
-            aria-label="Select Template"
-            className="min-h-[44px] px-3.5 border border-[var(--line2)] rounded-xl text-xs font-semibold bg-[var(--surface)] text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] max-w-[280px] truncate"
-          >
-            {sheetsList.map((s) => (
-              <option key={s.sheet_id} value={s.sheet_id}>
-                {s.sheet_id} ({s.part_no || 'Template'})
-              </option>
-            ))}
-          </select>
-
-          <button
-            type="button"
-            onClick={handleStartBlank}
-            className="btn sm"
-            title="Create blank sheet"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Blank Sheet</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setIsPrintModalOpen(true)}
-            disabled={isNewSheet}
-            className="btn sm disabled:opacity-40"
-            title="View & Print QR Code"
-          >
-            <Printer className="w-3.5 h-3.5" />
-            <span>View QR</span>
-          </button>
-
-          <button
-            type="button"
-            disabled={isSaving}
-            onClick={handleSave}
-            className="btn primary sm disabled:opacity-50"
-            title="Save Template"
-          >
-            <Save className="w-3.5 h-3.5" />
-            <span>{isSaving ? 'Saving...' : 'Save Template'}</span>
-          </button>
-        </div>
+    <div className="space-y-5">
+      <div className="pb-3 border-b border-[var(--line)]">
+        <h2>Templates</h2>
+        <p className="sub mt-0.5">Define what operators check, what supervisors verify, and the rules that apply.</p>
       </div>
 
-      {/* ── Status Message Banner ─────────────────────────────────────────── */}
-      {statusMsg && (
+      {banner && (
         <div
-          className={`p-3.5 rounded-xl text-xs flex items-center gap-2.5 border ${
-            statusMsg.type === 'success'
+          role={banner.type === 'error' ? 'alert' : 'status'}
+          className={`p-3.5 rounded-xl text-sm flex items-start gap-2.5 border ${
+            banner.type === 'success'
               ? 'border-[var(--ok)] bg-[var(--ok-bg)] text-[var(--ok)]'
               : 'border-[var(--ng)] bg-[var(--ng-bg)] text-[var(--ng)]'
           }`}
         >
-          {statusMsg.type === 'success' ? (
-            <CheckCircle2 className="w-4 h-4 shrink-0 text-[var(--ok)]" />
-          ) : (
-            <AlertCircle className="w-4 h-4 shrink-0 text-[var(--ng)]" />
-          )}
-          <span className="font-medium">{statusMsg.text}</span>
+          {banner.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" /> : <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />}
+          <span className="font-medium flex-1">{banner.text}</span>
+          <button type="button" onClick={() => setBanner(null)} aria-label="Dismiss message" className="shrink-0 cursor-pointer">
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
-      {/* ── Card 1: Sheet Metadata & Identification ────────────────────────── */}
-      <div className="sv-card space-y-4">
-        <div className="flex items-center justify-between gap-3 pb-3 border-b border-[var(--line)]">
-          <span className="font-semibold text-sm text-[var(--ink)]">
-            Sheet Metadata & Identification
-          </span>
-          <button
-            type="button"
-            onClick={() => setIsTFTScanOpen(true)}
-            className="btn sm text-xs"
-            title="Scan part number barcode or QR"
-          >
-            <QrCode className="w-3.5 h-3.5" />
-            <span>Scan Part Number</span>
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-          <div className="space-y-1">
-            <label className="font-semibold text-xs text-[var(--ink)] block">Sheet ID</label>
-            <input
-              type="text"
-              required
-              value={sheetId}
-              onChange={(e) => setSheetId(e.target.value)}
-              placeholder="e.g. 18351M62Q50-IFM"
-              className="w-full border border-[var(--line2)] rounded-xl p-2.5 bg-[var(--surface)] text-[var(--ink)] mono focus:outline-none focus:ring-2 focus:ring-[var(--accent)] text-xs font-medium"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="font-semibold text-xs text-[var(--ink)] block">Part Number</label>
-            <input
-              type="text"
-              value={partNo}
-              onChange={(e) => setPartNo(e.target.value)}
-              placeholder="e.g. 18351M62Q50"
-              className="w-full border border-[var(--line2)] rounded-xl p-2.5 bg-[var(--surface)] text-[var(--ink)] mono focus:outline-none focus:ring-2 focus:ring-[var(--accent)] text-xs font-medium"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="font-semibold text-xs text-[var(--ink)] block">Part Name</label>
-            <input
-              type="text"
-              value={partName}
-              onChange={(e) => setPartName(e.target.value)}
-              placeholder="e.g. PIPE, PURGE LINE (RH)"
-              className="w-full border border-[var(--line2)] rounded-xl p-2.5 bg-[var(--surface)] text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] text-xs font-medium"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="font-semibold text-xs text-[var(--ink)] block">Category</label>
-            <select
-              value={partCategory}
-              onChange={(e) => setPartCategory(e.target.value)}
-              className="w-full border border-[var(--line2)] rounded-xl p-2.5 bg-[var(--surface)] text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] text-xs font-medium cursor-pointer"
-            >
-              <option value="MAIN PART">MAIN PART</option>
-              <option value="CHILD PART">CHILD PART</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-          <div className="space-y-1">
-            <label className="font-semibold text-xs text-[var(--ink)] block">Model</label>
-            <input
-              type="text"
-              value={modelName}
-              onChange={(e) => setModelName(e.target.value)}
-              placeholder="e.g. YTA MC26 Fuel Line"
-              className="w-full border border-[var(--line2)] rounded-xl p-2.5 bg-[var(--surface)] text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] text-xs"
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="font-semibold text-xs text-[var(--ink)] block">Vendor</label>
-            <input
-              type="text"
-              value={vendorName}
-              onChange={(e) => setVendorName(e.target.value)}
-              placeholder="e.g. Bundy India Ltd."
-              className="w-full border border-[var(--line2)] rounded-xl p-2.5 bg-[var(--surface)] text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] text-xs"
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="font-semibold text-xs text-[var(--ink)] block">Customer</label>
-            <input
-              type="text"
-              value={customerName}
-              onChange={(e) => setCustomerName(e.target.value)}
-              placeholder="e.g. MSIL"
-              className="w-full border border-[var(--line2)] rounded-xl p-2.5 bg-[var(--surface)] text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] text-xs"
-            />
-          </div>
-        </div>
-
-        <div className="space-y-1">
-          <label className="font-semibold text-xs text-[var(--ink)] block">Document Title</label>
-          <input
-            type="text"
-            value={documentTitle}
-            onChange={(e) => setDocumentTitle(e.target.value)}
-            className="w-full border border-[var(--line2)] rounded-xl p-2.5 bg-[var(--surface)] text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] text-xs font-medium"
-          />
-        </div>
-      </div>
-
-      {/* ── Card 2: Control Items & Specification Matrix ─────────────────────── */}
-      <div className="sv-card flush">
-        <div className="p-4 sm:p-5 border-b border-[var(--line)] flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h3 className="text-sm font-semibold text-[var(--ink)]">
-              Control Items & Specification Matrix
-            </h3>
-            <p className="sub text-[11px] mt-0.5">
-              Configure visual checklist rows and numeric sample measurement grids
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleAddRow}
-            className="btn primary sm"
-            title="Add a new row"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Add Row</span>
-          </button>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="vt">
-            <thead>
-              <tr>
-                <th className="w-10 text-center">#</th>
-                <th className="w-32">Stage</th>
-                <th className="w-44">Control Item</th>
-                <th className="w-48">Spec Criteria</th>
-                <th className="w-28">Method</th>
-                <th className="w-32">Type</th>
-                <th className="w-28">Columns</th>
-                <th className="w-28 text-center">Tolerance (Min / Max)</th>
-                <th className="w-24">Role</th>
-                <th className="w-12 text-center"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {controlItems.map((item, idx) => (
-                <tr key={idx}>
-                  <td className="text-center font-semibold text-[var(--muted)]">{item.serial_no}</td>
-
-                  <td>
-                    <input
-                      type="text"
-                      value={item.stage_name}
-                      onChange={(e) => handleUpdateItem(idx, 'stage_name', e.target.value)}
-                      className="w-full border border-[var(--line2)] rounded-lg px-2 py-1.5 text-xs bg-[var(--surface)] text-[var(--ink)]"
-                      placeholder="Stage"
-                    />
-                  </td>
-
-                  <td>
-                    <input
-                      type="text"
-                      value={item.control_item_name}
-                      onChange={(e) => handleUpdateItem(idx, 'control_item_name', e.target.value)}
-                      className="w-full border border-[var(--line2)] rounded-lg px-2 py-1.5 text-xs font-semibold bg-[var(--surface)] text-[var(--ink)]"
-                      placeholder="Item name"
-                    />
-                  </td>
-
-                  <td>
-                    <input
-                      type="text"
-                      value={item.specification_content}
-                      onChange={(e) => handleUpdateItem(idx, 'specification_content', e.target.value)}
-                      className="w-full border border-[var(--line2)] rounded-lg px-2 py-1.5 text-xs bg-[var(--surface)] text-[var(--muted)]"
-                      placeholder="Spec"
-                    />
-                  </td>
-
-                  <td>
-                    <input
-                      type="text"
-                      value={item.application_method || ''}
-                      onChange={(e) => handleUpdateItem(idx, 'application_method', e.target.value)}
-                      className="w-full border border-[var(--line2)] rounded-lg px-2 py-1.5 text-xs bg-[var(--surface)] text-[var(--ink)]"
-                      placeholder="Method"
-                    />
-                  </td>
-
-                  <td>
-                    <select
-                      value={item.row_mode}
-                      onChange={(e) => {
-                        const m = e.target.value as any;
-                        handleUpdateItem(idx, 'row_mode', m);
-                        if (m === 'NUMERIC_SAMPLE') {
-                          handleUpdateItem(idx, 'html_input_type', 'number');
-                          handleUpdateItem(idx, 'sample_columns', ['S1', 'S2', 'S3', 'S4', 'S5']);
-                        } else {
-                          handleUpdateItem(idx, 'html_input_type', 'checkbox');
-                          handleUpdateItem(idx, 'sample_columns', ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']);
-                        }
-                      }}
-                      className="w-full border border-[var(--line2)] rounded-lg px-1.5 py-1.5 text-xs bg-[var(--surface)] text-[var(--ink)] font-medium cursor-pointer"
-                    >
-                      <option value="SERIAL_TICKBOX">Tickbox (100%/200%)</option>
-                      <option value="NUMERIC_SAMPLE">Numeric (n=5/10)</option>
-                    </select>
-                  </td>
-
-                  <td>
-                    <input
-                      type="text"
-                      value={item.sample_columns.join(',')}
-                      onChange={(e) => handleUpdateItem(idx, 'sample_columns', e.target.value.split(',').map((s) => s.trim()))}
-                      className="w-full border border-[var(--line2)] rounded-lg px-2 py-1.5 text-[11px] mono bg-[var(--surface)] text-[var(--ink)]"
-                    />
-                  </td>
-
-                  <td className="text-center">
-                    {item.row_mode === 'NUMERIC_SAMPLE' ? (
-                      <div className="flex gap-1 justify-center">
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={item.min_val ?? ''}
-                          onChange={(e) => handleUpdateItem(idx, 'min_val', e.target.value ? parseFloat(e.target.value) : null)}
-                          placeholder="Min"
-                          className="w-12 border border-[var(--line2)] rounded-lg p-1 text-[11px] text-center bg-[var(--surface)] text-[var(--ink)] mono"
-                        />
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={item.max_val ?? ''}
-                          onChange={(e) => handleUpdateItem(idx, 'max_val', e.target.value ? parseFloat(e.target.value) : null)}
-                          placeholder="Max"
-                          className="w-12 border border-[var(--line2)] rounded-lg p-1 text-[11px] text-center bg-[var(--surface)] text-[var(--ink)] mono"
-                        />
-                      </div>
-                    ) : (
-                      <span className="text-[11px] text-[var(--muted)]">Pass / Fail</span>
-                    )}
-                  </td>
-
-                  <td>
-                    <select
-                      value={item.assigned_role}
-                      onChange={(e) => handleUpdateItem(idx, 'assigned_role', e.target.value as any)}
-                      className="w-full border border-[var(--line2)] rounded-lg px-1.5 py-1.5 text-xs bg-[var(--surface)] text-[var(--ink)] cursor-pointer"
-                    >
-                      <option value="operator">Operator</option>
-                      <option value="supervisor">Supervisor</option>
-                      <option value="admin">Admin</option>
-                    </select>
-                  </td>
-
-                  <td className="text-center">
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveRow(idx)}
-                      className="p-1.5 text-[var(--muted)] hover:text-[var(--ng)] rounded-lg transition-colors cursor-pointer"
-                      title="Delete Row"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Modals */}
-      {isPrintModalOpen && (
-        <PrintLabelModal
-          isOpen={true}
-          onClose={() => setIsPrintModalOpen(false)}
-          sheetId={sheetId}
+      <div className="grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)] gap-5 items-start">
+        <TemplateList
+          sheets={sheets}
+          selectedId={selectedId}
+          isNewSelected={isNew}
+          newTitle={draft.document_title}
+          onSelect={(id) => {
+            if (!isNew && id === selectedId) return;
+            const s = sheets.find((x) => x.sheet_id === id);
+            if (s) guard(() => open(s));
+          }}
+          onNew={() => guard(() => openBlank())}
         />
+
+        <TemplateEditor
+          key={editorKey}
+          draft={draft}
+          isNew={isNew}
+          dirty={dirty}
+          saving={saving}
+          validation={validation}
+          showErrors={showErrors}
+          serverErrors={serverBasic}
+          usage={usage}
+          errorJump={errorJump}
+          onBasicChange={handleBasicChange}
+          onScan={() => setIsScanOpen(true)}
+          onPartNoBlur={handlePartNoBlur}
+          onViewQr={() => setIsPrintOpen(true)}
+          onSave={handleSave}
+          onAddItem={handleAdd}
+          onLoadStandard={handleLoadStandard}
+          onItemChange={(uid, patch) => {
+            clearServerItemErrors(uid);
+            patchItems((items) => items.map((i) => (i._uid === uid ? { ...i, ...patch } : i)));
+          }}
+          onItemKind={(uid, kind: Exclude<CheckKind, 'other'>) => {
+            clearServerItemErrors(uid);
+            patchItems((items) => items.map((i) => (i._uid === uid ? applyKind(i, kind) : i)));
+          }}
+          onItemMove={(uid, dir) => patchItems((items) => moveWithinSection(items, uid, dir))}
+          onItemDuplicate={handleDuplicate}
+          onItemDelete={(uid) => setDeleteUid(uid)}
+        />
+      </div>
+
+      {/* Dialogs */}
+      {pendingDiscard && (
+        <ConfirmDialog
+          title="Discard unsaved changes?"
+          confirmLabel="Discard changes"
+          danger
+          onCancel={() => setPendingDiscard(null)}
+          onConfirm={() => { const run = pendingDiscard; setPendingDiscard(null); run(); }}
+        >
+          <p>You have edits that are not saved. If you leave now, they will be lost.</p>
+        </ConfirmDialog>
       )}
 
-      {isTFTScanOpen && (
+      {itemToDelete && (
+        <ConfirmDialog
+          title={`Delete "${itemToDelete.control_item_name || 'this row'}"?`}
+          confirmLabel="Delete"
+          danger
+          onCancel={() => setDeleteUid(null)}
+          onConfirm={() => { patchItems((items) => items.filter((i) => i._uid !== deleteUid)); setDeleteUid(null); }}
+        >
+          <p>The row is removed when you save. Until then you can leave without saving to keep it.</p>
+          {itemToDelete.item_id != null && (
+            <p>If inspection values have already been recorded for this row, the server will refuse to delete it so that history is never lost.</p>
+          )}
+        </ConfirmDialog>
+      )}
+
+      {isPrintOpen && <PrintLabelModal isOpen onClose={() => setIsPrintOpen(false)} sheetId={draft.sheet_id} />}
+      {isScanOpen && (
         <TFTScannerModal
-          isOpen={true}
-          onClose={() => setIsTFTScanOpen(false)}
-          onResolved={handleQRScannedForSheetID}
+          isOpen
+          onClose={() => setIsScanOpen(false)}
+          onResolved={() => setIsScanOpen(false)}
           scanAsPartNumber
-          onUnregisteredCode={handlePartNumberScanned}
+          onUnregisteredCode={handlePartScanned}
         />
       )}
     </div>

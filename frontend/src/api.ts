@@ -1,9 +1,16 @@
 import {
   User, SheetTemplate, InspectionBatch, CellResponse,
-  QRResolveResult, OfflineMutation, InAppNotification
+  QRResolveResult, OfflineMutation, InAppNotification,
+  NotificationPage, AuditLogPage, AuditLogFilters
 } from './types';
 
 const API_BASE = '';
+
+export interface ApiError extends Error {
+  status?: number;
+  /** The response's `detail` as sent: a string, `{message, errors}` (409) or a list of field errors (422). */
+  detail?: unknown;
+}
 
 function getAuthHeader(): Record<string, string> {
   const token = localStorage.getItem('taa_jwt_token');
@@ -35,13 +42,20 @@ export async function apiRequest<T>(
 
   if (!response.ok) {
     let errorDetail = 'API request failed';
+    let rawDetail: unknown;
     try {
       const errorJson = await response.json();
+      rawDetail = errorJson.detail;
       errorDetail = errorJson.detail?.message || errorJson.detail || JSON.stringify(errorJson);
     } catch {
       errorDetail = await response.text();
     }
-    throw new Error(errorDetail);
+    // Same Error and message as before, plus the structured detail (for example the list of
+    // per-field validation errors) for callers that want to show it beside the right field.
+    const error = new Error(typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail)) as ApiError;
+    error.status = response.status;
+    error.detail = rawDetail;
+    throw error;
   }
 
   return response.json();
@@ -64,6 +78,13 @@ export function getCurrentStoredUser(): User | null {
 }
 
 export function logoutUser(): void {
+  // Best effort: tell the server so the sign-out is in the audit trail. Never blocks or fails the sign-out.
+  try {
+    const headers = getAuthHeader();
+    if (headers.Authorization) {
+      void fetch(`${API_BASE}/api/auth/logout`, { method: 'POST', headers, keepalive: true }).catch(() => {});
+    }
+  } catch { /* ignore */ }
   localStorage.removeItem('taa_jwt_token');
   localStorage.removeItem('taa_user');
 }
@@ -167,7 +188,10 @@ export async function updateCellResponse(batchId: number, data: { item_id: numbe
 // --- Operator & Supervisor Decisions ---
 export async function submitOperatorBatch(
   batchId: number,
-  data: { decision: 'APPROVE' | 'REJECT'; rejected_item_ids?: number[]; rejected_field_names?: string[]; remarks?: string; cells: any[] }
+  data: {
+    decision: 'APPROVE' | 'REJECT'; rejected_item_ids?: number[]; rejected_field_names?: string[]; remarks?: string; cells: any[];
+    clearance?: string; clearance_note?: string;
+  }
 ): Promise<any> {
   return apiRequest(`/api/operator/batches/${batchId}/submit`, {
     method: 'POST',
@@ -209,6 +233,15 @@ export async function releaseBatchHold(
 // --- Notifications ---
 export async function fetchNotifications(limit: number = 50): Promise<InAppNotification[]> {
   return apiRequest<InAppNotification[]>(`/api/notifications?limit=${limit}`);
+}
+
+export async function fetchNotificationsPage(
+  opts: { offset?: number; limit?: number; unreadOnly?: boolean; kind?: string } = {}
+): Promise<NotificationPage> {
+  const params = new URLSearchParams({ offset: String(opts.offset ?? 0), limit: String(opts.limit ?? 25) });
+  if (opts.unreadOnly) params.set('unread_only', 'true');
+  if (opts.kind) params.set('kind', opts.kind);
+  return apiRequest<NotificationPage>(`/api/notifications/page?${params.toString()}`);
 }
 
 export async function markNotificationsRead(notificationId?: number): Promise<any> {
@@ -269,6 +302,27 @@ export async function fetchProgressDashboard(): Promise<any> {
 
 export async function fetchAuditLogs(): Promise<any[]> {
   return apiRequest<any[]>('/api/admin/audit-logs');
+}
+
+function auditQuery(filters: AuditLogFilters, extra: Record<string, string | number> = {}): string {
+  const params = new URLSearchParams();
+  Object.entries({ ...filters, ...extra }).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && String(v).trim() !== '') params.set(k, String(v));
+  });
+  const qs = params.toString();
+  return qs ? `?${qs}` : '';
+}
+
+export async function fetchAuditLogsPage(filters: AuditLogFilters, page: number, pageSize: number): Promise<AuditLogPage> {
+  return apiRequest<AuditLogPage>(`/api/admin/audit-logs/search${auditQuery(filters, { page, page_size: pageSize })}`);
+}
+
+export async function fetchAuditActions(): Promise<string[]> {
+  return apiRequest<string[]>('/api/admin/audit-logs/actions');
+}
+
+export function downloadAuditCsv(filters: AuditLogFilters): Promise<void> {
+  return downloadAuthenticatedFile(`/api/admin/audit-logs/export${auditQuery(filters)}`, 'audit-trail.csv');
 }
 
 export async function syncOfflineQueue(mutations: OfflineMutation[]): Promise<any> {

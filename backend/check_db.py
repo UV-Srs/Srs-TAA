@@ -13,7 +13,8 @@ sys.path.insert(0, str(BASE_DIR.parent))
 load_dotenv(BASE_DIR / ".env")
 
 from backend.app.config import DB_NAME, DB_HOST, DB_PORT, DB_USER, DATABASE_URL
-from backend.app.database import engine, Base, SessionLocal
+from backend.app.database import engine, SessionLocal
+from backend.app.migrations_check import verify_database_is_current
 from backend.app.models import User, SheetTemplate, InspectionBatch, AuditLog
 
 def check_database():
@@ -27,10 +28,10 @@ def check_database():
     print("-" * 65)
 
     try:
-        # Create all tables on PostgreSQL if they don't exist
-        print("[1/3] Verifying / Initializing database schema on PostgreSQL...")
-        Base.metadata.create_all(bind=engine)
-        print("  -> Schema initialized successfully.")
+        # Read-only: this script never creates or alters tables. The schema is owned by Alembic.
+        print("[1/3] Verifying the database schema is at the current migration...")
+        revision = verify_database_is_current(engine)
+        print(f"  -> Schema is at migration {revision}.")
 
         # Test querying tables
         print("[2/3] Checking seeded data & roles...")

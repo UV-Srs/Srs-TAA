@@ -138,7 +138,7 @@ export const UniversalScanBar: React.FC<UniversalScanBarProps> = ({
 
   const heroCard = (
     <section className="bg-white border border-slate-200/80 rounded-2xl shadow-sm p-5 sm:p-6 flex flex-col lg:flex-row lg:items-center gap-5 lg:gap-8">
-      <div className="flex items-start sm:items-center gap-4 sm:gap-5 flex-1 min-w-0">
+      <div className="flex flex-col min-[480px]:flex-row items-start min-[480px]:items-center gap-4 sm:gap-5 flex-1 min-w-0">
         {/* Barcode tile doubles as the camera-scan trigger */}
         <button
           type="button"

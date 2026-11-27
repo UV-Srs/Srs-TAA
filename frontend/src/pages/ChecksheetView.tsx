@@ -197,7 +197,12 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
 
     const key = `${item.item_id}_${columnKey}`;
     const isFailed = checkOutOfSpec(item, newValue);
-    const mutationId = crypto.randomUUID();
+    const mutationId = (typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (ch) => {
+          const r = (Math.random() * 16) | 0;
+          return (ch === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+        }));
 
     const updatedCell: CellResponse = {
       batch_id: batch.batch_id,
@@ -988,7 +993,9 @@ export const ChecksheetView: React.FC<ChecksheetViewProps> = ({
                             : 'text-amber-700'
                         }
                       >
-                        {dec.decision}
+                        {String(dec.role || '').toLowerCase() === 'operator' && dec.decision.toLowerCase().includes('reject')
+                          ? 'Not good items'
+                          : dec.decision}
                       </span>
                     </td>
                     <td className="py-2 px-3 text-slate-500 font-mono text-[11px]">
