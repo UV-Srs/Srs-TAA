@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { fetchAuditLogsPage, fetchAuditActions, downloadAuditCsv } from '../api';
 import type { AuditLogEntry, AuditLogFilters } from '../types';
 import { describeAction } from '../lib/auditLabels';
-import { RefreshCw, Search, ShieldCheck, Calendar, X, Download, ChevronLeft, ChevronRight } from 'lucide-react';
+import { RefreshCw, Search, ShieldCheck, X, Download, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const PAGE_SIZE = 25;
 const ROLES: { id: string; label: string }[] = [
@@ -162,7 +162,6 @@ export const AuditLogsView: React.FC = () => {
             </select>
 
             <div className="flex items-center gap-2 px-3 min-h-[44px] bg-[var(--surface)] border border-[var(--line2)] rounded-[12px]">
-              <Calendar className="w-4 h-4 text-[var(--muted)] shrink-0" />
               <input type="date" value={dateFrom} max={dateTo || undefined} onChange={(e) => setDateFrom(e.target.value)}
                 className="bg-transparent text-xs text-[var(--ink)] font-medium focus:outline-none cursor-pointer" title="From date" aria-label="From date" />
               <span className="text-[var(--muted)]">—</span>

@@ -29,7 +29,7 @@ Srs-TAA/
 ├── backend/
 │   ├── .env.example          # Template for backend/.env (local runs)
 │   ├── requirements.txt      # runtime dependencies (requirements-dev.txt adds the test tools)
-│   ├── migrations/           # Alembic: env.py and versions/ (0001 = baseline schema)
+│   ├── migrations/           # Alembic: env.py and versions/ (0001 = baseline schema, 0002-0004 = later changes)
 │   ├── scripts/              # migrate.py, check_schema_drift.py
 │   ├── app/
 │   │   ├── main.py           # FastAPI app, WebSocket, health check, SPA serving
@@ -220,9 +220,17 @@ Tables are created by migrations (`alembic upgrade head`, see **Section 6**). Th
   `LOCKED RECORD — READ-ONLY SUMMARY MODE`
 - **Responsive Layout:** On tablets and phones the batch queue collapses above the checksheet, secondary table columns (Stage, Method, Owner) fold into the item cell, and touch targets are enlarged.
 
-### 2. User Lifecycle & FR-005 Audit Purge
+### 2. User Lifecycle & Audit Trail
 - Admin can create, activate, deactivate, and delete user accounts.
-- **FR-005 Compliance:** When an Admin deactivates (`PATCH /api/admin/users/{id}/deactivate`) or deletes (`DELETE /api/admin/users/{id}`) any user, the system automatically detects all `audit_logs` associated with that `user_id` and removes them from the database while preserving anonymized historical batch records.
+- **Audit history is kept.** Deactivating (`PATCH /api/admin/users/{id}/deactivate`) or deleting (`DELETE /api/admin/users/{id}`) a user no longer removes their audit rows. The user's name and role are copied onto each row, and the database sets the user link to `NULL` on delete.
+- **No secrets in the log.** Passwords, tokens and other sensitive keys are redacted before a row is saved.
+- **Events logged:** sign-in, failed sign-in, sign-out, user create/activate/deactivate/delete, batch and review actions, and report/CSV exports. Each row records the IP address and browser. Five failed sign-ins in 15 minutes raise an admin alert.
+- **Audit page (admin):** server-side paging, search, action / role / date filters, a detail view and CSV export (`GET /api/admin/audit-logs/search`, `/actions`, `/export`).
+
+### 2a. Notifications
+- The bell (top right) shows recent notifications. **View all notifications** opens a paged Notifications page with type filter, All/Unread and *Mark all read*.
+- Read state is kept per user. Notifications have a type and a severity.
+- Overdue holds are checked by a background timer (every 60 seconds).
 
 ### 3. Checksheet Template Builder & QR Engine
 - Reference IFM template pre-loaded: `18351M62Q50-IFM` (*PIPE, PURGE LINE (RH)* for *YTA MC26 Fuel Line*).
@@ -251,6 +259,10 @@ Tables are created by migrations (`alembic upgrade head`, see **Section 6**). Th
   - `Hold Batch`: mandates non-empty validation reason (`FR-036`).
   - `Accept (Override Rejection)`: authorizes engineering concession.
   - `Continue Rejection`: permanently finalizes entire lot as `REJECTED`.
+- The review screen has Previous / Next item buttons.
+- **Final bad count** (dashboard, PDF report and on-screen report use one rule): the operator's bad items, minus those the supervisor changed to Approved, plus items the supervisor found bad (minus any then Approved), plus older spot-check problems, never counted twice.
+- Operator entries are labelled **Not good items** in the approval records. The admin lot report shows child-part and parent-part dimension tables.
+- Admins always open on the Dashboard. On a phone, admins get the normal admin UI (scan from the Scan tab); the full-screen scanner is only for an operator who chooses "phone as scanner".
 
 ### 8. Factory Wi-Fi Resilience (FR-041A)
 - Continuous IndexedDB persistence on every tickbox and numeric cell input.
@@ -284,6 +296,8 @@ The database structure is owned by **Alembic migrations**, not by the applicatio
 - **Which database an Alembic command acts on:** `ALEMBIC_DATABASE_URL` if you set it, otherwise the same settings the app uses (`backend/.env`). The target host and database name are **printed on every command**. Read that line before continuing.
 - Run every `alembic` command from the project root (the folder containing `alembic.ini`).
 - Migration `0001` cannot be downgraded: the generated downgrade would drop every table, so it is blocked on purpose. Restoring the backup is the way back from the baseline.
+
+> **Later migrations:** `0002`-`0004` run automatically at container start. `0004` adds the audit columns and indexes (audit user link becomes `ON DELETE SET NULL`), notification `kind`/`severity`, and the `notification_reads` table, and back-fills existing rows. The examples below show `0001` as the baseline; the current head is `0004`.
 
 ### Fresh database (new, empty)
 
