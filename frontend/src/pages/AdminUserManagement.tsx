@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { User, UserRole } from '../types';
-import { fetchUsers, createUser, deactivateUser, activateUser, deleteUser } from '../api';
+import { fetchUsers, createUser, updateUser, deactivateUser, activateUser, deleteUser } from '../api';
 import {
   UserPlus, UserX, UserCheck, Trash2, ShieldAlert, CheckCircle2,
   Download, Plus, Edit2, AlertCircle, X
@@ -15,6 +15,7 @@ export const AdminUserManagement: React.FC = () => {
   const [editingUserId, setEditingUserId] = useState<number | null>(null);
   const [fullName, setFullName] = useState<string>('');
   const [empId, setEmpId] = useState<string>('');
+  const [employeeId, setEmployeeId] = useState<string>('');
   const [password, setPassword] = useState<string>('');
   const [role, setRole] = useState<UserRole>('operator');
   const [isActive, setIsActive] = useState<boolean>(true);
@@ -44,7 +45,8 @@ export const AdminUserManagement: React.FC = () => {
     setEditingUserId(null);
     setFullName('');
     setEmpId('');
-    setPassword('user123'); // Default password for new accounts
+    setEmployeeId('');
+    setPassword('');
     setRole('operator');
     setIsActive(true);
     setFormError(null);
@@ -54,7 +56,8 @@ export const AdminUserManagement: React.FC = () => {
   const handleOpenEdit = (u: User) => {
     setEditingUserId(u.user_id);
     setFullName(u.full_name);
-    setEmpId(u.username.toUpperCase());
+    setEmpId(u.username);
+    setEmployeeId(u.employee_id || '');
     setPassword('');
     setRole(u.role as UserRole);
     setIsActive(u.is_active);
@@ -75,13 +78,10 @@ export const AdminUserManagement: React.FC = () => {
 
     const cleanUsername = empId.trim().toLowerCase();
 
-    // Check duplicate ID if creating new
-    if (!editingUserId) {
-      const exists = users.some((u) => u.username.toLowerCase() === cleanUsername);
-      if (exists) {
-        setFormError(`Employee ID ${empId.toUpperCase()} is already used.`);
-        return;
-      }
+    const exists = users.some((u) => u.user_id !== editingUserId && u.username.toLowerCase() === cleanUsername);
+    if (exists) {
+      setFormError(`Username "${cleanUsername}" is already taken.`);
+      return;
     }
 
     try {
@@ -89,6 +89,13 @@ export const AdminUserManagement: React.FC = () => {
       setFormError(null);
 
       if (editingUserId) {
+        await updateUser(editingUserId, {
+          username: cleanUsername,
+          employee_id: employeeId.trim(),
+          full_name: fullName.trim(),
+          password: password.trim() || undefined,
+          role: role,
+        });
         // Toggle active status if changed
         const existing = users.find((u) => u.user_id === editingUserId);
         if (existing && existing.is_active !== isActive) {
@@ -99,8 +106,9 @@ export const AdminUserManagement: React.FC = () => {
       } else {
         await createUser({
           username: cleanUsername,
+          employee_id: employeeId.trim() || undefined,
           full_name: fullName.trim(),
-          password: password || 'pass123',
+          password: password.trim(),
           role: role,
         });
         setStatusMsg({ type: 'success', text: `${fullName} added as ${role}.` });
@@ -134,7 +142,7 @@ export const AdminUserManagement: React.FC = () => {
   // Export CSV (Section 6.6)
   const handleDownloadExcel = () => {
     const headers = [
-      'Role', 'Name', 'Employee ID', 'Lots', 'Items checked',
+      'Role', 'Name', 'Username', 'Lots', 'Items checked',
       'Bad items', 'Bad rate %', 'Approved', 'On hold', 'Rejected', 'Out of spec'
     ];
 
@@ -145,7 +153,7 @@ export const AdminUserManagement: React.FC = () => {
       rows.push([
         'Operator',
         `"${op.full_name}"`,
-        op.username.toUpperCase(),
+        op.username,
         '4',
         '1125',
         '8',
@@ -159,7 +167,7 @@ export const AdminUserManagement: React.FC = () => {
       rows.push([
         'Supervisor',
         `"${sup.full_name}"`,
-        sup.username.toUpperCase(),
+        sup.username,
         '2',
         '', '', '', // Operator columns blank
         '2',
@@ -264,15 +272,39 @@ export const AdminUserManagement: React.FC = () => {
               </div>
 
               <div className="space-y-1">
-                <label className="font-semibold text-[var(--ink)] block">Employee ID</label>
+                <label className="font-semibold text-[var(--ink)] block">Username</label>
                 <input
                   type="text"
                   required
-                  disabled={!!editingUserId}
                   value={empId}
-                  onChange={(e) => setEmpId(e.target.value.toUpperCase())}
+                  onChange={(e) => setEmpId(e.target.value)}
+                  placeholder="e.g. john.doe"
+                  className="w-full border border-[var(--line2)] rounded-xl p-2.5 bg-[var(--surface)] text-[var(--ink)] mono focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-xs"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-semibold text-[var(--ink)] block">Employee ID</label>
+                <input
+                  type="text"
+                  value={employeeId}
+                  onChange={(e) => setEmployeeId(e.target.value.toUpperCase())}
                   placeholder="e.g. EMP-1042"
-                  className="w-full border border-[var(--line2)] rounded-xl p-2.5 bg-[var(--surface)] text-[var(--ink)] mono focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-xs disabled:opacity-60"
+                  className="w-full border border-[var(--line2)] rounded-xl p-2.5 bg-[var(--surface)] text-[var(--ink)] mono focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-xs"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-semibold text-[var(--ink)] block">
+                  {editingUserId ? 'New password' : 'Password'}
+                </label>
+                <input
+                  type="text"
+                  required={!editingUserId}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder={editingUserId ? 'Leave blank to keep current' : 'Set a password'}
+                  className="w-full border border-[var(--line2)] rounded-xl p-2.5 bg-[var(--surface)] text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-xs"
                 />
               </div>
 
@@ -368,7 +400,7 @@ export const AdminUserManagement: React.FC = () => {
                             <div>
                               <div className="font-semibold text-[var(--ink)]">{u.full_name}</div>
                               <div className="text-[12px] text-[var(--muted)] mono">
-                                {u.username.toUpperCase()}
+                                {u.username}{u.employee_id ? ` · ${u.employee_id}` : ''}
                               </div>
                             </div>
                           </div>
@@ -484,7 +516,7 @@ export const AdminUserManagement: React.FC = () => {
                             <div>
                               <div className="font-semibold text-[var(--ink)]">{u.full_name}</div>
                               <div className="text-[12px] text-[var(--muted)] mono">
-                                {u.username.toUpperCase()}
+                                {u.username}{u.employee_id ? ` · ${u.employee_id}` : ''}
                               </div>
                             </div>
                           </div>

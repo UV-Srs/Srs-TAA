@@ -15,7 +15,7 @@ from backend.app.models import (
     BatchCellResponse, InspectionDecision, InspectionAttachment, AuditLog
 )
 from backend.app.schemas import (
-    UserCreate, UserResponse, SheetTemplateCreate, SheetTemplateResponse, SHEET_ID_PATTERN,
+    UserCreate, UserUpdate, UserResponse, SheetTemplateCreate, SheetTemplateResponse, SHEET_ID_PATTERN,
     BatchCreate, QuickBatchRegisterRequest, InspectionBatchResponse, AuditLogResponse, AuditLogPage
 )
 from backend.app.auth import require_admin, hash_password
@@ -41,14 +41,22 @@ def list_users(db: Session = Depends(get_db), current_user: User = Depends(requi
 
 @router.post("/users", response_model=UserResponse)
 def create_user(payload: UserCreate, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
-    existing = db.query(User).filter(User.username == payload.username).first()
-    if existing:
+    username = payload.username.strip().lower()
+    employee_id = (payload.employee_id or "").strip().upper() or None
+    if not username:
+        raise HTTPException(status_code=400, detail="Username is required")
+    if not payload.password.strip():
+        raise HTTPException(status_code=400, detail="Password is required")
+    if db.query(User).filter(User.username == username).first():
         raise HTTPException(status_code=400, detail="Username already exists")
-    
+    if employee_id and db.query(User).filter(User.employee_id == employee_id).first():
+        raise HTTPException(status_code=400, detail="Employee ID already exists")
+
     user = User(
-        username=payload.username,
-        full_name=payload.full_name,
-        password_hash=hash_password(payload.password),
+        username=username,
+        employee_id=employee_id,
+        full_name=payload.full_name.strip(),
+        password_hash=hash_password(payload.password.strip()),
         role=payload.role,
         is_active=True
     )
@@ -62,6 +70,44 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db), current_user
         role=current_user.role,
         action_type="USER_CREATED",
         details={"created_user_id": user.user_id, "username": user.username, "role": user.role}
+    )
+    return user
+
+@router.put("/users/{user_id}", response_model=UserResponse)
+def update_user(user_id: int, payload: UserUpdate, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    user = db.query(User).filter(User.user_id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    username = payload.username.strip().lower() if payload.username is not None else user.username
+    employee_id = (payload.employee_id or "").strip().upper() or None
+    full_name = payload.full_name.strip() if payload.full_name is not None else user.full_name
+    role = payload.role if payload.role is not None else user.role
+    if not username or not full_name:
+        raise HTTPException(status_code=400, detail="Full name and username are required")
+    if role not in ("operator", "supervisor", "admin"):
+        raise HTTPException(status_code=400, detail="Invalid role")
+    if user.user_id == current_user.user_id and (username != user.username or role != user.role):
+        raise HTTPException(status_code=400, detail="You cannot change your own username or role")
+    if db.query(User).filter(User.username == username, User.user_id != user.user_id).first():
+        raise HTTPException(status_code=400, detail="Username already exists")
+    if employee_id and db.query(User).filter(User.employee_id == employee_id, User.user_id != user.user_id).first():
+        raise HTTPException(status_code=400, detail="Employee ID already exists")
+
+    user.username = username
+    user.employee_id = employee_id
+    user.full_name = full_name
+    user.role = role
+    new_password = (payload.password or "").strip()
+    if new_password:
+        user.password_hash = hash_password(new_password)
+    db.commit()
+    db.refresh(user)
+
+    log_audit(
+        db=db, user_id=current_user.user_id, role=current_user.role, action_type="USER_UPDATED",
+        details={"target_user_id": user.user_id, "username": user.username, "role": user.role,
+                 "password_changed": bool(new_password)},
     )
     return user
 
