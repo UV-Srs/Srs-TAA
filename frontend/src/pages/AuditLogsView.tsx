@@ -162,11 +162,8 @@ export const AuditLogsView: React.FC = () => {
             </select>
 
             <div className="flex items-center gap-2 px-3 min-h-[44px] bg-[var(--surface)] border border-[var(--line2)] rounded-[12px]">
-              <input type="date" value={dateFrom} max={dateTo || undefined} onChange={(e) => setDateFrom(e.target.value)}
-                className="bg-transparent text-xs text-[var(--ink)] font-medium focus:outline-none cursor-pointer" title="From date" aria-label="From date" />
-              <span className="text-[var(--muted)]">—</span>
-              <input type="date" value={dateTo} min={dateFrom || undefined} onChange={(e) => setDateTo(e.target.value)}
-                className="bg-transparent text-xs text-[var(--ink)] font-medium focus:outline-none cursor-pointer" title="To date" aria-label="To date" />
+              <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setDateTo(e.target.value); }}
+                className="bg-transparent text-xs text-[var(--ink)] font-medium focus:outline-none cursor-pointer" title="Date" aria-label="Date" />
             </div>
           </div>
 
